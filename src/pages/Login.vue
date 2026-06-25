@@ -55,47 +55,55 @@ function backToLogin() {
 
 <template>
   <div class="grid h-screen bg-background text-foreground lg:grid-cols-2">
-    <!-- Chap: dastur haqida -->
-    <div class="relative hidden flex-col justify-center border-r bg-card px-12 lg:flex">
-      <div class="flex items-center gap-3">
-        <div class="h-14 w-14 overflow-hidden rounded-2xl shadow-md ring-1 ring-black/10"><img :src="logoDark" class="h-full w-full" /></div>
-        <div>
-          <div class="text-2xl font-bold">OpenSales POS</div>
-          <div class="text-sm text-muted-foreground">Offline kassa tizimi</div>
+    <!-- Chap: dastur haqida (gradient) -->
+    <div class="relative hidden flex-col justify-center overflow-hidden px-12 text-white lg:flex
+                bg-gradient-to-br from-indigo-600 via-violet-600 to-fuchsia-700">
+      <!-- dekorativ glow -->
+      <div class="pointer-events-none absolute -top-24 -left-16 h-72 w-72 rounded-full bg-white/20 blur-3xl"></div>
+      <div class="pointer-events-none absolute -bottom-24 right-0 h-80 w-80 rounded-full bg-fuchsia-300/20 blur-3xl"></div>
+      <div class="pointer-events-none absolute top-1/3 left-1/2 h-64 w-64 rounded-full bg-sky-300/10 blur-3xl"></div>
+
+      <div class="relative">
+        <div class="flex items-center gap-3">
+          <div class="h-14 w-14 overflow-hidden rounded-2xl bg-white/95 p-1.5 shadow-lg ring-1 ring-white/40"><img :src="logoDark" class="h-full w-full" /></div>
+          <div>
+            <div class="text-2xl font-bold tracking-tight">OpenSales POS</div>
+            <div class="text-sm text-white/70">Offline kassa tizimi</div>
+          </div>
+        </div>
+
+        <p class="mt-6 max-w-md text-sm leading-relaxed text-white/85">
+          Do'kon va savdo nuqtalari uchun oddiy, tez va internetsiz ishlaydigan kassa dasturi. Sotuv, ombor, mijozlar va qarzlarni bir joyda boshqaring.
+        </p>
+
+        <div class="mt-6 max-w-md space-y-2.5">
+          <div class="flex items-center gap-2.5 text-sm"><div class="flex h-8 w-8 items-center justify-center rounded-lg bg-white/15 ring-1 ring-white/20"><Wifi class="h-4 w-4" /></div> Internetsiz, to'liq offline ishlaydi</div>
+          <div class="flex items-center gap-2.5 text-sm"><div class="flex h-8 w-8 items-center justify-center rounded-lg bg-white/15 ring-1 ring-white/20"><Printer class="h-4 w-4" /></div> Chek chop etish</div>
+          <div class="flex items-center gap-2.5 text-sm"><div class="flex h-8 w-8 items-center justify-center rounded-lg bg-white/15 ring-1 ring-white/20"><ShieldCheck class="h-4 w-4" /></div> PIN-kod bilan himoya</div>
+        </div>
+
+        <button @click="openSite" class="group mt-7 flex w-full max-w-md items-center gap-3 rounded-xl border border-white/20 bg-white/10 p-3.5 text-left backdrop-blur transition hover:bg-white/15">
+          <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white text-violet-700"><Globe class="h-4.5 w-4.5" /></div>
+          <div class="min-w-0">
+            <div class="text-sm font-semibold">{{ siteLabel }}</div>
+            <div class="truncate text-xs text-white/70">Batafsil ma'lumot va yangiliklar</div>
+          </div>
+        </button>
+
+        <div class="mt-6 max-w-md border-t border-white/15 pt-5 text-sm">
+          <div class="font-medium">{{ supportName || 'Ilxomjon Abdullayev' }}</div>
+          <a v-if="phone" :href="`tel:${phone}`" class="mt-0.5 flex items-center gap-1.5 text-white/90 hover:text-white"><Phone class="h-4 w-4" /> {{ phone }}</a>
         </div>
       </div>
 
-      <p class="mt-6 max-w-md text-sm leading-relaxed text-muted-foreground">
-        Do'kon va savdo nuqtalari uchun oddiy, tez va internetsiz ishlaydigan kassa dasturi. Sotuv, ombor, mijozlar va qarzlarni bir joyda boshqaring.
-      </p>
-
-      <div class="mt-6 max-w-md space-y-2.5">
-        <div class="flex items-center gap-2.5 text-sm"><div class="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary"><Wifi class="h-4 w-4" /></div> Internetsiz, to'liq offline ishlaydi</div>
-        <div class="flex items-center gap-2.5 text-sm"><div class="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary"><Printer class="h-4 w-4" /></div> Chek chop etish</div>
-        <div class="flex items-center gap-2.5 text-sm"><div class="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary"><ShieldCheck class="h-4 w-4" /></div> PIN-kod bilan himoya</div>
-      </div>
-
-      <button @click="openSite" class="mt-7 flex w-full max-w-md items-center gap-3 rounded-xl border bg-gradient-to-r from-primary/10 to-transparent p-3.5 text-left transition hover:from-primary/15">
-        <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground"><Globe class="h-4.5 w-4.5" /></div>
-        <div class="min-w-0">
-          <div class="text-sm font-semibold">{{ siteLabel }}</div>
-          <div class="truncate text-xs text-muted-foreground">Batafsil ma'lumot va yangiliklar</div>
-        </div>
-      </button>
-
-      <div class="mt-6 max-w-md border-t pt-5 text-sm">
-        <div class="font-medium">{{ supportName || 'Ilxomjon Abdullayev' }}</div>
-        <a v-if="phone" :href="`tel:${phone}`" class="mt-0.5 flex items-center gap-1.5 text-primary"><Phone class="h-4 w-4" /> {{ phone }}</a>
-      </div>
-
-      <div class="absolute bottom-5 left-12 flex items-center gap-3 text-xs text-muted-foreground">
+      <div class="absolute bottom-5 left-12 flex items-center gap-3 text-xs text-white/60">
         <span>v{{ appVersion }}</span>
-        <button @click="openSite" class="flex items-center gap-1 hover:text-foreground"><Globe class="h-3 w-3" /> {{ siteLabel }}</button>
+        <button @click="openSite" class="flex items-center gap-1 hover:text-white"><Globe class="h-3 w-3" /> {{ siteLabel }}</button>
       </div>
     </div>
 
     <!-- O'ng: PIN -->
-    <div class="relative flex flex-col items-center justify-center px-6">
+    <div class="relative flex flex-col items-center justify-center bg-gradient-to-b from-background to-muted/40 px-6">
       <div class="w-full max-w-xs">
         <!-- Kichik ekranda logo -->
         <div class="mb-8 flex flex-col items-center text-center lg:hidden">
