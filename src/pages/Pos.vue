@@ -323,7 +323,7 @@ async function doCloseShift() {
             <label class="mb-1 block text-xs text-muted-foreground">Naqd</label>
             <div class="flex gap-1.5">
               <input v-model.number="paidCash" type="number" min="0" class="h-9 w-full rounded-md border bg-background px-2 text-sm tabular-nums" />
-              <button @click="setExact" title="Aniq summa" class="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border text-muted-foreground hover:bg-muted hover:text-primary"><Magnet class="h-4 w-4 -rotate-90" /></button>
+              <button @click="setExact" title="Aniq summa" class="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border text-muted-foreground hover:bg-muted hover:text-primary"><Magnet class="h-4 w-4 rotate-90" /></button>
             </div>
           </div>
         </div>
