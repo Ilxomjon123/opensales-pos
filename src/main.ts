@@ -46,10 +46,15 @@ app.use(router)
 
 // 1) Kutilayotgan tiklash bo'lsa — DB ochilishidan OLDIN bajariladi.
 // 2) Keyin litsenziya. 3) So'ng mount.
+// MUHIM: applyPendingRestore() tugamaguncha HECH NARSA db() ni ochmasligi kerak.
+// Aks holda db ESKI pos.db'ni ochib _dbp'ga cache qiladi, keyin restore fayl ustiga
+// yozadi + wal/shm o'chiradi → ochiq connection buziladi → Device ID bo'sh, license xato.
+// Shu sabab valyuta o'qishi ham shu zanjir ichida, restore'dan KEYIN.
 applyPendingRestore()
   .catch((e) => void appendErr(`restore apply error: ${e?.stack ?? e}`))
   .then(() => refreshLicense())
   .then((l) => void info(`license ok · mode=${l.mode} days=${l.daysLeft}`))
+  .then(() => getSetting('currency_symbol', "so'm").then(setCurrency).catch((e) => void warn(`currency read: ${e}`)))
   .catch((e) => void appendErr(`license init error: ${e?.stack ?? e}`))
   .finally(() => {
     try {
@@ -59,6 +64,3 @@ applyPendingRestore()
       void appendErr(`mount error: ${e?.stack ?? e}`)
     }
   })
-
-// Valyuta belgisini sozlamadan o'qish
-getSetting('currency_symbol', "so'm").then(setCurrency).catch((e) => void warn(`currency read: ${e}`))

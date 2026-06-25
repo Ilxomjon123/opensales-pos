@@ -139,6 +139,10 @@ export async function githubRestore(device: string, name: string): Promise<void>
   })
   if (!res.ok) throw new Error('Yuklab bo\'lmadi (' + res.status + ')')
   const buf = new Uint8Array(await res.arrayBuffer())
+  // Yuklangan fayl haqiqiy SQLite ekanini tekshir (buzuq/qisqargan/HTML download swap qilinmasin → brick yo'q).
+  const MAGIC = 'SQLite format 3\0'
+  const okHdr = buf.length > 100 && Array.from(MAGIC).every((c, i) => buf[i] === c.charCodeAt(0))
+  if (!okHdr) throw new Error("Yuklangan nusxa buzuq (SQLite emas). Qayta urinib ko'ring.")
   await mkdir(DIR, { baseDir: BaseDirectory.AppData, recursive: true }).catch(() => {})
   await writeFile(`${DIR}/${name}`, buf, { baseDir: BaseDirectory.AppData })
   await restoreBackup(name)
