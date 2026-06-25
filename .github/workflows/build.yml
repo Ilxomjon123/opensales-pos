@@ -34,7 +34,7 @@ jobs:
           workspaces: './src-tauri -> target'
 
       - name: Install deps
-        run: npm ci
+        run: npm install --no-audit --no-fund
 
       - name: Write .env from secrets/vars
         shell: bash
