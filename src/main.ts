@@ -29,6 +29,14 @@ window.addEventListener('unhandledrejection', (e: PromiseRejectionEvent) => {
 const _err = console.error
 console.error = (...a: any[]) => { _err(...a); void appendErr(a.map((x) => (x?.stack ?? String(x))).join(' ')) }
 
+// Chunk/preload yuklanmasa (eski cache yoki yangilash) — bir marta avtomatik reload.
+window.addEventListener('vite:preloadError', (e: any) => {
+  void appendErr(`preload error: ${e?.payload?.message ?? e?.message ?? 'unknown'}`)
+  if (sessionStorage.getItem('preloadReloaded')) return
+  sessionStorage.setItem('preloadReloaded', '1')
+  window.location.reload()
+})
+
 void info(`boot start · ${navigator.userAgent}`)
 initTheme()
 
