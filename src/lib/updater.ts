@@ -8,16 +8,23 @@ export const updateProgress = ref(0)
 export const checking = ref(false)
 let _update: Update | null = null
 
-// Internet bo'lganda yangi versiyani tekshiradi. Offline/xato — jim (false).
-export async function checkForUpdate(): Promise<boolean> {
+export type CheckResult = 'available' | 'latest' | 'offline' | 'error'
+
+// Yangi versiyani tekshiradi. Internetsizda osilmasligi uchun timeout bor.
+export async function checkForUpdate(): Promise<CheckResult> {
+  if (!navigator.onLine) return 'offline'
   checking.value = true
   try {
-    const u = await check()
-    if (u) { _update = u; updateInfo.value = { version: u.version, notes: u.body ?? '' }; return true }
+    const u = await Promise.race([
+      check(),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), 8000)),
+    ])
+    if (u) { _update = u; updateInfo.value = { version: u.version, notes: u.body ?? '' }; return 'available' }
     updateInfo.value = null
-    return false
-  } catch {
-    return false // offline yoki endpoint yo'q
+    return 'latest'
+  } catch (e: any) {
+    // timeout / tarmoq xatosi → offline deb hisoblaymiz
+    return e?.message === 'timeout' || !navigator.onLine ? 'offline' : 'error'
   } finally {
     checking.value = false
   }

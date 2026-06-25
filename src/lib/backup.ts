@@ -1,7 +1,8 @@
 import { ref } from 'vue'
-import { mkdir, readDir, readFile, remove, copyFile, BaseDirectory } from '@tauri-apps/plugin-fs'
+import { mkdir, readDir, readFile, writeFile, writeTextFile, readTextFile, exists, remove, copyFile, BaseDirectory } from '@tauri-apps/plugin-fs'
 import { appDataDir, join } from '@tauri-apps/api/path'
 import { relaunch } from '@tauri-apps/plugin-process'
+import { hostname } from '@tauri-apps/plugin-os'
 import { db, getSetting, setSetting } from './db'
 import { getDeviceId } from './license'
 
@@ -52,13 +53,26 @@ export async function runDueBackup(): Promise<void> {
   else void syncToGithub(lastBackup.value) // kun ichida online bo'lsa ham sync urinish
 }
 
-// Tanlangan nusxani tiklash: pos.db ustiga yozib, ilovani qayta ishga tushirish.
+// Tiklash: ochiq DB faylini ustiga yozib bo'lmaydi (oq ekran). Shuning uchun marker
+// yozib, qayta ishga tushiramiz; almashtirish boot'da, DB ochilishidan OLDIN bo'ladi.
+const PENDING = 'restore_pending'
 export async function restoreBackup(name: string): Promise<void> {
-  // WAL/SHM ni tozalab, nusxani asosiy bazaga ko'chiramiz.
-  await copyFile(`${DIR}/${name}`, 'pos.db', { fromPathBaseDir: BaseDirectory.AppData, toPathBaseDir: BaseDirectory.AppData })
-  await remove('pos.db-wal', { baseDir: BaseDirectory.AppData }).catch(() => {})
-  await remove('pos.db-shm', { baseDir: BaseDirectory.AppData }).catch(() => {})
+  await writeTextFile(PENDING, name, { baseDir: BaseDirectory.AppData })
   await relaunch()
+}
+
+// Boot'da chaqiriladi (main.ts) — DB ochilishidan oldin.
+export async function applyPendingRestore(): Promise<void> {
+  try {
+    if (!(await exists(PENDING, { baseDir: BaseDirectory.AppData }))) return
+    const name = (await readTextFile(PENDING, { baseDir: BaseDirectory.AppData })).trim()
+    if (name && (await exists(`${DIR}/${name}`, { baseDir: BaseDirectory.AppData }))) {
+      await copyFile(`${DIR}/${name}`, 'pos.db', { fromPathBaseDir: BaseDirectory.AppData, toPathBaseDir: BaseDirectory.AppData })
+      await remove('pos.db-wal', { baseDir: BaseDirectory.AppData }).catch(() => {})
+      await remove('pos.db-shm', { baseDir: BaseDirectory.AppData }).catch(() => {})
+    }
+    await remove(PENDING, { baseDir: BaseDirectory.AppData }).catch(() => {})
+  } catch {}
 }
 
 // ---- GitHub sync (faqat internet bo'lsa; token .env'da) ----
@@ -69,20 +83,95 @@ function bytesToB64(u: Uint8Array): string {
   return btoa(bin)
 }
 
+// ---- GitHub'dan tiklash (yangi komp / qayta o'rnatish) ----
+const GH = 'https://api.github.com'
+function ghCfg() {
+  return {
+    token: (import.meta.env.VITE_BACKUP_TOKEN ?? '').trim(),
+    repo: (import.meta.env.VITE_BACKUP_REPO ?? '').trim(),
+  }
+}
+async function ghJson(path: string): Promise<any[]> {
+  const { token, repo } = ghCfg()
+  if (!token || !repo) return []
+  const res = await fetch(`${GH}/repos/${repo}/contents/${path}`, {
+    headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' },
+  })
+  if (!res.ok) return []
+  const j = await res.json()
+  return Array.isArray(j) ? j : []
+}
+
+export type GhDevice = { id: string; label: string; shop: string; host: string }
+async function ghRaw(path: string): Promise<string | null> {
+  const { token, repo } = ghCfg()
+  if (!token || !repo) return null
+  const res = await fetch(`${GH}/repos/${repo}/contents/${path}`, {
+    headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github.raw' },
+  })
+  return res.ok ? await res.text() : null
+}
+
+// GitHub'dagi barcha qurilmalar — do'kon nomi bilan (qaysi uniki ekanini bilish uchun)
+export async function githubDevices(): Promise<GhDevice[]> {
+  const dirs = (await ghJson('backups')).filter((i) => i.type === 'dir').map((i) => i.name as string)
+  const out: GhDevice[] = []
+  for (const id of dirs) {
+    let shop = '', host = ''
+    try { const t = await ghRaw(`backups/${id}/_info.json`); if (t) { const j = JSON.parse(t); shop = j.shop_name ?? ''; host = j.host ?? '' } } catch {}
+    const parts = [shop, host].filter(Boolean)
+    out.push({ id, shop, host, label: parts.length ? `${parts.join(' · ')} · ${id}` : id })
+  }
+  return out
+}
+// Bitta qurilmaning nusxalari
+export async function githubBackups(device: string): Promise<BackupFile[]> {
+  return (await ghJson(`backups/${device}`))
+    .filter((i) => i.name.endsWith('.db'))
+    .map((i) => ({ name: i.name, date: i.name.replace(/^pos-|\.db$/g, '') }))
+    .sort((a, b) => (a.name < b.name ? 1 : -1))
+}
+// Tanlangan nusxani GitHub'dan yuklab, tiklash (raw — har qanday hajm)
+export async function githubRestore(device: string, name: string): Promise<void> {
+  const { token, repo } = ghCfg()
+  const res = await fetch(`${GH}/repos/${repo}/contents/backups/${device}/${name}`, {
+    headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github.raw' },
+  })
+  if (!res.ok) throw new Error('Yuklab bo\'lmadi (' + res.status + ')')
+  const buf = new Uint8Array(await res.arrayBuffer())
+  await mkdir(DIR, { baseDir: BaseDirectory.AppData, recursive: true }).catch(() => {})
+  await writeFile(`${DIR}/${name}`, buf, { baseDir: BaseDirectory.AppData })
+  await restoreBackup(name)
+}
+
+async function ghPut(path: string, contentB64: string, message: string): Promise<boolean> {
+  const { token, repo } = ghCfg()
+  if (!token || !repo) return false
+  let sha: string | undefined
+  const head = await fetch(`${GH}/repos/${repo}/contents/${path}`, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' } })
+  if (head.ok) { try { sha = (await head.json()).sha } catch {} }
+  const res = await fetch(`${GH}/repos/${repo}/contents/${path}`, {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' },
+    body: JSON.stringify({ message, content: contentB64, ...(sha ? { sha } : {}) }),
+  })
+  return res.ok
+}
+
 export async function syncToGithub(name: string): Promise<boolean> {
-  const token = (import.meta.env.VITE_BACKUP_TOKEN ?? '').trim()
-  const repo = (import.meta.env.VITE_BACKUP_REPO ?? '').trim() // "owner/repo"
+  const { token, repo } = ghCfg()
   if (!token || !repo || !name || !navigator.onLine) return false
   syncing.value = true
   try {
-    const bytes = await readFile(`${DIR}/${name}`, { baseDir: BaseDirectory.AppData })
     const device = await getDeviceId()
-    const path = `backups/${device}/${name}`
-    const res = await fetch(`https://api.github.com/repos/${repo}/contents/${path}`, {
-      method: 'PUT',
-      headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' },
-      body: JSON.stringify({ message: `backup ${device} ${name}`, content: bytesToB64(bytes) }),
-    })
-    return res.ok
+    const bytes = await readFile(`${DIR}/${name}`, { baseDir: BaseDirectory.AppData })
+    const ok = await ghPut(`backups/${device}/${name}`, bytesToB64(bytes), `backup ${device} ${name}`)
+    // Do'kon nomi (qaysi qurilma ekanini bilish uchun)
+    const shop = await getSetting('shop_name', '')
+    let host = ''
+    try { host = (await hostname()) ?? '' } catch {}
+    const info = JSON.stringify({ device, shop_name: shop, host, updated: new Date().toISOString(), last_file: name })
+    await ghPut(`backups/${device}/_info.json`, bytesToB64(new TextEncoder().encode(info)), `info ${device}`)
+    return ok
   } catch { return false } finally { syncing.value = false }
 }

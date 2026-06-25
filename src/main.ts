@@ -6,6 +6,7 @@ import { setCurrency } from './lib/format'
 import { getSetting } from './lib/db'
 import { initTheme } from './lib/theme'
 import { refreshLicense } from './lib/license'
+import { applyPendingRestore } from './lib/backup'
 import { info, warn, error as logError, attachConsole } from '@tauri-apps/plugin-log'
 import { writeTextFile } from '@tauri-apps/plugin-fs'
 import { appLogDir, join } from '@tauri-apps/api/path'
@@ -43,8 +44,11 @@ initTheme()
 const app = createApp(App)
 app.use(router)
 
-// Litsenziyani mount'dan oldin yuklash (guard to'g'ri ishlashi uchun)
-refreshLicense()
+// 1) Kutilayotgan tiklash bo'lsa — DB ochilishidan OLDIN bajariladi.
+// 2) Keyin litsenziya. 3) So'ng mount.
+applyPendingRestore()
+  .catch((e) => void appendErr(`restore apply error: ${e?.stack ?? e}`))
+  .then(() => refreshLicense())
   .then((l) => void info(`license ok · mode=${l.mode} days=${l.daysLeft}`))
   .catch((e) => void appendErr(`license init error: ${e?.stack ?? e}`))
   .finally(() => {

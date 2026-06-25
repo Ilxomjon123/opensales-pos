@@ -109,6 +109,7 @@ CREATE INDEX IF NOT EXISTS idx_cust_pay ON customer_payments(customer_id);
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_os::init())
         .plugin(
             tauri_plugin_sql::Builder::default()
                 .add_migrations("sqlite:pos.db", migrations)

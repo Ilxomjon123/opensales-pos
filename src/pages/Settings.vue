@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
+import SearchableSelect from '../components/SearchableSelect.vue'
 import { Check, Store, Coins, ShoppingCart, ShieldCheck, KeyRound, Copy, FileText, DatabaseBackup, RotateCcw, RefreshCw, Download, CloudUpload } from 'lucide-vue-next'
 import { getSetting, setSetting } from '../lib/db'
 import { setCurrency } from '../lib/format'
-import { license, refreshLicense, activate } from '../lib/license'
-import { listBackups, makeBackup, restoreBackup, syncToGithub, type BackupFile } from '../lib/backup'
+import { license, refreshLicense, activate, isOwnerMaster } from '../lib/license'
+import { listBackups, makeBackup, restoreBackup, syncToGithub, syncing, githubDevices, githubBackups, githubRestore, type BackupFile, type GhDevice } from '../lib/backup'
 import { checkForUpdate, checking } from '../lib/updater'
 import { appVersion } from '../lib/version'
 import LicenseAdmin from '../components/LicenseAdmin.vue'
@@ -24,7 +25,37 @@ const showAdmin = ref(false)
 const keyTaps = ref(0)
 function tapKey() { if (++keyTaps.value >= 5) { keyTaps.value = 0; showAdmin.value = true } }
 const showLogs = ref(false)
+const showBackup = ref(false)
+const titleTaps = ref(0)
+const askMaster = ref(false)
+const masterInput = ref('')
+const masterErr = ref('')
+function tapTitle() { if (++titleTaps.value >= 5) { titleTaps.value = 0; askMaster.value = true; masterInput.value = ''; masterErr.value = '' } }
+async function confirmMaster() {
+  if (!isOwnerMaster(masterInput.value)) { masterErr.value = 'Master kalit noto\'g\'ri'; return }
+  askMaster.value = false
+  showBackup.value = true
+  notify('Zaxira bo\'limi ochildi', 'success')
+  await loadGhDevices()
+}
 const backups = ref<BackupFile[]>([])
+const ghDevs = ref<GhDevice[]>([])
+const ghDev = ref('')
+const ghList = ref<BackupFile[]>([])
+const ghBusy = ref(false)
+async function loadGhDevices() {
+  ghBusy.value = true
+  try { ghDevs.value = await githubDevices(); if (ghDevs.value.length && !ghDev.value) { ghDev.value = ghDevs.value[0].id; await loadGhList() } }
+  finally { ghBusy.value = false }
+}
+async function loadGhList() { ghList.value = ghDev.value ? await githubBackups(ghDev.value) : [] }
+const ghItems = computed(() => ghDevs.value.map((d) => ({ value: d.id, label: d.label })))
+watch(ghDev, loadGhList)
+async function ghRestore(name: string) {
+  if (!(await confirmDialog(`GitHub'dagi "${name}" nusxasidan tiklansinmi? Joriy ma'lumotlar almashtiriladi va dastur qayta ishga tushadi.`, { danger: true, title: 'GitHub\'dan tiklash' }))) return
+  restoring.value = 'GitHub\'dan yuklab tiklanmoqda…'
+  try { await githubRestore(ghDev.value, name) } catch (e: any) { restoring.value = ''; notify('Tiklashda xato: ' + (e?.message ?? e), 'error') }
+}
 const busyBackup = ref(false)
 async function loadBackups() { backups.value = await listBackups() }
 async function backupNow() {
@@ -33,17 +64,23 @@ async function backupNow() {
   catch (e: any) { notify('Xato: ' + (e?.message ?? e), 'error') }
   finally { busyBackup.value = false }
 }
+const restoring = ref('')
 async function doRestore(f: BackupFile) {
   if (!(await confirmDialog(`"${f.name}" nusxasidan tiklansinmi? Joriy ma'lumotlar shu nusxa bilan almashtiriladi va dastur qayta ishga tushadi.`, { danger: true, title: 'Bazani tiklash' }))) return
-  try { await restoreBackup(f.name) } catch (e: any) { notify('Tiklashda xato: ' + (e?.message ?? e), 'error') }
+  restoring.value = 'Tiklanmoqda…'
+  try { await restoreBackup(f.name) } catch (e: any) { restoring.value = ''; notify('Tiklashda xato: ' + (e?.message ?? e), 'error') }
 }
 async function syncNow() {
   const ok = await syncToGithub(backups.value[0]?.name ?? '')
   notify(ok ? 'GitHub\'ga yuklandi' : 'Sync bo\'lmadi (internet/token yo\'q)', ok ? 'success' : 'error')
+  if (ok) await loadGhDevices() // ro'yxat + komp nomini yangilash
 }
 async function checkUpdate() {
-  const has = await checkForUpdate()
-  if (!has) notify('Yangilanish yo\'q yoki internet yo\'q', 'info')
+  const r = await checkForUpdate()
+  if (r === 'available') return // burchakdagi banner ko'rsatadi
+  if (r === 'latest') notify(`Eng so'nggi versiya o'rnatilgan (v${appVersion.value})`, 'success')
+  else if (r === 'offline') notify('Internet aloqasi yo\'q', 'error')
+  else notify('Tekshirib bo\'lmadi (server yoki tarmoq xatosi)', 'error')
 }
 const licText = computed(() => {
   const l = license.value
@@ -87,7 +124,7 @@ async function save() {
   <div class="flex h-full flex-col overflow-hidden">
     <header class="flex items-center justify-between border-b px-6 py-4">
       <div>
-        <h1 class="text-lg font-semibold">Sozlamalar</h1>
+        <h1 class="cursor-default text-lg font-semibold select-none" @click="tapTitle">Sozlamalar</h1>
         <p class="text-sm text-muted-foreground">Do'kon va tizim parametrlari</p>
       </div>
       <div class="flex items-center gap-3">
@@ -170,22 +207,45 @@ async function save() {
           </div>
         </section>
 
-        <!-- Zaxira nusxa -->
-        <section class="rounded-xl border bg-card p-5 lg:col-span-2">
+        <!-- Zaxira nusxa (maxfiy — sarlavhani 5 marta bosish) -->
+        <section v-if="showBackup" class="rounded-xl border bg-card p-5 lg:col-span-2">
           <div class="mb-4 flex items-center justify-between">
             <div class="flex items-center gap-2 text-sm font-semibold"><DatabaseBackup class="h-4 w-4 text-primary" /> Zaxira nusxa (backup)</div>
             <div class="flex items-center gap-2">
-              <button @click="syncNow" class="flex h-9 items-center gap-1.5 rounded-lg border px-3 text-sm hover:bg-muted"><CloudUpload class="h-4 w-4" /> Sync</button>
+              <button @click="syncNow" :disabled="syncing" class="flex h-9 items-center gap-1.5 rounded-lg border px-3 text-sm hover:bg-muted disabled:opacity-60">
+                <component :is="syncing ? RefreshCw : CloudUpload" class="h-4 w-4" :class="syncing ? 'animate-spin' : ''" /> {{ syncing ? 'Yuklanmoqda…' : 'Sync' }}
+              </button>
               <button @click="backupNow" :disabled="busyBackup" class="flex h-9 items-center gap-1.5 rounded-lg bg-primary px-3.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"><DatabaseBackup class="h-4 w-4" /> Hozir nusxa olish</button>
             </div>
           </div>
           <p class="mb-3 text-xs text-muted-foreground">Har kuni avtomatik nusxa olinadi (oxirgi 14 ta saqlanadi). Internet bo'lsa GitHub'ga sync qilinadi. Tiklash uchun nusxani tanlang.</p>
-          <div class="max-h-56 divide-y overflow-auto rounded-lg border">
-            <div v-for="f in backups" :key="f.name" class="flex items-center justify-between px-3 py-2.5 text-sm hover:bg-muted/40">
-              <span class="font-mono text-xs">{{ f.name }}</span>
-              <button @click="doRestore(f)" class="flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-xs hover:bg-muted"><RotateCcw class="h-3.5 w-3.5" /> Tiklash</button>
+          <div class="grid gap-4 lg:grid-cols-2">
+            <div>
+              <div class="mb-1.5 text-xs font-medium text-muted-foreground">Bu kompdagi nusxalar</div>
+              <div class="max-h-56 divide-y overflow-auto rounded-lg border">
+                <div v-for="f in backups" :key="f.name" class="flex items-center justify-between px-3 py-2.5 text-sm hover:bg-muted/40">
+                  <span class="font-mono text-xs">{{ f.name }}</span>
+                  <button @click="doRestore(f)" class="flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-xs hover:bg-muted"><RotateCcw class="h-3.5 w-3.5" /> Tiklash</button>
+                </div>
+                <div v-if="backups.length === 0" class="px-3 py-6 text-center text-sm text-muted-foreground">Hali nusxa yo'q</div>
+              </div>
             </div>
-            <div v-if="backups.length === 0" class="px-3 py-6 text-center text-sm text-muted-foreground">Hali nusxa yo'q</div>
+            <div>
+              <div class="mb-1.5 text-xs font-medium text-muted-foreground">GitHub'dan tiklash (yangi komp)</div>
+              <div v-if="ghDevs.length" class="mb-2">
+                <SearchableSelect v-model="ghDev" :items="ghItems" placeholder="Qurilmani tanlang" search-placeholder="Do'kon yoki kompyuter nomi…" />
+              </div>
+              <div class="max-h-56 divide-y overflow-auto rounded-lg border">
+                <div v-if="ghBusy" class="px-3 py-6 text-center text-sm text-muted-foreground">Yuklanmoqda…</div>
+                <template v-else>
+                  <div v-for="f in ghList" :key="f.name" class="flex items-center justify-between px-3 py-2.5 text-sm hover:bg-muted/40">
+                    <span class="font-mono text-xs">{{ f.name }}</span>
+                    <button @click="ghRestore(f.name)" class="flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-xs hover:bg-muted"><RotateCcw class="h-3.5 w-3.5" /> Tiklash</button>
+                  </div>
+                  <div v-if="ghList.length === 0" class="px-3 py-6 text-center text-sm text-muted-foreground">GitHub'da nusxa yo'q (yoki token o'chiq)</div>
+                </template>
+              </div>
+            </div>
           </div>
         </section>
 
@@ -204,7 +264,28 @@ async function save() {
       </div>
     </div>
 
+    <!-- Tiklash jarayoni -->
+    <div v-if="restoring" class="fixed inset-0 z-[80] flex flex-col items-center justify-center gap-4 bg-background/90 backdrop-blur">
+      <RefreshCw class="h-10 w-10 animate-spin text-primary" />
+      <div class="text-sm font-medium">{{ restoring }}</div>
+      <div class="text-xs text-muted-foreground">Dastur tez orada qayta ishga tushadi…</div>
+    </div>
+
     <LicenseAdmin v-if="showAdmin" :device-id="license.deviceId" @close="showAdmin = false" />
     <LogViewer v-if="showLogs" @close="showLogs = false" />
+
+    <!-- Zaxira bo'limi uchun master so'rovi -->
+    <div v-if="askMaster" class="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
+      <div class="w-full max-w-sm rounded-xl border bg-card p-5 shadow-xl">
+        <div class="mb-1 flex items-center gap-2 text-lg font-semibold"><DatabaseBackup class="h-5 w-5 text-primary" /> Zaxira bo'limi</div>
+        <p class="mb-4 text-sm text-muted-foreground">Faqat dastur egasi uchun. Master kalitni kiriting.</p>
+        <input v-model="masterInput" type="password" autofocus placeholder="Master kalit" class="h-11 w-full rounded-lg border bg-background px-3 text-sm focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none" @keyup.enter="confirmMaster" />
+        <p v-if="masterErr" class="mt-1.5 text-sm text-rose-500">{{ masterErr }}</p>
+        <div class="mt-4 flex gap-2">
+          <button @click="confirmMaster" class="h-10 flex-1 rounded-lg bg-primary text-sm font-medium text-primary-foreground hover:bg-primary/90">Kirish</button>
+          <button @click="askMaster = false" class="h-10 rounded-lg border px-4 text-sm hover:bg-muted">Bekor</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>

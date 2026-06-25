@@ -46,12 +46,38 @@ function pickStock(v: 'all' | 'in' | 'low' | 'out') { stockFilter.value = stockF
 const catItems = computed(() => categories.value.map((c) => ({ value: c.id, label: c.name })))
 function catName(id: number | null) { return categories.value.find((c) => c.id === id)?.name ?? '—' }
 
-function onImage(e: Event) {
+// Rasmni resize (max 512px) + webp'ga siqib saqlash. WebKit webp encode'ni
+// qo'llamasa, jpeg'ga fallback. DB hajmini kichraytiradi.
+function compressImage(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const img = new Image()
+      img.onload = () => {
+        const MAX = 512
+        let { width: w, height: h } = img
+        if (w > h && w > MAX) { h = Math.round((h * MAX) / w); w = MAX }
+        else if (h > MAX) { w = Math.round((w * MAX) / h); h = MAX }
+        const canvas = document.createElement('canvas')
+        canvas.width = w; canvas.height = h
+        canvas.getContext('2d')!.drawImage(img, 0, 0, w, h)
+        let out = canvas.toDataURL('image/webp', 0.8)
+        if (!out.startsWith('data:image/webp')) out = canvas.toDataURL('image/jpeg', 0.85)
+        resolve(out)
+      }
+      img.onerror = reject
+      img.src = reader.result as string
+    }
+    reader.onerror = reject
+    reader.readAsDataURL(file)
+  })
+}
+
+async function onImage(e: Event) {
   const file = (e.target as HTMLInputElement).files?.[0]
   if (!file) return
-  const reader = new FileReader()
-  reader.onload = () => { form.value.image = reader.result as string }
-  reader.readAsDataURL(file)
+  try { form.value.image = await compressImage(file) }
+  catch { notify('Rasmni o\'qib bo\'lmadi', 'error') }
 }
 function openNew() { form.value = { name: '', price: 0, cost_price: 0, stock: 0, unit: 'dona', category_id: categories.value[0]?.id ?? null, image: null }; showForm.value = true }
 function openEdit(p: Product) { form.value = { ...p }; showForm.value = true }
