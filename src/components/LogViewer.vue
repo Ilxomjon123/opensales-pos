@@ -6,23 +6,24 @@ import { appLogDir, downloadDir, join } from '@tauri-apps/api/path'
 import { openPath } from '@tauri-apps/plugin-opener'
 import { notify } from '../lib/notify'
 
-const LOG_FILE = 'OpenSales POS.log'
+const FILES = { all: 'OpenSales POS.log', errors: 'errors.log' } as const
 defineEmits<{ close: [] }>()
 
+const tab = ref<'all' | 'errors'>('all')
 const text = ref('')
 const loading = ref(false)
 const copied = ref(false)
 const box = ref<HTMLElement>()
 
-async function logPath() { return await join(await appLogDir(), LOG_FILE) }
+async function logPath() { return await join(await appLogDir(), FILES[tab.value]) }
+function setTab(t: 'all' | 'errors') { tab.value = t; load() }
 
 async function load() {
   loading.value = true
   try {
     text.value = await readTextFile(await logPath())
-  } catch (e: any) {
-    text.value = ''
-    notify('Log o\'qilmadi: ' + (e?.message ?? e), 'error')
+  } catch {
+    text.value = '' // fayl hali yo'q bo'lishi mumkin (xato bo'lmagan)
   } finally {
     loading.value = false
     await nextTick()
@@ -37,7 +38,7 @@ async function copy() {
 async function download() {
   try {
     const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')
-    const dest = await join(await downloadDir(), `opensales-log-${stamp}.txt`)
+    const dest = await join(await downloadDir(), `opensales-${tab.value}-${stamp}.txt`)
     await writeTextFile(dest, text.value)
     notify('Yuklandi: Downloads papkasiga', 'success')
     await openPath(await downloadDir())
@@ -52,7 +53,13 @@ async function openFolder() {
   <div class="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4">
     <div class="flex h-[80vh] w-full max-w-3xl flex-col rounded-xl border bg-card shadow-xl">
       <div class="flex items-center justify-between border-b px-5 py-3">
-        <div class="text-base font-semibold">Tizim loglari</div>
+        <div class="flex items-center gap-3">
+          <div class="text-base font-semibold">Tizim loglari</div>
+          <div class="flex rounded-lg border p-0.5 text-sm">
+            <button @click="setTab('all')" class="rounded-md px-2.5 py-1" :class="tab === 'all' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'">Hammasi</button>
+            <button @click="setTab('errors')" class="rounded-md px-2.5 py-1" :class="tab === 'errors' ? 'bg-rose-600 text-white' : 'text-muted-foreground hover:text-foreground'">Xatolar</button>
+          </div>
+        </div>
         <div class="flex items-center gap-1.5">
           <button @click="load" :disabled="loading" title="Yangilash" class="flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-sm hover:bg-muted"><RefreshCw class="h-4 w-4" :class="loading ? 'animate-spin' : ''" /></button>
           <button @click="copy" title="Nusxalash" class="flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-sm hover:bg-muted"><component :is="copied ? Check : Copy" class="h-4 w-4" /> Nusxa</button>
@@ -63,7 +70,7 @@ async function openFolder() {
       </div>
       <div ref="box" class="flex-1 overflow-auto bg-muted/30 p-4">
         <pre v-if="text" class="font-mono text-xs leading-relaxed whitespace-pre-wrap break-all text-foreground">{{ text }}</pre>
-        <div v-else-if="!loading" class="flex h-full items-center justify-center text-sm text-muted-foreground">Log bo'sh</div>
+        <div v-else-if="!loading" class="flex h-full items-center justify-center text-sm text-muted-foreground">{{ tab === 'errors' ? 'Xato yo\'q' : 'Log bo\'sh' }}</div>
       </div>
     </div>
   </div>
