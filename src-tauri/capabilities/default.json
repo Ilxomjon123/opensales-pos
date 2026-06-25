@@ -1,0 +1,26 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "enables the default permissions",
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "core:default",
+    "sql:default",
+    "sql:allow-load",
+    "sql:allow-execute",
+    "sql:allow-select",
+    "sql:allow-close",
+    "opener:default",
+    "opener:allow-open-url",
+    {
+      "identifier": "opener:allow-open-path",
+      "allow": [{ "path": "$APPCACHE/**" }, { "path": "$APPCACHE/receipts/**" }]
+    },
+    "fs:allow-appcache-write-recursive",
+    "fs:allow-appcache-read-recursive",
+    "fs:allow-appcache-meta-recursive",
+    "fs:allow-mkdir"
+  ]
+}

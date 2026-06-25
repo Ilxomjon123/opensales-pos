@@ -1,0 +1,61 @@
+name: build
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+jobs:
+  build:
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            args: '--target aarch64-apple-darwin'
+          - platform: windows-latest
+            args: ''
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin' || '' }}
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Write .env from secrets/vars
+        shell: bash
+        run: |
+          cat > .env <<EOF
+          VITE_RECOVERY_MASTER=${{ secrets.VITE_RECOVERY_MASTER }}
+          VITE_OWNER_MASTER=${{ secrets.VITE_OWNER_MASTER }}
+          VITE_INTEGRITY_SECRET=${{ secrets.VITE_INTEGRITY_SECRET }}
+          VITE_DEFAULT_PIN=${{ secrets.VITE_DEFAULT_PIN }}
+          VITE_LICENSE_PUBKEY=${{ vars.VITE_LICENSE_PUBKEY }}
+          VITE_TRIAL_DAYS=${{ vars.VITE_TRIAL_DAYS }}
+          VITE_SUPPORT_PHONE=${{ vars.VITE_SUPPORT_PHONE }}
+          VITE_SUPPORT_NAME=${{ vars.VITE_SUPPORT_NAME }}
+          EOF
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
+          releaseName: 'OpenSales POS ${{ github.ref_name }}'
+          releaseDraft: true
+          prerelease: false
+          args: ${{ matrix.args }}
