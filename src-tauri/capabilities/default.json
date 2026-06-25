@@ -13,6 +13,8 @@
     "sql:allow-select",
     "sql:allow-close",
     "log:default",
+    "updater:default",
+    "process:default",
     "opener:default",
     "opener:allow-open-url",
     {
@@ -26,6 +28,11 @@
     "fs:allow-applog-write-recursive",
     "fs:allow-applog-meta-recursive",
     "fs:allow-download-write-recursive",
-    "fs:allow-mkdir"
+    "fs:allow-appdata-read-recursive",
+    "fs:allow-appdata-write-recursive",
+    "fs:allow-appdata-meta-recursive",
+    "fs:allow-mkdir",
+    "fs:allow-remove",
+    "fs:allow-copy-file"
   ]
 }

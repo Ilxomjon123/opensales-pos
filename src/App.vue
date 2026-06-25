@@ -1,15 +1,26 @@
 <script setup lang="ts">
+import { onMounted } from 'vue'
 import { RouterLink, RouterView, useRouter } from 'vue-router'
 import { ShoppingBag, Receipt, Clock, UserCircle2, Box, FolderTree, BarChart3, Monitor, Sun, Moon, LogOut, Settings } from 'lucide-vue-next'
 import { theme, setTheme } from './lib/theme'
 import { logout } from './lib/auth'
 import { appVersion } from './lib/version'
+import { checkForUpdate } from './lib/updater'
+import { runDueBackup } from './lib/backup'
 import logoDark from './assets/logo-dark.svg'
 import ConfirmDialog from './components/ConfirmDialog.vue'
 import Toaster from './components/Toaster.vue'
+import UpdatePrompt from './components/UpdatePrompt.vue'
 
 const router = useRouter()
 function doLogout() { logout(); router.push('/login') }
+
+onMounted(() => {
+  // Internet bo'lsa — yangilanish tekshirish; offline'da jim.
+  setTimeout(() => checkForUpdate(), 3000)
+  // Kunlik backup (kerak bo'lsa) — lokal + online GitHub sync.
+  runDueBackup().catch(() => {})
+})
 
 const groups = [
   { label: 'Savdo', items: [
@@ -88,4 +99,5 @@ const themes = [
 
   <ConfirmDialog />
   <Toaster />
+  <UpdatePrompt />
 </template>

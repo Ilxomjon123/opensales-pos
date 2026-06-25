@@ -124,6 +124,12 @@ CREATE INDEX IF NOT EXISTS idx_cust_pay ON customer_payments(customer_id);
                     .max_file_size(2_000_000)
                     .build(),
             )?;
+            // Desktop: auto-update + process (restart)
+            #[cfg(desktop)]
+            {
+                app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;
+                app.handle().plugin(tauri_plugin_process::init())?;
+            }
             Ok(())
         })
         .run(tauri::generate_context!())

@@ -15,12 +15,18 @@ const period = ref({ count: 0, total: 0, cash: 0, card: 0, debt: 0, profit: 0 })
 const topProducts = ref<{ name: string; qty: number; total: number }[]>([])
 const lowStock = ref<{ name: string; stock: number; unit: string }[]>([])
 
-function preset(kind: 'today' | 'week' | 'month' | 'all') {
+async function preset(kind: 'today' | 'week' | 'month' | 'all') {
   const t = new Date()
   if (kind === 'today') { dateFrom.value = iso(t); dateTo.value = iso(t) }
   else if (kind === 'week') { const w = new Date(); w.setDate(w.getDate() - 6); dateFrom.value = iso(w); dateTo.value = iso(t) }
   else if (kind === 'month') { dateFrom.value = iso(new Date(t.getFullYear(), t.getMonth(), 1)); dateTo.value = iso(t) }
-  else { dateFrom.value = '2000-01-01'; dateTo.value = iso(t) }
+  else {
+    // Ilk sotuv kunidan bugungacha
+    const d = await db()
+    const r = await d.select<{ first: string | null }[]>("SELECT date(MIN(created_at)) first FROM sales")
+    dateFrom.value = r[0]?.first ?? iso(t)
+    dateTo.value = iso(t)
+  }
 }
 
 async function load() {

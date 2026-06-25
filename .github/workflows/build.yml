@@ -5,10 +5,11 @@ on:
     tags: ['v*']
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
-    permissions:
-      contents: write
     strategy:
       fail-fast: false
       matrix:
@@ -49,14 +50,47 @@ jobs:
           VITE_SUPPORT_PHONE=${{ vars.VITE_SUPPORT_PHONE }}
           VITE_SUPPORT_NAME=${{ vars.VITE_SUPPORT_NAME }}
           VITE_SITE_URL=${{ vars.VITE_SITE_URL }}
+          VITE_BACKUP_REPO=${{ vars.VITE_BACKUP_REPO }}
+          VITE_BACKUP_TOKEN=${{ secrets.VITE_BACKUP_TOKEN }}
           EOF
 
+      # Updater artefaktlarini imzolaydi (latest.json + .sig)
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
           releaseName: 'OpenSales POS ${{ github.ref_name }}'
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
+
+  # Imzolangan artefaktlarni OCHIQ releases repoga ko'chiradi + latest.json URL larini almashtiradi
+  publish:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Relocate to public releases repo
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PUB_TOKEN: ${{ secrets.GH_RELEASES_TOKEN }}
+        run: |
+          set -e
+          TAG=${{ github.ref_name }}
+          PRIV=${{ github.repository }}
+          PUB=Ilxomjon123/opensales-pos-releases
+          mkdir dl && cd dl
+          # private (draft) release'dan barcha artefaktlar
+          gh release download "$TAG" -R "$PRIV" --clobber
+          # latest.json URL larini public repoga almashtirish
+          if [ -f latest.json ]; then
+            sed -i "s#$PRIV/releases/download#$PUB/releases/download#g" latest.json
+          fi
+          # public release (yo'q bo'lsa yaratish)
+          GH_TOKEN=$PUB_TOKEN gh release view "$TAG" -R "$PUB" >/dev/null 2>&1 \
+            || GH_TOKEN=$PUB_TOKEN gh release create "$TAG" -R "$PUB" -t "OpenSales POS $TAG" --notes "OpenSales POS $TAG"
+          # barcha fayllarni yuklash
+          GH_TOKEN=$PUB_TOKEN gh release upload "$TAG" -R "$PUB" ./* --clobber

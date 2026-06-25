@@ -1,11 +1,15 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { Check, Store, Coins, ShoppingCart, ShieldCheck, KeyRound, Copy, FileText } from 'lucide-vue-next'
+import { Check, Store, Coins, ShoppingCart, ShieldCheck, KeyRound, Copy, FileText, DatabaseBackup, RotateCcw, RefreshCw, Download, CloudUpload } from 'lucide-vue-next'
 import { getSetting, setSetting } from '../lib/db'
 import { setCurrency } from '../lib/format'
 import { license, refreshLicense, activate } from '../lib/license'
+import { listBackups, makeBackup, restoreBackup, syncToGithub, type BackupFile } from '../lib/backup'
+import { checkForUpdate, checking } from '../lib/updater'
+import { appVersion } from '../lib/version'
 import LicenseAdmin from '../components/LicenseAdmin.vue'
 import LogViewer from '../components/LogViewer.vue'
+import { confirmDialog } from '../lib/confirm'
 import { notify } from '../lib/notify'
 
 const currency = ref("so'm")
@@ -20,6 +24,27 @@ const showAdmin = ref(false)
 const keyTaps = ref(0)
 function tapKey() { if (++keyTaps.value >= 5) { keyTaps.value = 0; showAdmin.value = true } }
 const showLogs = ref(false)
+const backups = ref<BackupFile[]>([])
+const busyBackup = ref(false)
+async function loadBackups() { backups.value = await listBackups() }
+async function backupNow() {
+  busyBackup.value = true
+  try { const n = await makeBackup(); await loadBackups(); notify('Nusxa olindi: ' + n, 'success') }
+  catch (e: any) { notify('Xato: ' + (e?.message ?? e), 'error') }
+  finally { busyBackup.value = false }
+}
+async function doRestore(f: BackupFile) {
+  if (!(await confirmDialog(`"${f.name}" nusxasidan tiklansinmi? Joriy ma'lumotlar shu nusxa bilan almashtiriladi va dastur qayta ishga tushadi.`, { danger: true, title: 'Bazani tiklash' }))) return
+  try { await restoreBackup(f.name) } catch (e: any) { notify('Tiklashda xato: ' + (e?.message ?? e), 'error') }
+}
+async function syncNow() {
+  const ok = await syncToGithub(backups.value[0]?.name ?? '')
+  notify(ok ? 'GitHub\'ga yuklandi' : 'Sync bo\'lmadi (internet/token yo\'q)', ok ? 'success' : 'error')
+}
+async function checkUpdate() {
+  const has = await checkForUpdate()
+  if (!has) notify('Yangilanish yo\'q yoki internet yo\'q', 'info')
+}
 const licText = computed(() => {
   const l = license.value
   if (l.mode === 'licensed') return l.forever ? 'Faol · cheksiz' : `Faol · ${l.until} gacha (${l.daysLeft} kun)`
@@ -32,6 +57,7 @@ onMounted(async () => {
   allowNegative.value = (await getSetting('allow_negative_stock', '0')) === '1'
   shopName.value = await getSetting('shop_name', 'OpenSales POS')
   await refreshLicense()
+  await loadBackups()
 })
 
 async function applyKey() {
@@ -141,6 +167,38 @@ async function save() {
                 <button @click="applyKey" :disabled="!licKey.trim()" class="h-10 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50">Faollashtirish</button>
               </div>
             </div>
+          </div>
+        </section>
+
+        <!-- Zaxira nusxa -->
+        <section class="rounded-xl border bg-card p-5 lg:col-span-2">
+          <div class="mb-4 flex items-center justify-between">
+            <div class="flex items-center gap-2 text-sm font-semibold"><DatabaseBackup class="h-4 w-4 text-primary" /> Zaxira nusxa (backup)</div>
+            <div class="flex items-center gap-2">
+              <button @click="syncNow" class="flex h-9 items-center gap-1.5 rounded-lg border px-3 text-sm hover:bg-muted"><CloudUpload class="h-4 w-4" /> Sync</button>
+              <button @click="backupNow" :disabled="busyBackup" class="flex h-9 items-center gap-1.5 rounded-lg bg-primary px-3.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"><DatabaseBackup class="h-4 w-4" /> Hozir nusxa olish</button>
+            </div>
+          </div>
+          <p class="mb-3 text-xs text-muted-foreground">Har kuni avtomatik nusxa olinadi (oxirgi 14 ta saqlanadi). Internet bo'lsa GitHub'ga sync qilinadi. Tiklash uchun nusxani tanlang.</p>
+          <div class="max-h-56 divide-y overflow-auto rounded-lg border">
+            <div v-for="f in backups" :key="f.name" class="flex items-center justify-between px-3 py-2.5 text-sm hover:bg-muted/40">
+              <span class="font-mono text-xs">{{ f.name }}</span>
+              <button @click="doRestore(f)" class="flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-xs hover:bg-muted"><RotateCcw class="h-3.5 w-3.5" /> Tiklash</button>
+            </div>
+            <div v-if="backups.length === 0" class="px-3 py-6 text-center text-sm text-muted-foreground">Hali nusxa yo'q</div>
+          </div>
+        </section>
+
+        <!-- Yangilanish -->
+        <section class="rounded-xl border bg-card p-5 lg:col-span-2">
+          <div class="flex items-center justify-between">
+            <div>
+              <div class="flex items-center gap-2 text-sm font-semibold"><Download class="h-4 w-4 text-primary" /> Yangilanish</div>
+              <p class="mt-1 text-xs text-muted-foreground">Joriy versiya: v{{ appVersion }} · internet bo'lganda avtomatik tekshiriladi</p>
+            </div>
+            <button @click="checkUpdate" :disabled="checking" class="flex h-9 items-center gap-1.5 rounded-lg border px-3.5 text-sm hover:bg-muted disabled:opacity-50">
+              <RefreshCw class="h-4 w-4" :class="checking ? 'animate-spin' : ''" /> Tekshirish
+            </button>
           </div>
         </section>
       </div>

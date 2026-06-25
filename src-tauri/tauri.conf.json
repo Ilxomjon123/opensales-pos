@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "OpenSales POS",
-  "version": "0.1.17",
+  "version": "0.1.18",
   "identifier": "uz.opensales.pos",
   "build": {
     "frontendDist": "../dist",
@@ -29,6 +29,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "createUpdaterArtifacts": true,
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -38,6 +39,14 @@
     ],
     "android": {
       "debugApplicationIdSuffix": ".debug"
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEJCRkIwQzE1NzIwNkQwNzgKUldSNDBBWnlGUXo3dTROcml6TlI5WkdwdGV4M1hzMy9wVHBQdE1ScDQ3L0Q2S042d0FzKzBBRDUK",
+      "endpoints": [
+        "https://github.com/Ilxomjon123/opensales-pos-releases/releases/latest/download/latest.json"
+      ]
     }
   }
 }
