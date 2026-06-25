@@ -1,14 +1,18 @@
 import Database from '@tauri-apps/plugin-sql'
 
 // Yagona SQLite ulanish. Rust migration sxemani yaratadi (lib.rs).
-let _db: Database | null = null
+// Promise singleton — parallel chaqiruvlar bitta init/seed ishlatadi (race yo'q).
+let _dbp: Promise<Database> | null = null
 
-export async function db(): Promise<Database> {
-  if (!_db) {
-    _db = await Database.load('sqlite:pos.db')
-    await seedIfEmpty(_db)
+export function db(): Promise<Database> {
+  if (!_dbp) {
+    _dbp = (async () => {
+      const d = await Database.load('sqlite:pos.db')
+      await seedIfEmpty(d)
+      return d
+    })()
   }
-  return _db
+  return _dbp
 }
 
 // ---- Turlar ----
@@ -322,9 +326,9 @@ async function seedIfEmpty(d: Database): Promise<void> {
   const r = await d.select<{ c: number }[]>('SELECT COUNT(*) c FROM customers')
   if ((r[0]?.c ?? 0) > 0) return
 
-  await d.execute("INSERT INTO settings(key, value) VALUES('currency_symbol', 'so''m')")
+  await d.execute("INSERT OR IGNORE INTO settings(key, value) VALUES('currency_symbol', 'so''m')")
   const defaultPin = (import.meta.env.VITE_DEFAULT_PIN ?? '1234') as string
-  await d.execute('INSERT INTO settings(key, value) VALUES(?, ?)', ['auth_pin', defaultPin])
+  await d.execute('INSERT OR IGNORE INTO settings(key, value) VALUES(?, ?)', ['auth_pin', defaultPin])
   await d.execute("INSERT INTO customers(name, is_walk_in) VALUES('Yo''l-yo''lakay xaridor', 1)")
   // Mahsulot va kategoriyalar bo'sh — do'kon egasi o'zi qo'shadi.
 }
