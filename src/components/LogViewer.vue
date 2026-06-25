@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { ref, onMounted, nextTick } from 'vue'
-import { X, RefreshCw, Copy, Download, FolderOpen, Check } from 'lucide-vue-next'
+import { X, RefreshCw, Copy, Download, FolderOpen, Check, Trash2 } from 'lucide-vue-next'
 import { readTextFile, writeTextFile } from '@tauri-apps/plugin-fs'
 import { appLogDir, downloadDir, join } from '@tauri-apps/api/path'
 import { openPath } from '@tauri-apps/plugin-opener'
+import { confirmDialog } from '../lib/confirm'
 import { notify } from '../lib/notify'
 
 const FILES = { all: 'OpenSales POS.log', errors: 'errors.log' } as const
@@ -47,6 +48,12 @@ async function download() {
 async function openFolder() {
   try { await openPath(await appLogDir()) } catch (e: any) { notify(e?.message ?? 'Xato', 'error') }
 }
+async function clear() {
+  const name = tab.value === 'errors' ? 'Xatolar' : 'Hammasi'
+  if (!(await confirmDialog(`"${name}" log tozalansinmi?`, { danger: true, title: 'Logni tozalash' }))) return
+  try { await writeTextFile(await logPath(), ''); text.value = ''; notify('Tozalandi', 'success') }
+  catch (e: any) { notify('Tozalab bo\'lmadi: ' + (e?.message ?? e), 'error') }
+}
 </script>
 
 <template>
@@ -65,6 +72,7 @@ async function openFolder() {
           <button @click="copy" title="Nusxalash" class="flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-sm hover:bg-muted"><component :is="copied ? Check : Copy" class="h-4 w-4" /> Nusxa</button>
           <button @click="download" title="Yuklab olish" class="flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-sm hover:bg-muted"><Download class="h-4 w-4" /> Yuklab olish</button>
           <button @click="openFolder" title="Papkani ochish" class="flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-sm hover:bg-muted"><FolderOpen class="h-4 w-4" /></button>
+          <button @click="clear" title="Tozalash" class="flex h-8 items-center gap-1.5 rounded-md border border-rose-500/40 px-2.5 text-sm text-rose-600 hover:bg-rose-500/10"><Trash2 class="h-4 w-4" /> Tozalash</button>
           <button @click="$emit('close')" class="ml-1 rounded-md p-1.5 hover:bg-muted"><X class="h-5 w-5" /></button>
         </div>
       </div>
