@@ -117,15 +117,11 @@ CREATE INDEX IF NOT EXISTS idx_cust_pay ON customer_payments(customer_id);
         .setup(|app| {
             // Release'da ham log — faylga yoziladi (Win: %APPDATA%\uz.opensales.pos\logs\,
             // mac: ~/Library/Logs/uz.opensales.pos/). Qotish/xatolarni tashxislash uchun.
+            // Default targetlar: LogDir (fayl "OpenSales POS.log") + Stdout. Bitta fayl.
             app.handle().plugin(
                 tauri_plugin_log::Builder::default()
                     .level(log::LevelFilter::Info)
-                    .target(tauri_plugin_log::Target::new(
-                        tauri_plugin_log::TargetKind::LogDir { file_name: Some("opensales".into()) },
-                    ))
-                    .target(tauri_plugin_log::Target::new(
-                        tauri_plugin_log::TargetKind::Stdout,
-                    ))
+                    .max_file_size(2_000_000)
                     .build(),
             )?;
             Ok(())

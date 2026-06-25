@@ -1,12 +1,11 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { Check, Store, Coins, ShoppingCart, ShieldCheck, KeyRound, Copy, FileText } from 'lucide-vue-next'
-import { appLogDir } from '@tauri-apps/api/path'
-import { openPath } from '@tauri-apps/plugin-opener'
 import { getSetting, setSetting } from '../lib/db'
 import { setCurrency } from '../lib/format'
 import { license, refreshLicense, activate } from '../lib/license'
 import LicenseAdmin from '../components/LicenseAdmin.vue'
+import LogViewer from '../components/LogViewer.vue'
 import { notify } from '../lib/notify'
 
 const currency = ref("so'm")
@@ -20,6 +19,7 @@ const licKey = ref('')
 const showAdmin = ref(false)
 const keyTaps = ref(0)
 function tapKey() { if (++keyTaps.value >= 5) { keyTaps.value = 0; showAdmin.value = true } }
+const showLogs = ref(false)
 const licText = computed(() => {
   const l = license.value
   if (l.mode === 'licensed') return l.forever ? 'Faol · cheksiz' : `Faol · ${l.until} gacha (${l.daysLeft} kun)`
@@ -40,10 +40,6 @@ async function applyKey() {
   if (r.ok) licKey.value = ''
 }
 async function copyDevice() { try { await navigator.clipboard.writeText(license.value.deviceId); notify('Nusxalandi', 'success') } catch {} }
-async function openLogs() {
-  try { await openPath(await appLogDir()) }
-  catch (e: any) { notify('Log papkasini ochib bo\'lmadi: ' + (e?.message ?? e), 'error') }
-}
 
 async function save() {
   pinError.value = ''
@@ -70,7 +66,7 @@ async function save() {
       </div>
       <div class="flex items-center gap-3">
         <span v-if="saved" class="flex items-center gap-1 text-sm text-emerald-600"><Check class="h-4 w-4" /> Saqlandi</span>
-        <button @click="openLogs" class="flex h-9 items-center gap-1.5 rounded-lg border px-3 text-sm hover:bg-muted"><FileText class="h-4 w-4" /> Loglar</button>
+        <button @click="showLogs = true" class="flex h-9 items-center gap-1.5 rounded-lg border px-3 text-sm hover:bg-muted"><FileText class="h-4 w-4" /> Loglar</button>
         <button @click="save" class="h-9 rounded-lg bg-primary px-5 text-sm font-medium text-primary-foreground transition hover:bg-primary/90">Saqlash</button>
       </div>
     </header>
@@ -151,5 +147,6 @@ async function save() {
     </div>
 
     <LicenseAdmin v-if="showAdmin" :device-id="license.deviceId" @close="showAdmin = false" />
+    <LogViewer v-if="showLogs" @close="showLogs = false" />
   </div>
 </template>
