@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { Check, Store, Coins, ShoppingCart, ShieldCheck, KeyRound, Copy } from 'lucide-vue-next'
+import { Check, Store, Coins, ShoppingCart, ShieldCheck, KeyRound, Copy, FileText } from 'lucide-vue-next'
+import { appLogDir } from '@tauri-apps/api/path'
+import { openPath } from '@tauri-apps/plugin-opener'
 import { getSetting, setSetting } from '../lib/db'
 import { setCurrency } from '../lib/format'
 import { license, refreshLicense, activate } from '../lib/license'
@@ -38,6 +40,10 @@ async function applyKey() {
   if (r.ok) licKey.value = ''
 }
 async function copyDevice() { try { await navigator.clipboard.writeText(license.value.deviceId); notify('Nusxalandi', 'success') } catch {} }
+async function openLogs() {
+  try { await openPath(await appLogDir()) }
+  catch (e: any) { notify('Log papkasini ochib bo\'lmadi: ' + (e?.message ?? e), 'error') }
+}
 
 async function save() {
   pinError.value = ''
@@ -64,6 +70,7 @@ async function save() {
       </div>
       <div class="flex items-center gap-3">
         <span v-if="saved" class="flex items-center gap-1 text-sm text-emerald-600"><Check class="h-4 w-4" /> Saqlandi</span>
+        <button @click="openLogs" class="flex h-9 items-center gap-1.5 rounded-lg border px-3 text-sm hover:bg-muted"><FileText class="h-4 w-4" /> Loglar</button>
         <button @click="save" class="h-9 rounded-lg bg-primary px-5 text-sm font-medium text-primary-foreground transition hover:bg-primary/90">Saqlash</button>
       </div>
     </header>
