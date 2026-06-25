@@ -3,6 +3,7 @@ import { RouterLink, RouterView, useRouter } from 'vue-router'
 import { ShoppingBag, Receipt, Clock, UserCircle2, Box, FolderTree, BarChart3, Monitor, Sun, Moon, LogOut, Settings } from 'lucide-vue-next'
 import { theme, setTheme } from './lib/theme'
 import { logout } from './lib/auth'
+import { appVersion } from './lib/version'
 import logoDark from './assets/logo-dark.svg'
 import ConfirmDialog from './components/ConfirmDialog.vue'
 import Toaster from './components/Toaster.vue'
@@ -76,6 +77,7 @@ const themes = [
         <button @click="doLogout" class="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-rose-500/10 hover:text-rose-600">
           <LogOut class="h-[18px] w-[18px]" /> Chiqish
         </button>
+        <div class="px-1 text-center text-[11px] text-muted-foreground/70">OpenSales POS · v{{ appVersion }}</div>
       </div>
     </aside>
 

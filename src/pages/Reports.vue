@@ -1,34 +1,55 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
-import { TrendingUp, Receipt, Coins, Boxes } from 'lucide-vue-next'
+import { ref, onMounted, watch } from 'vue'
+import { TrendingUp, Receipt, Coins, Boxes, Calendar } from 'lucide-vue-next'
 import { db } from '../lib/db'
 import { moneySum } from '../lib/format'
 
-const today = ref({ count: 0, total: 0, cash: 0, card: 0, debt: 0 })
-const all = ref({ count: 0, total: 0, profit: 0 })
+function iso(d: Date) { return d.toISOString().slice(0, 10) }
+const now = new Date()
+const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
+
+const dateFrom = ref(iso(monthStart))
+const dateTo = ref(iso(now))
+
+const period = ref({ count: 0, total: 0, cash: 0, card: 0, debt: 0, profit: 0 })
 const topProducts = ref<{ name: string; qty: number; total: number }[]>([])
 const lowStock = ref<{ name: string; stock: number; unit: string }[]>([])
 
-onMounted(async () => {
+function preset(kind: 'today' | 'week' | 'month' | 'all') {
+  const t = new Date()
+  if (kind === 'today') { dateFrom.value = iso(t); dateTo.value = iso(t) }
+  else if (kind === 'week') { const w = new Date(); w.setDate(w.getDate() - 6); dateFrom.value = iso(w); dateTo.value = iso(t) }
+  else if (kind === 'month') { dateFrom.value = iso(new Date(t.getFullYear(), t.getMonth(), 1)); dateTo.value = iso(t) }
+  else { dateFrom.value = '2000-01-01'; dateTo.value = iso(t) }
+}
+
+async function load() {
   const d = await db()
+  const from = dateFrom.value, to = dateTo.value
   const t = await d.select<any[]>(
-    `SELECT COUNT(*) count, COALESCE(SUM(total),0) total, COALESCE(SUM(paid_cash),0) cash, COALESCE(SUM(paid_card),0) card, COALESCE(SUM(debt_amount),0) debt
-     FROM sales WHERE date(created_at) = date('now','localtime')`,
+    `SELECT COUNT(*) count, COALESCE(SUM(total),0) total, COALESCE(SUM(paid_cash),0) cash,
+            COALESCE(SUM(paid_card),0) card, COALESCE(SUM(debt_amount),0) debt
+     FROM sales WHERE date(created_at) BETWEEN ? AND ?`, [from, to],
   )
-  today.value = t[0]
-  const a = await d.select<any[]>('SELECT COUNT(*) count, COALESCE(SUM(total),0) total FROM sales')
   const p = await d.select<any[]>(
-    `SELECT COALESCE(SUM((si.price - p.cost_price) * si.qty),0) profit
-     FROM sale_items si JOIN products p ON p.id = si.product_id`,
+    `SELECT COALESCE(SUM((si.price - pr.cost_price) * si.qty),0) profit
+     FROM sale_items si JOIN products pr ON pr.id = si.product_id
+     JOIN sales s ON s.id = si.sale_id
+     WHERE date(s.created_at) BETWEEN ? AND ?`, [from, to],
   )
-  all.value = { count: a[0].count, total: a[0].total, profit: p[0]?.profit ?? 0 }
+  period.value = { ...t[0], profit: p[0]?.profit ?? 0 }
   topProducts.value = await d.select(
-    `SELECT product_name name, SUM(qty) qty, SUM(subtotal) total FROM sale_items GROUP BY product_name ORDER BY total DESC LIMIT 8`,
+    `SELECT si.product_name name, SUM(si.qty) qty, SUM(si.subtotal) total
+     FROM sale_items si JOIN sales s ON s.id = si.sale_id
+     WHERE date(s.created_at) BETWEEN ? AND ?
+     GROUP BY si.product_name ORDER BY total DESC LIMIT 8`, [from, to],
   )
   lowStock.value = await d.select(
     `SELECT name, stock, unit FROM products WHERE is_active = 1 AND stock <= 10 ORDER BY stock LIMIT 10`,
   )
-})
+}
+onMounted(load)
+watch([dateFrom, dateTo], load)
 </script>
 
 <template>
@@ -37,32 +58,47 @@ onMounted(async () => {
       <h1 class="text-lg font-semibold">Hisobotlar</h1>
       <p class="text-sm text-muted-foreground">Savdo va inventar tahlili</p>
     </header>
+
+    <!-- Sana filtri -->
+    <div class="flex flex-wrap items-center gap-2 border-b px-6 py-3">
+      <Calendar class="h-4 w-4 text-muted-foreground" />
+      <input v-model="dateFrom" type="date" class="h-9 rounded-lg border bg-background px-2 text-sm" />
+      <span class="text-muted-foreground">—</span>
+      <input v-model="dateTo" type="date" class="h-9 rounded-lg border bg-background px-2 text-sm" />
+      <div class="ml-1 flex gap-1.5">
+        <button @click="preset('today')" class="h-9 rounded-lg border bg-card px-3 text-sm hover:bg-muted">Bugun</button>
+        <button @click="preset('week')" class="h-9 rounded-lg border bg-card px-3 text-sm hover:bg-muted">7 kun</button>
+        <button @click="preset('month')" class="h-9 rounded-lg border bg-card px-3 text-sm hover:bg-muted">Oy</button>
+        <button @click="preset('all')" class="h-9 rounded-lg border bg-card px-3 text-sm hover:bg-muted">Hammasi</button>
+      </div>
+    </div>
+
     <div class="flex-1 space-y-4 overflow-auto p-6">
       <div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <div class="rounded-xl border bg-card p-4">
-          <div class="flex items-center gap-2 text-xs text-muted-foreground"><Receipt class="h-4 w-4" /> Bugun sotuvlar</div>
-          <div class="mt-2 text-2xl font-bold">{{ today.count }}</div>
-          <div class="text-sm text-muted-foreground">{{ moneySum(today.total) }}</div>
+          <div class="flex items-center gap-2 text-xs text-muted-foreground"><Receipt class="h-4 w-4" /> Davr sotuvlari</div>
+          <div class="mt-2 text-2xl font-bold">{{ period.count }}</div>
+          <div class="text-sm text-muted-foreground">{{ moneySum(period.total) }}</div>
         </div>
         <div class="rounded-xl border bg-card p-4">
-          <div class="flex items-center gap-2 text-xs text-muted-foreground"><Coins class="h-4 w-4" /> Bugun naqd / karta</div>
-          <div class="mt-2 text-lg font-bold tabular-nums">{{ moneySum(today.cash) }}</div>
-          <div class="text-sm text-muted-foreground">karta {{ moneySum(today.card) }}</div>
+          <div class="flex items-center gap-2 text-xs text-muted-foreground"><Coins class="h-4 w-4" /> Naqd / karta</div>
+          <div class="mt-2 text-lg font-bold tabular-nums">{{ moneySum(period.cash) }}</div>
+          <div class="text-sm text-muted-foreground">karta {{ moneySum(period.card) }}</div>
         </div>
         <div class="rounded-xl border bg-card p-4">
-          <div class="flex items-center gap-2 text-xs text-muted-foreground"><TrendingUp class="h-4 w-4" /> Umumiy aylanma</div>
-          <div class="mt-2 text-lg font-bold tabular-nums">{{ moneySum(all.total) }}</div>
-          <div class="text-sm text-emerald-600">foyda ~ {{ moneySum(all.profit) }}</div>
+          <div class="flex items-center gap-2 text-xs text-muted-foreground"><TrendingUp class="h-4 w-4" /> Aylanma</div>
+          <div class="mt-2 text-lg font-bold tabular-nums">{{ moneySum(period.total) }}</div>
+          <div class="text-sm text-emerald-600">foyda ~ {{ moneySum(period.profit) }}</div>
         </div>
         <div class="rounded-xl border bg-card p-4">
-          <div class="flex items-center gap-2 text-xs text-muted-foreground"><Boxes class="h-4 w-4" /> Bugun qarz</div>
-          <div class="mt-2 text-lg font-bold tabular-nums text-rose-600">{{ moneySum(today.debt) }}</div>
+          <div class="flex items-center gap-2 text-xs text-muted-foreground"><Boxes class="h-4 w-4" /> Qarz</div>
+          <div class="mt-2 text-lg font-bold tabular-nums text-rose-600">{{ moneySum(period.debt) }}</div>
         </div>
       </div>
 
       <div class="grid gap-4 lg:grid-cols-2">
         <div class="rounded-xl border bg-card">
-          <div class="border-b px-4 py-3 text-sm font-semibold">Eng ko'p sotilgan</div>
+          <div class="border-b px-4 py-3 text-sm font-semibold">Eng ko'p sotilgan (davr)</div>
           <table class="w-full text-sm">
             <tbody class="divide-y">
               <tr v-for="p in topProducts" :key="p.name"><td class="px-4 py-2">{{ p.name }}</td><td class="px-4 py-2 text-right text-muted-foreground tabular-nums">{{ p.qty }}</td><td class="px-4 py-2 text-right font-medium tabular-nums">{{ moneySum(p.total) }}</td></tr>

@@ -48,6 +48,7 @@ jobs:
           VITE_TRIAL_DAYS=${{ vars.VITE_TRIAL_DAYS }}
           VITE_SUPPORT_PHONE=${{ vars.VITE_SUPPORT_PHONE }}
           VITE_SUPPORT_NAME=${{ vars.VITE_SUPPORT_NAME }}
+          VITE_SITE_URL=${{ vars.VITE_SITE_URL }}
           EOF
 
       - uses: tauri-apps/tauri-action@v0
