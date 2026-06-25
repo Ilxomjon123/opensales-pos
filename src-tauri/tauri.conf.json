@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "OpenSales POS",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "identifier": "uz.opensales.pos",
   "build": {
     "frontendDist": "../dist",
@@ -38,6 +38,11 @@
     ],
     "android": {
       "debugApplicationIdSuffix": ".debug"
+    },
+    "windows": {
+      "webviewInstallMode": {
+        "type": "offlineInstaller"
+      }
     }
   }
 }
