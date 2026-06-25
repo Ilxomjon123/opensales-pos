@@ -1,4 +1,5 @@
 import { moneySum, formatDateTime } from './format'
+import { getSetting } from './db'
 import { writeTextFile, mkdir, BaseDirectory } from '@tauri-apps/plugin-fs'
 import { openPath } from '@tauri-apps/plugin-opener'
 import { appCacheDir, join } from '@tauri-apps/api/path'
@@ -19,6 +20,7 @@ export type PrintReceipt = {
 }
 
 export async function printReceipt(r: PrintReceipt) {
+  const shop = r.shop ?? (await getSetting('shop_name', 'OpenSales POS'))
   const rows = r.items
     .map(
       (it) =>
@@ -41,7 +43,7 @@ export async function printReceipt(r: PrintReceipt) {
     .line{display:flex;justify-content:space-between;font-size:12px}
     .foot{text-align:center;font-size:11px;color:#444;margin-top:8px}
   </style></head><body>
-    <h2>${esc(r.shop ?? 'OpenSales POS')}</h2>
+    <h2>${esc(shop)}</h2>
     <div class="sub">Chek #${esc(r.receipt_number)}<br>${formatDateTime(r.created_at)} · ${esc(r.customer)}</div>
     <table>${rows}</table>
     ${r.discount > 0 ? line('Chegirma', '− ' + moneySum(r.discount)) : ''}
