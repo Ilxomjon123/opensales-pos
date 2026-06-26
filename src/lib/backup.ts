@@ -1,4 +1,5 @@
 import { ref } from 'vue'
+import Database from '@tauri-apps/plugin-sql'
 import { mkdir, readDir, readFile, writeFile, writeTextFile, readTextFile, exists, remove, copyFile, BaseDirectory } from '@tauri-apps/plugin-fs'
 import { appDataDir, join } from '@tauri-apps/api/path'
 import { relaunch } from '@tauri-apps/plugin-process'
@@ -61,6 +62,20 @@ export async function restoreBackup(name: string): Promise<void> {
   await relaunch()
 }
 
+// Backup faylidagi (alohida sqlite) PIN-kodni o'qish — tiklashdan OLDIN tekshirish uchun.
+// null = fayl ochilmadi yoki PIN topilmadi (eski/buzuq nusxa).
+export async function backupPin(name: string): Promise<string | null> {
+  try {
+    // `sqlite:` nisbiy yo'l appConfigDir'ga (mac/win'da == AppData) nisbatan ochiladi.
+    // Bu fayl uchun migration ro'yxatga olinmagan → faqat ochiladi, o'zgartirilmaydi.
+    const bdb = await Database.load(`sqlite:${DIR}/${name}`)
+    try {
+      const r = await bdb.select<{ value: string }[]>("SELECT value FROM settings WHERE key = 'auth_pin'")
+      return r[0]?.value ?? null
+    } finally { await bdb.close() }
+  } catch { return null }
+}
+
 // Boot'da chaqiriladi (main.ts) — DB ochilishidan oldin.
 export async function applyPendingRestore(): Promise<void> {
   try {
@@ -83,20 +98,60 @@ function bytesToB64(u: Uint8Array): string {
   return btoa(bin)
 }
 
-// ---- GitHub'dan tiklash (yangi komp / qayta o'rnatish) ----
-const GH = 'https://api.github.com'
-function ghCfg() {
-  return {
-    token: (import.meta.env.VITE_BACKUP_TOKEN ?? '').trim(),
-    repo: (import.meta.env.VITE_BACKUP_REPO ?? '').trim(),
-  }
+// ---- Cloud backup shifrlash (AES-GCM, parol = owner qo'ygan; serverda YO'Q) ----
+// Lokal nusxa OCHIQ qoladi (tez tiklash). Faqat cloud'ga ketadigan nusxa shifrlanadi.
+// Parol qo'yilmasa — shifrlash yo'q (ixtiyoriy). Format: magic(7)+salt(16)+iv(12)+ct.
+const ENC_MAGIC = 'OSPENC1'
+export async function backupPass(): Promise<string> { return getSetting('backup_pass', '') }
+async function deriveKey(pass: string, salt: Uint8Array<ArrayBuffer>): Promise<CryptoKey> {
+  const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(pass), 'PBKDF2', false, ['deriveKey'])
+  return crypto.subtle.deriveKey(
+    { name: 'PBKDF2', salt, iterations: 150000, hash: 'SHA-256' },
+    base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt'],
+  )
+}
+async function encryptBytes(plain: Uint8Array<ArrayBuffer>, pass: string): Promise<Uint8Array<ArrayBuffer>> {
+  const salt = crypto.getRandomValues(new Uint8Array(16))
+  const iv = crypto.getRandomValues(new Uint8Array(12))
+  const key = await deriveKey(pass, salt)
+  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, plain))
+  const magic = new TextEncoder().encode(ENC_MAGIC)
+  const out = new Uint8Array(magic.length + 16 + 12 + ct.length)
+  out.set(magic, 0); out.set(salt, magic.length); out.set(iv, magic.length + 16); out.set(ct, magic.length + 28)
+  return out
+}
+function isEncrypted(buf: Uint8Array): boolean {
+  if (buf.length < 35) return false
+  for (let i = 0; i < ENC_MAGIC.length; i++) if (buf[i] !== ENC_MAGIC.charCodeAt(i)) return false
+  return true
+}
+async function decryptBytes(buf: Uint8Array<ArrayBuffer>, pass: string): Promise<Uint8Array<ArrayBuffer>> {
+  const m = ENC_MAGIC.length
+  const salt = buf.slice(m, m + 16), iv = buf.slice(m + 16, m + 28), ct = buf.slice(m + 28)
+  const key = await deriveKey(pass, salt)
+  return new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ct))
+}
+// Yangi kompga tiklashda parol kerak bo'lsa shu sentinel tashlanadi (Settings prompt qiladi).
+export const NEED_PASS = 'NEED_PASS'
+
+// ---- Cloud backup proxy (Cloudflare Worker) ----
+// GitHub token mijoz app'ida YO'Q — faqat Worker'da. POS Worker'ga device_id +
+// imzolangan license_key yuboradi; Worker imzoni tekshirib, o'z tokeni bilan
+// GitHub'ga boradi. Trial (kalit yo'q) → cloud o'chiq (faqat lokal backup).
+function proxyBase(): string {
+  return (import.meta.env.VITE_BACKUP_PROXY_URL ?? '').trim().replace(/\/+$/, '')
+}
+// Auth header: device_id + license_key. Kalit yo'q (trial) → null.
+async function proxyAuth(): Promise<Record<string, string> | null> {
+  const key = await getSetting('license_key', '')
+  if (!key) return null
+  const deviceId = await getDeviceId()
+  return { 'X-Device-Id': deviceId, 'X-License-Key': key }
 }
 async function ghJson(path: string): Promise<any[]> {
-  const { token, repo } = ghCfg()
-  if (!token || !repo) return []
-  const res = await fetch(`${GH}/repos/${repo}/contents/${path}`, {
-    headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' },
-  })
+  const base = proxyBase(); const h = await proxyAuth()
+  if (!base || !h) return []
+  const res = await fetch(`${base}/list?path=${encodeURIComponent(path)}`, { headers: h })
   if (!res.ok) return []
   const j = await res.json()
   return Array.isArray(j) ? j : []
@@ -104,11 +159,9 @@ async function ghJson(path: string): Promise<any[]> {
 
 export type GhDevice = { id: string; label: string; shop: string; host: string }
 async function ghRaw(path: string): Promise<string | null> {
-  const { token, repo } = ghCfg()
-  if (!token || !repo) return null
-  const res = await fetch(`${GH}/repos/${repo}/contents/${path}`, {
-    headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github.raw' },
-  })
+  const base = proxyBase(); const h = await proxyAuth()
+  if (!base || !h) return null
+  const res = await fetch(`${base}/raw?path=${encodeURIComponent(path)}`, { headers: h })
   return res.ok ? await res.text() : null
 }
 
@@ -131,44 +184,57 @@ export async function githubBackups(device: string): Promise<BackupFile[]> {
     .map((i) => ({ name: i.name, date: i.name.replace(/^pos-|\.db$/g, '') }))
     .sort((a, b) => (a.name < b.name ? 1 : -1))
 }
-// Tanlangan nusxani GitHub'dan yuklab, tiklash (raw — har qanday hajm)
-export async function githubRestore(device: string, name: string): Promise<void> {
-  const { token, repo } = ghCfg()
-  const res = await fetch(`${GH}/repos/${repo}/contents/backups/${device}/${name}`, {
-    headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github.raw' },
-  })
+// Tanlangan nusxani GitHub'dan FAQAT lokalga yuklab olish (raw — har qanday hajm).
+// Tiklash emas — PIN tekshiruvi shu yuklangan fayldan o'qilishi uchun ajratilgan.
+// passOverride: boshqa kompda tiklashda owner master parol bilan ochish uchun.
+export async function githubDownload(device: string, name: string, passOverride?: string): Promise<void> {
+  const base = proxyBase(); const h = await proxyAuth()
+  if (!base || !h) throw new Error('Cloud sozlanmagan yoki litsenziya yo\'q')
+  const res = await fetch(`${base}/raw?path=${encodeURIComponent(`backups/${device}/${name}`)}`, { headers: h })
   if (!res.ok) throw new Error('Yuklab bo\'lmadi (' + res.status + ')')
-  const buf = new Uint8Array(await res.arrayBuffer())
+  let buf = new Uint8Array(await res.arrayBuffer())
+  // Shifrlangan bo'lsa — parol bilan ochamiz (parol device'ga bog'liq emas → boshqa kompda ham ishlaydi).
+  if (isEncrypted(buf)) {
+    const pass = (passOverride ?? '').trim() || await backupPass()
+    if (!pass) throw new Error(NEED_PASS) // yangi komp — Settings parol so'raydi
+    try { buf = await decryptBytes(buf, pass) } catch { throw new Error('Backup paroli noto\'g\'ri') }
+  }
   // Yuklangan fayl haqiqiy SQLite ekanini tekshir (buzuq/qisqargan/HTML download swap qilinmasin → brick yo'q).
   const MAGIC = 'SQLite format 3\0'
   const okHdr = buf.length > 100 && Array.from(MAGIC).every((c, i) => buf[i] === c.charCodeAt(0))
   if (!okHdr) throw new Error("Yuklangan nusxa buzuq (SQLite emas). Qayta urinib ko'ring.")
   await mkdir(DIR, { baseDir: BaseDirectory.AppData, recursive: true }).catch(() => {})
   await writeFile(`${DIR}/${name}`, buf, { baseDir: BaseDirectory.AppData })
+}
+// Yuklab + darhol tiklash (eski oqim — endi Settings download/verify/restore'ni alohida chaqiradi).
+export async function githubRestore(device: string, name: string): Promise<void> {
+  await githubDownload(device, name)
   await restoreBackup(name)
 }
 
+// Yuklash — Worker create-or-update (sha'ni server o'zi hal qiladi).
 async function ghPut(path: string, contentB64: string, message: string): Promise<boolean> {
-  const { token, repo } = ghCfg()
-  if (!token || !repo) return false
-  let sha: string | undefined
-  const head = await fetch(`${GH}/repos/${repo}/contents/${path}`, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' } })
-  if (head.ok) { try { sha = (await head.json()).sha } catch {} }
-  const res = await fetch(`${GH}/repos/${repo}/contents/${path}`, {
+  const base = proxyBase(); const h = await proxyAuth()
+  if (!base || !h) return false
+  const res = await fetch(`${base}/put?path=${encodeURIComponent(path)}`, {
     method: 'PUT',
-    headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' },
-    body: JSON.stringify({ message, content: contentB64, ...(sha ? { sha } : {}) }),
+    headers: { ...h, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content: contentB64, message }),
   })
   return res.ok
 }
 
 export async function syncToGithub(name: string): Promise<boolean> {
-  const { token, repo } = ghCfg()
-  if (!token || !repo || !name || !navigator.onLine) return false
+  const base = proxyBase()
+  if (!base || !name || !navigator.onLine) return false
+  if (!(await proxyAuth())) return false // trial / litsenziyasiz → cloud yo'q
   syncing.value = true
   try {
     const device = await getDeviceId()
-    const bytes = await readFile(`${DIR}/${name}`, { baseDir: BaseDirectory.AppData })
+    let bytes = await readFile(`${DIR}/${name}`, { baseDir: BaseDirectory.AppData })
+    // Parol qo'yilgan bo'lsa — cloud nusxa shifrlanadi (lokal nusxa ochiq qoladi).
+    const pass = await backupPass()
+    if (pass) bytes = await encryptBytes(bytes, pass)
     const ok = await ghPut(`backups/${device}/${name}`, bytesToB64(bytes), `backup ${device} ${name}`)
     // Do'kon nomi (qaysi qurilma ekanini bilish uchun)
     const shop = await getSetting('shop_name', '')

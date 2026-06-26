@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { ShieldCheck, Copy, Check, Phone } from 'lucide-vue-next'
 import { license, refreshLicense, activate, getDeviceId } from '../lib/license'
 import LicenseAdmin from '../components/LicenseAdmin.vue'
+import QrScanButton from '../components/QrScanButton.vue'
 import logoDark from '../assets/logo-dark.svg'
 import { notify } from '../lib/notify'
 
@@ -70,6 +71,7 @@ function tapLogo() { if (++logoTaps.value >= 5) { logoTaps.value = 0; showAdmin.
         <label class="mb-1 block text-sm font-medium">Aktivatsiya kaliti</label>
         <textarea v-model="keyInput" rows="3" placeholder="Sotuvchidan olingan kalitni shu yerga joylang"
           class="w-full resize-none rounded-lg border bg-background px-3 py-2 font-mono text-xs focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none"></textarea>
+        <div class="mt-2 flex justify-end"><QrScanButton @decoded="keyInput = $event" /></div>
         <p v-if="err" class="mt-1.5 text-sm text-rose-500">{{ err }}</p>
 
         <button @click="submit" :disabled="busy || !keyInput.trim()"

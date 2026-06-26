@@ -1,15 +1,17 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue'
 import SearchableSelect from '../components/SearchableSelect.vue'
-import { Check, Store, Coins, ShoppingCart, ShieldCheck, KeyRound, Copy, FileText, DatabaseBackup, RotateCcw, RefreshCw, Download, CloudUpload } from 'lucide-vue-next'
+import { Check, Store, Coins, ShoppingCart, ShieldCheck, KeyRound, Copy, FileText, DatabaseBackup, RotateCcw, RefreshCw, Download, CloudUpload, Lock, LockOpen } from 'lucide-vue-next'
 import { getSetting, setSetting } from '../lib/db'
 import { setCurrency } from '../lib/format'
 import { license, refreshLicense, activate, isOwnerMaster } from '../lib/license'
-import { listBackups, makeBackup, restoreBackup, syncToGithub, syncing, githubDevices, githubBackups, githubRestore, type BackupFile, type GhDevice } from '../lib/backup'
+import { listBackups, makeBackup, restoreBackup, backupPin, githubDownload, syncToGithub, syncing, githubDevices, githubBackups, NEED_PASS, type BackupFile, type GhDevice } from '../lib/backup'
 import { checkForUpdate, checking } from '../lib/updater'
 import { appVersion } from '../lib/version'
 import LicenseAdmin from '../components/LicenseAdmin.vue'
 import LogViewer from '../components/LogViewer.vue'
+import PinPad from '../components/PinPad.vue'
+import QrScanButton from '../components/QrScanButton.vue'
 import { confirmDialog } from '../lib/confirm'
 import { notify } from '../lib/notify'
 
@@ -52,9 +54,51 @@ async function loadGhList() { ghList.value = ghDev.value ? await githubBackups(g
 const ghItems = computed(() => ghDevs.value.map((d) => ({ value: d.id, label: d.label })))
 watch(ghDev, loadGhList)
 async function ghRestore(name: string) {
-  if (!(await confirmDialog(`GitHub'dagi "${name}" nusxasidan tiklansinmi? Joriy ma'lumotlar almashtiriladi va dastur qayta ishga tushadi.`, { danger: true, title: 'GitHub\'dan tiklash' }))) return
-  restoring.value = 'GitHub\'dan yuklab tiklanmoqda…'
-  try { await githubRestore(ghDev.value, name) } catch (e: any) { restoring.value = ''; notify('Tiklashda xato: ' + (e?.message ?? e), 'error') }
+  if (!(await confirmDialog(`Claude'dagi "${name}" nusxasidan tiklansinmi? Joriy ma'lumotlar almashtiriladi va dastur qayta ishga tushadi.`, { danger: true, title: 'Claude\'dan tiklash' }))) return
+  restoring.value = 'Claude\'dan yuklab olinmoqda…'
+  try { await githubDownload(ghDev.value, name); restoring.value = ''; await askRestorePin(name) }
+  catch (e: any) {
+    restoring.value = ''
+    if (e?.message === NEED_PASS) { rpName.value = name; rpKey.value = ''; rpErr.value = ''; showRp.value = true }
+    else notify('Yuklab bo\'lmadi: ' + (e?.message ?? e), 'error')
+  }
+}
+
+// Cloud shifrlash (owner master = parol). Lokal nusxa ochiq, cloud nusxa shifrlanadi.
+const encOn = ref(false)
+async function loadEnc() { encOn.value = (await getSetting('backup_pass', '')) !== '' }
+const showEncSet = ref(false)
+const encKey = ref('')
+const encErr = ref('')
+function normPass(s: string) { return s.trim().toUpperCase() }
+async function enableEnc() {
+  if (!isOwnerMaster(encKey.value)) { encErr.value = 'Master kalit noto\'g\'ri'; return }
+  await setSetting('backup_pass', normPass(encKey.value)) // owner master = shifrlash paroli
+  encOn.value = true; showEncSet.value = false; encKey.value = ''; encErr.value = ''
+  notify('Cloud shifrlash yoqildi', 'success')
+}
+async function disableEnc() {
+  if (!(await confirmDialog('Cloud shifrlash o\'chirilsinmi? Yangi nusxalar OCHIQ yuklanadi.', { danger: true, title: 'Shifrlashni o\'chirish' }))) return
+  await setSetting('backup_pass', '')
+  encOn.value = false
+  notify('Shifrlash o\'chirildi', 'success')
+}
+
+// Boshqa kompda shifrlangan nusxani tiklash — owner master parol so'raladi.
+const showRp = ref(false)
+const rpName = ref('')
+const rpKey = ref('')
+const rpErr = ref('')
+async function submitRp() {
+  restoring.value = 'Ochilmoqda…'
+  try {
+    await githubDownload(ghDev.value, rpName.value, normPass(rpKey.value))
+    showRp.value = false; restoring.value = ''
+    await askRestorePin(rpName.value)
+  } catch (e: any) {
+    restoring.value = ''
+    rpErr.value = e?.message === NEED_PASS ? 'Parol kerak' : (e?.message ?? 'Xato')
+  }
 }
 const busyBackup = ref(false)
 async function loadBackups() { backups.value = await listBackups() }
@@ -67,12 +111,46 @@ async function backupNow() {
 const restoring = ref('')
 async function doRestore(f: BackupFile) {
   if (!(await confirmDialog(`"${f.name}" nusxasidan tiklansinmi? Joriy ma'lumotlar shu nusxa bilan almashtiriladi va dastur qayta ishga tushadi.`, { danger: true, title: 'Bazani tiklash' }))) return
+  await askRestorePin(f.name)
+}
+
+// --- Tiklash PIN tekshiruvi: o'sha nusxa ichidagi PIN talab qilinadi; owner master bilan chetlab o'tadi ---
+const verifyOpen = ref(false)
+const pendingRestore = ref('')
+const expectedPin = ref<string | null>(null)
+const verifyPad = ref<InstanceType<typeof PinPad>>()
+const verifyErr = ref(false)
+const ownerMode = ref(false)
+const ownerKey = ref('')
+const ownerErr = ref('')
+const verifyIconTaps = ref(0)
+// Yashirin: shield ikonkani 5 marta bossa → master kalit kiritish (owner bypass).
+function tapVerifyIcon() { if (++verifyIconTaps.value >= 5) { verifyIconTaps.value = 0; ownerMode.value = true } }
+async function askRestorePin(name: string) {
+  expectedPin.value = await backupPin(name)
+  pendingRestore.value = name
+  verifyErr.value = false
+  verifyIconTaps.value = 0
+  ownerMode.value = expectedPin.value === null // PIN o'qib bo'lmasa faqat owner tiklay oladi
+  ownerKey.value = ''; ownerErr.value = ''
+  verifyOpen.value = true
+}
+async function onVerifyPin(p: string) {
+  if (expectedPin.value && p === expectedPin.value) await applyRestore()
+  else { verifyErr.value = true; verifyPad.value?.shakeNow(); setTimeout(() => (verifyErr.value = false), 600) }
+}
+function unlockOwner() {
+  if (isOwnerMaster(ownerKey.value)) applyRestore()
+  else ownerErr.value = 'Master kalit noto\'g\'ri'
+}
+async function applyRestore() {
+  verifyOpen.value = false
   restoring.value = 'Tiklanmoqda…'
-  try { await restoreBackup(f.name) } catch (e: any) { restoring.value = ''; notify('Tiklashda xato: ' + (e?.message ?? e), 'error') }
+  try { await restoreBackup(pendingRestore.value) } catch (e: any) { restoring.value = ''; notify('Tiklashda xato: ' + (e?.message ?? e), 'error') }
 }
 async function syncNow() {
   const ok = await syncToGithub(backups.value[0]?.name ?? '')
-  notify(ok ? 'GitHub\'ga yuklandi' : 'Sync bo\'lmadi (internet/token yo\'q)', ok ? 'success' : 'error')
+  notify(ok ? 'Claude\'ga yuklandi' : 'Sync bo\'lmadi (internet yoki litsenziya yo\'q)', ok ? 'success' : 'error')
   if (ok) await loadGhDevices() // ro'yxat + komp nomini yangilash
 }
 async function checkUpdate() {
@@ -95,6 +173,7 @@ onMounted(async () => {
   shopName.value = await getSetting('shop_name', 'OpenSales POS')
   await refreshLicense()
   await loadBackups()
+  await loadEnc()
 })
 
 async function applyKey() {
@@ -201,6 +280,7 @@ async function save() {
               <label class="mb-1.5 block text-sm font-medium">Aktivatsiya kaliti</label>
               <div class="flex items-center gap-2">
                 <input v-model="licKey" placeholder="Kalitni joylang" class="h-10 flex-1 rounded-lg border bg-background px-3 font-mono text-xs focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none" />
+                <QrScanButton @decoded="licKey = $event" />
                 <button @click="applyKey" :disabled="!licKey.trim()" class="h-10 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50">Faollashtirish</button>
               </div>
             </div>
@@ -218,7 +298,16 @@ async function save() {
               <button @click="backupNow" :disabled="busyBackup" class="flex h-9 items-center gap-1.5 rounded-lg bg-primary px-3.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"><DatabaseBackup class="h-4 w-4" /> Hozir nusxa olish</button>
             </div>
           </div>
-          <p class="mb-3 text-xs text-muted-foreground">Har kuni avtomatik nusxa olinadi (oxirgi 14 ta saqlanadi). Internet bo'lsa GitHub'ga sync qilinadi. Tiklash uchun nusxani tanlang.</p>
+          <p class="mb-3 text-xs text-muted-foreground">Har kuni avtomatik nusxa olinadi (oxirgi 14 ta saqlanadi). Internet bo'lsa Claude'ga sync qilinadi. Tiklash uchun nusxani tanlang.</p>
+
+          <!-- Cloud shifrlash (lokal ochiq, cloud nusxa parol bilan) -->
+          <div class="mb-3 flex items-center justify-between rounded-lg border bg-muted/30 px-3 py-2">
+            <div class="flex items-center gap-2 text-sm">
+              <component :is="encOn ? Lock : LockOpen" class="h-4 w-4" :class="encOn ? 'text-emerald-600' : 'text-muted-foreground'" />
+              <span>Cloud shifrlash: <b :class="encOn ? 'text-emerald-600' : 'text-muted-foreground'">{{ encOn ? 'Yoqilgan' : "O'chiq" }}</b></span>
+            </div>
+            <button @click="encOn ? disableEnc() : (showEncSet = true)" class="h-8 rounded-md border px-3 text-xs font-medium hover:bg-muted">{{ encOn ? "O'chirish" : 'Yoqish' }}</button>
+          </div>
           <div class="grid gap-4 lg:grid-cols-2">
             <div>
               <div class="mb-1.5 text-xs font-medium text-muted-foreground">Bu kompdagi nusxalar</div>
@@ -231,7 +320,7 @@ async function save() {
               </div>
             </div>
             <div>
-              <div class="mb-1.5 text-xs font-medium text-muted-foreground">GitHub'dan tiklash (yangi komp)</div>
+              <div class="mb-1.5 text-xs font-medium text-muted-foreground">Claude'dan tiklash (yangi komp)</div>
               <div v-if="ghDevs.length" class="mb-2">
                 <SearchableSelect v-model="ghDev" :items="ghItems" placeholder="Qurilmani tanlang" search-placeholder="Do'kon yoki kompyuter nomi…" />
               </div>
@@ -242,7 +331,7 @@ async function save() {
                     <span class="font-mono text-xs">{{ f.name }}</span>
                     <button @click="ghRestore(f.name)" class="flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-xs hover:bg-muted"><RotateCcw class="h-3.5 w-3.5" /> Tiklash</button>
                   </div>
-                  <div v-if="ghList.length === 0" class="px-3 py-6 text-center text-sm text-muted-foreground">GitHub'da nusxa yo'q (yoki token o'chiq)</div>
+                  <div v-if="ghList.length === 0" class="px-3 py-6 text-center text-sm text-muted-foreground">Claude'da nusxa yo'q (yoki litsenziya yo'q)</div>
                 </template>
               </div>
             </div>
@@ -279,11 +368,75 @@ async function save() {
       <div class="w-full max-w-sm rounded-xl border bg-card p-5 shadow-xl">
         <div class="mb-1 flex items-center gap-2 text-lg font-semibold"><DatabaseBackup class="h-5 w-5 text-primary" /> Zaxira bo'limi</div>
         <p class="mb-4 text-sm text-muted-foreground">Faqat dastur egasi uchun. Master kalitni kiriting.</p>
-        <input v-model="masterInput" type="password" autofocus placeholder="Master kalit" class="h-11 w-full rounded-lg border bg-background px-3 text-sm focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none" @keyup.enter="confirmMaster" />
+        <div class="flex gap-2">
+          <input v-model="masterInput" type="password" autofocus placeholder="Master kalit" class="h-11 w-full rounded-lg border bg-background px-3 text-sm focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none" @keyup.enter="confirmMaster" />
+          <QrScanButton @decoded="masterInput = $event" />
+        </div>
         <p v-if="masterErr" class="mt-1.5 text-sm text-rose-500">{{ masterErr }}</p>
         <div class="mt-4 flex gap-2">
           <button @click="confirmMaster" class="h-10 flex-1 rounded-lg bg-primary text-sm font-medium text-primary-foreground hover:bg-primary/90">Kirish</button>
           <button @click="askMaster = false" class="h-10 rounded-lg border px-4 text-sm hover:bg-muted">Bekor</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tiklash tasdiqlash: o'sha nusxa ichidagi PIN yoki owner master kalit -->
+    <div v-if="verifyOpen" class="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 p-4">
+      <div class="w-full max-w-xs rounded-xl border bg-card p-5 shadow-xl">
+        <div class="mb-1 flex items-center gap-2 text-lg font-semibold">
+          <button @click="tapVerifyIcon" class="rounded p-0.5" title="Tiklashni tasdiqlang"><ShieldCheck class="h-5 w-5 text-primary" /></button> Tiklashni tasdiqlang
+        </div>
+
+        <template v-if="!ownerMode">
+          <p class="mb-4 text-sm text-muted-foreground">Shu nusxadagi PIN-kodni kiriting.</p>
+          <PinPad ref="verifyPad" :error="verifyErr" @complete="onVerifyPin" />
+        </template>
+
+        <template v-else>
+          <p class="mb-4 text-sm text-muted-foreground">{{ expectedPin === null ? 'Bu nusxada PIN topilmadi. Faqat egasi tiklay oladi.' : 'Master kalit bilan ixtiyoriy nusxani tiklash.' }}</p>
+          <div class="flex gap-2">
+            <input v-model="ownerKey" type="password" autofocus placeholder="Master kalit" class="h-11 w-full rounded-lg border bg-background px-3 text-sm focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none" @keyup.enter="unlockOwner" />
+            <QrScanButton @decoded="ownerKey = $event" />
+          </div>
+          <p v-if="ownerErr" class="mt-1.5 text-sm text-rose-500">{{ ownerErr }}</p>
+          <button @click="unlockOwner" class="mt-3 h-10 w-full rounded-lg bg-primary text-sm font-medium text-primary-foreground hover:bg-primary/90">Tiklash</button>
+          <button v-if="expectedPin !== null" @click="ownerMode = false; ownerErr = ''" class="mt-2 w-full text-xs text-muted-foreground hover:text-foreground">← PIN bilan</button>
+        </template>
+
+        <button @click="verifyOpen = false" class="mt-3 h-9 w-full rounded-lg border text-sm hover:bg-muted">Bekor</button>
+      </div>
+    </div>
+
+    <!-- Cloud shifrlashni yoqish: owner master = parol -->
+    <div v-if="showEncSet" class="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 p-4">
+      <div class="w-full max-w-sm rounded-xl border bg-card p-5 shadow-xl">
+        <div class="mb-1 flex items-center gap-2 text-lg font-semibold"><Lock class="h-5 w-5 text-primary" /> Cloud shifrlash</div>
+        <p class="mb-4 text-sm text-muted-foreground">Owner master kalit shifrlash paroli bo'ladi. Cloud nusxa shu bilan shifrlanadi — serverda parol YO'Q. Boshqa kompda tiklashda shu kalit so'raladi. <b>Kalitni yo'qotmang</b> — aks holda cloud nusxa ochilmaydi.</p>
+        <div class="flex gap-2">
+          <input v-model="encKey" type="password" autofocus placeholder="Owner master kalit" class="h-11 w-full rounded-lg border bg-background px-3 text-sm focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none" @keyup.enter="enableEnc" />
+          <QrScanButton @decoded="encKey = $event" />
+        </div>
+        <p v-if="encErr" class="mt-1.5 text-sm text-rose-500">{{ encErr }}</p>
+        <div class="mt-4 flex gap-2">
+          <button @click="enableEnc" class="h-10 flex-1 rounded-lg bg-primary text-sm font-medium text-primary-foreground hover:bg-primary/90">Yoqish</button>
+          <button @click="showEncSet = false" class="h-10 rounded-lg border px-4 text-sm hover:bg-muted">Bekor</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Boshqa kompda shifrlangan nusxani ochish — parol -->
+    <div v-if="showRp" class="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 p-4">
+      <div class="w-full max-w-sm rounded-xl border bg-card p-5 shadow-xl">
+        <div class="mb-1 flex items-center gap-2 text-lg font-semibold"><Lock class="h-5 w-5 text-primary" /> Shifrlangan nusxa</div>
+        <p class="mb-4 text-sm text-muted-foreground">Bu nusxa shifrlangan. Ochish uchun owner master kalitni kiriting.</p>
+        <div class="flex gap-2">
+          <input v-model="rpKey" type="password" autofocus placeholder="Owner master kalit" class="h-11 w-full rounded-lg border bg-background px-3 text-sm focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none" @keyup.enter="submitRp" />
+          <QrScanButton @decoded="rpKey = $event" />
+        </div>
+        <p v-if="rpErr" class="mt-1.5 text-sm text-rose-500">{{ rpErr }}</p>
+        <div class="mt-4 flex gap-2">
+          <button @click="submitRp" class="h-10 flex-1 rounded-lg bg-primary text-sm font-medium text-primary-foreground hover:bg-primary/90">Ochish</button>
+          <button @click="showRp = false" class="h-10 rounded-lg border px-4 text-sm hover:bg-muted">Bekor</button>
         </div>
       </div>
     </div>

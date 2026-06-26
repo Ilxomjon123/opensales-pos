@@ -28,7 +28,7 @@ export type Product = {
   image: string | null
   is_active: number
 }
-export type Customer = { id: number; name: string; phone: string | null; balance: number; is_walk_in: number; is_active: number }
+export type Customer = { id: number; name: string; phone: string | null; balance: number; opening_balance: number; is_walk_in: number; is_active: number }
 export type Shift = {
   id: number
   opened_at: string
@@ -182,6 +182,30 @@ export async function saveCustomer(name: string, phone: string | null, id?: numb
   }
   const r = await d.execute('INSERT INTO customers(name, phone) VALUES(?, ?)', [name, phone])
   return r.lastInsertId as number
+}
+
+// Tizim ichidagi sof harakat: qabul qilingan to'lovlar − berilgan qarzlar.
+// Saldo shu + dastlabki saldodan iborat (invariant: balance = opening_balance + movements).
+export async function customerMovements(customerId: number): Promise<number> {
+  const d = await db()
+  const r = await d.select<{ pays: number; debts: number }[]>(
+    `SELECT
+       COALESCE((SELECT SUM(amount) FROM customer_payments WHERE customer_id = ?), 0) pays,
+       COALESCE((SELECT SUM(debt_amount) FROM sales WHERE customer_id = ?), 0) debts`,
+    [customerId, customerId],
+  )
+  return (r[0]?.pays ?? 0) - (r[0]?.debts ?? 0)
+}
+
+// Mijozning JORIY saldosini belgilash. Tizim ichidagi oldi-berdi (movements) hisobga
+// olinadi; qolgan farq dastlabki saldo (tizimgacha bo'lgan) sifatida saqlanadi.
+// Manfiy = qarzdor, musbat = haqdor.
+export async function setCustomerBalance(customerId: number, targetBalance: number): Promise<void> {
+  const d = await db()
+  const target = Math.round(targetBalance)
+  const movements = await customerMovements(customerId)
+  const opening = target - movements
+  await d.execute('UPDATE customers SET opening_balance = ?, balance = ? WHERE id = ?', [opening, target, customerId])
 }
 
 // ---- Smena ----

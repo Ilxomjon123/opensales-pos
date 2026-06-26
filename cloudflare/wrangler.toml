@@ -1,0 +1,17 @@
+# OpenSales POS — backup proxy Worker deploy config.
+# Deploy: pos-tauri/cloudflare ichida `npx wrangler deploy`
+# Maxfiy token (faqat shu yerda EMAS, CF secret'da): `npx wrangler secret put GH_TOKEN`
+name = "pos-backup"
+main = "backup-worker.js"
+compatibility_date = "2025-01-15"
+account_id = "b71d2d7c8ee6cc08d879c4f23db5088e"
+
+# opensales.uz Cloudflare'da → worker shu subdomenda (DNS+cert avtomatik)
+[[routes]]
+pattern = "pos-backup.opensales.uz"
+custom_domain = true
+
+# Ochiq qiymatlar (sir emas — pubkey baribir ommaviy, repo nomi maxfiy emas)
+[vars]
+GH_REPO = "Ilxomjon123/opensales-pos-backups"
+LICENSE_PUBKEY = "QxOIeGa1EaXuCsnFD0aF2/LKyvI0n5fG3Z0RpxcuEks="

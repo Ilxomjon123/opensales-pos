@@ -2,7 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { Plus, UserCircle2, Search, ChevronRight, Pencil, Trash2, Eye, EyeOff, Users, HandCoins, Wallet } from 'lucide-vue-next'
-import { listCustomers, saveCustomer, setCustomerActive, deleteCustomer, type Customer } from '../lib/db'
+import { listCustomers, saveCustomer, setCustomerActive, deleteCustomer, setCustomerBalance, type Customer } from '../lib/db'
 import { moneySum, translitMatch } from '../lib/format'
 import { confirmDialog } from '../lib/confirm'
 import { notify } from '../lib/notify'
@@ -16,6 +16,8 @@ const showForm = ref(false)
 const editId = ref<number | undefined>()
 const name = ref('')
 const phone = ref('')
+const balKind = ref<'debt' | 'credit' | 'none'>('none')
+const balAmount = ref(0)
 
 async function load() { customers.value = await listCustomers() }
 onMounted(load)
@@ -42,11 +44,16 @@ const stats = computed(() => {
 function pickBal(v: 'debt' | 'credit') { balFilter.value = balFilter.value === v ? 'all' : v }
 function go(c: Customer) { router.push(`/customers/${c.id}`) }
 
-function openNew() { editId.value = undefined; name.value = ''; phone.value = ''; showForm.value = true }
+function openNew() { editId.value = undefined; name.value = ''; phone.value = ''; balKind.value = 'none'; balAmount.value = 0; showForm.value = true }
 function openEdit(c: Customer) { editId.value = c.id; name.value = c.name; phone.value = c.phone ?? ''; showForm.value = true }
 async function save() {
   if (!name.value.trim()) return
-  await saveCustomer(name.value.trim(), phone.value.trim() || null, editId.value)
+  const newId = await saveCustomer(name.value.trim(), phone.value.trim() || null, editId.value)
+  // Yangi mijozga boshlang'ich (tizimdan oldingi) saldo. Harakat yo'q → dastlabki = belgilangan saldo.
+  if (!editId.value && balKind.value !== 'none' && balAmount.value > 0) {
+    const target = balKind.value === 'debt' ? -Math.abs(balAmount.value) : Math.abs(balAmount.value)
+    await setCustomerBalance(newId, target)
+  }
   showForm.value = false
   await load()
   notify('Saqlandi', 'success')
@@ -161,6 +168,16 @@ async function remove(c: Customer) {
         <div class="space-y-3">
           <div><label class="mb-1 block text-sm font-medium">Ism</label><input v-model="name" autofocus class="h-10 w-full rounded-md border bg-background px-3 text-sm" @keyup.enter="save" /></div>
           <div><label class="mb-1 block text-sm font-medium">Telefon</label><input v-model="phone" placeholder="+998…" class="h-10 w-full rounded-md border bg-background px-3 text-sm" @keyup.enter="save" /></div>
+          <div v-if="!editId">
+            <label class="mb-1 block text-sm font-medium">Boshlang'ich saldo <span class="font-normal text-muted-foreground">(ixtiyoriy — tizimdan oldingi qarz/haqdorlik)</span></label>
+            <div class="flex gap-2">
+              <button type="button" @click="balKind = 'none'" class="h-9 flex-1 rounded-md border text-sm" :class="balKind === 'none' ? 'border-primary bg-primary/10 text-primary' : ''">Yo'q</button>
+              <button type="button" @click="balKind = 'debt'" class="h-9 flex-1 rounded-md border text-sm" :class="balKind === 'debt' ? 'border-rose-500 bg-rose-500/10 text-rose-600' : ''">Qarzdor</button>
+              <button type="button" @click="balKind = 'credit'" class="h-9 flex-1 rounded-md border text-sm" :class="balKind === 'credit' ? 'border-emerald-500 bg-emerald-500/10 text-emerald-600' : ''">Haqdor</button>
+            </div>
+            <input v-if="balKind !== 'none'" v-model.number="balAmount" type="number" min="0" placeholder="Summa"
+              class="mt-2 h-10 w-full rounded-md border bg-background px-3 text-sm font-semibold tabular-nums" @keyup.enter="save" />
+          </div>
         </div>
         <div class="mt-5 flex gap-2">
           <button @click="save" class="h-10 flex-1 rounded-md bg-primary text-sm font-medium text-primary-foreground hover:bg-primary/90">Saqlash</button>

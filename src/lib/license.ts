@@ -8,7 +8,9 @@ const TRIAL_DAYS = Number(import.meta.env.VITE_TRIAL_DAYS ?? '15') || 15
 // Yaxlitlik (tamper) maxfiyi — trial/guard checksum uchun.
 const INTEGRITY_SECRET = (import.meta.env.VITE_INTEGRITY_SECRET ?? '').trim()
 const DAY = 86400000
-const OWNER_MASTER = (import.meta.env.VITE_OWNER_MASTER ?? import.meta.env.VITE_RECOVERY_MASTER ?? '').trim()
+// Master kalit OCHIQ matn emas — faqat SHA-512 hash bundle'da. Kalit so'zning o'zi
+// kodda yo'q → bundle'ni o'qib topib bo'lmaydi. (Hash hex, kichik harf.)
+const OWNER_MASTER_HASH = (import.meta.env.VITE_OWNER_MASTER_HASH ?? '').trim().toLowerCase()
 
 // --- base64 (binary-safe, url-agnostik) ---
 function b64ToBytes(s: string): Uint8Array {
@@ -139,7 +141,13 @@ export async function deactivate(): Promise<void> {
 }
 
 // ---- Egasi uchun generator (seed dasturda saqlanmaydi, qo'lda kiritiladi) ----
-export function isOwnerMaster(input: string): boolean { return OWNER_MASTER !== '' && input.trim() === OWNER_MASTER }
+// SHA-512 hex (sync, nacl orqali) — master kalitni ochiq saqlamasdan tekshirish uchun.
+function sha512hex(s: string): string {
+  return Array.from(nacl.hash(enc.encode(s))).map((b) => b.toString(16).padStart(2, '0')).join('')
+}
+export function isOwnerMaster(input: string): boolean {
+  return OWNER_MASTER_HASH !== '' && sha512hex(input.trim().toUpperCase()) === OWNER_MASTER_HASH
+}
 export function generateKey(deviceId: string, exp: string | null, secretSeedB64: string): string {
   const sk = b64ToBytes(secretSeedB64)
   if (sk.length !== 64) throw new Error('Maxfiy kalit (seed) noto\'g\'ri — 64 baytli secretKey base64 bo\'lishi kerak')

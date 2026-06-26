@@ -41,8 +41,7 @@ jobs:
         shell: bash
         run: |
           cat > .env <<EOF
-          VITE_RECOVERY_MASTER=${{ secrets.VITE_RECOVERY_MASTER }}
-          VITE_OWNER_MASTER=${{ secrets.VITE_OWNER_MASTER }}
+          VITE_OWNER_MASTER_HASH=${{ secrets.VITE_OWNER_MASTER_HASH }}
           VITE_INTEGRITY_SECRET=${{ secrets.VITE_INTEGRITY_SECRET }}
           VITE_DEFAULT_PIN=${{ secrets.VITE_DEFAULT_PIN }}
           VITE_LICENSE_PUBKEY=${{ vars.VITE_LICENSE_PUBKEY }}
@@ -50,8 +49,7 @@ jobs:
           VITE_SUPPORT_PHONE=${{ vars.VITE_SUPPORT_PHONE }}
           VITE_SUPPORT_NAME=${{ vars.VITE_SUPPORT_NAME }}
           VITE_SITE_URL=${{ vars.VITE_SITE_URL }}
-          VITE_BACKUP_REPO=${{ vars.VITE_BACKUP_REPO }}
-          VITE_BACKUP_TOKEN=${{ secrets.VITE_BACKUP_TOKEN }}
+          VITE_BACKUP_PROXY_URL=${{ vars.VITE_BACKUP_PROXY_URL }}
           EOF
 
       # Updater artefaktlarini imzolaydi (latest.json + .sig)

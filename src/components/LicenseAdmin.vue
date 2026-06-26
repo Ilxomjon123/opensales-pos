@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-import { X, KeyRound, Copy, Check, Eye, EyeOff } from 'lucide-vue-next'
+import { ref, nextTick } from 'vue'
+import QRCode from 'qrcode'
+import { X, KeyRound, Copy, Check, Eye, EyeOff, QrCode as QrCodeIcon } from 'lucide-vue-next'
 import { isOwnerMaster, generateKey, deactivate } from '../lib/license'
 import { confirmDialog } from '../lib/confirm'
 import { notify } from '../lib/notify'
+import QrScanButton from './QrScanButton.vue'
 
 const props = defineProps<{ deviceId: string }>()
 const emit = defineEmits<{ close: [] }>()
@@ -20,6 +22,19 @@ const rememberSeed = ref(!!localStorage.getItem('owner_seed'))
 const result = ref('')
 const copied = ref(false)
 const showSeed = ref(false)
+const showQr = ref(false)
+const qrCanvas = ref<HTMLCanvasElement | null>(null)
+
+async function toggleQr() {
+  showQr.value = !showQr.value
+  if (showQr.value) {
+    await nextTick()
+    if (qrCanvas.value) {
+      try { await QRCode.toCanvas(qrCanvas.value, result.value, { width: 256, margin: 1, errorCorrectionLevel: 'L' }) }
+      catch (e: any) { notify(e?.message ?? 'QR yaratib bo\'lmadi', 'error'); showQr.value = false }
+    }
+  }
+}
 
 function unlock() {
   if (isOwnerMaster(master.value)) { unlocked.value = true; masterErr.value = '' }
@@ -36,6 +51,7 @@ function expFromDuration(): string | null {
 
 function generate() {
   result.value = ''
+  showQr.value = false
   if (!targetDevice.value.trim()) { notify('Qurilma ID kiriting', 'error'); return }
   if (duration.value === 'custom' && !customDate.value) { notify('Sanani tanlang', 'error'); return }
   if (!seed.value.trim()) { notify('Maxfiy kalit (seed) kiriting', 'error'); return }
@@ -70,8 +86,11 @@ async function revoke() {
       <!-- Master gate -->
       <div v-if="!unlocked" class="space-y-3">
         <p class="text-sm text-muted-foreground">Bu bo'lim faqat dastur egasi uchun. Master kalitni kiriting.</p>
-        <input v-model="master" type="password" placeholder="Master kalit" autofocus
-          class="h-11 w-full rounded-lg border bg-background px-3 text-sm focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none" @keyup.enter="unlock" />
+        <div class="flex gap-2">
+          <input v-model="master" type="password" placeholder="Master kalit" autofocus
+            class="h-11 w-full rounded-lg border bg-background px-3 text-sm focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none" @keyup.enter="unlock" />
+          <QrScanButton @decoded="master = $event" />
+        </div>
         <p v-if="masterErr" class="text-sm text-rose-500">{{ masterErr }}</p>
         <button @click="unlock" class="h-10 w-full rounded-lg bg-primary text-sm font-medium text-primary-foreground hover:bg-primary/90">Kirish</button>
       </div>
@@ -97,12 +116,15 @@ async function revoke() {
         </div>
         <div>
           <label class="mb-1 block text-sm font-medium">Maxfiy kalit (seed) — base64 secretKey</label>
-          <div class="relative">
-            <input v-model="seed" :type="showSeed ? 'text' : 'password'" placeholder="Faqat sizda. Dasturga joylanmaydi."
-              class="h-10 w-full rounded-md border bg-background px-3 pr-10 font-mono text-xs focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none" />
-            <button type="button" @click="showSeed = !showSeed" class="absolute top-1/2 right-2 -translate-y-1/2 rounded p-1 text-muted-foreground hover:text-foreground">
-              <component :is="showSeed ? EyeOff : Eye" class="h-4 w-4" />
-            </button>
+          <div class="flex gap-2">
+            <div class="relative w-full">
+              <input v-model="seed" :type="showSeed ? 'text' : 'password'" placeholder="Faqat sizda. Dasturga joylanmaydi."
+                class="h-10 w-full rounded-md border bg-background px-3 pr-10 font-mono text-xs focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none" />
+              <button type="button" @click="showSeed = !showSeed" class="absolute top-1/2 right-2 -translate-y-1/2 rounded p-1 text-muted-foreground hover:text-foreground">
+                <component :is="showSeed ? EyeOff : Eye" class="h-4 w-4" />
+              </button>
+            </div>
+            <QrScanButton @decoded="seed = $event" />
           </div>
           <label class="mt-1.5 flex items-center gap-2 text-xs text-muted-foreground"><input v-model="rememberSeed" type="checkbox" class="rounded" /> Shu kompyuterda eslab qol</label>
         </div>
@@ -111,9 +133,19 @@ async function revoke() {
         <div v-if="result" class="space-y-2 rounded-lg border bg-muted/40 p-3">
           <div class="text-xs font-medium text-muted-foreground">Aktivatsiya kaliti (mijozga yuboring):</div>
           <div class="rounded-md border bg-background p-2 font-mono text-xs break-all">{{ result }}</div>
-          <button @click="copyKey" class="flex h-8 items-center gap-1.5 rounded-md border px-3 text-xs font-medium hover:bg-muted">
-            <component :is="copied ? Check : Copy" class="h-3.5 w-3.5" /> {{ copied ? 'Nusxalandi' : 'Nusxalash' }}
-          </button>
+          <div class="flex gap-2">
+            <button @click="copyKey" class="flex h-8 items-center gap-1.5 rounded-md border px-3 text-xs font-medium hover:bg-muted">
+              <component :is="copied ? Check : Copy" class="h-3.5 w-3.5" /> {{ copied ? 'Nusxalandi' : 'Nusxalash' }}
+            </button>
+            <button @click="toggleQr" class="flex h-8 items-center gap-1.5 rounded-md border px-3 text-xs font-medium hover:bg-muted">
+              <QrCodeIcon class="h-3.5 w-3.5" /> {{ showQr ? 'QR yashirish' : 'QR ko\'rsatish' }}
+            </button>
+          </div>
+          <div v-if="showQr" class="flex justify-center pt-1">
+            <div class="rounded-lg bg-white p-3">
+              <canvas ref="qrCanvas" class="block"></canvas>
+            </div>
+          </div>
         </div>
 
         <div class="mt-2 border-t pt-3">

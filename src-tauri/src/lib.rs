@@ -104,6 +104,13 @@ CREATE INDEX IF NOT EXISTS idx_cust_pay ON customer_payments(customer_id);
         "#,
         kind: MigrationKind::Up,
     },
+    Migration {
+        version: 4,
+        description: "customer_opening_balance",
+        // Tizim o'rnatilgunga qadar bo'lgan saldo (dastlabki). balance = opening_balance + (to'lovlar − qarzlar).
+        sql: "ALTER TABLE customers ADD COLUMN opening_balance INTEGER NOT NULL DEFAULT 0;",
+        kind: MigrationKind::Up,
+    },
     ];
 
     tauri::Builder::default()

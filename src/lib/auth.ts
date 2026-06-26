@@ -1,13 +1,19 @@
 import { ref } from 'vue'
+import nacl from 'tweetnacl'
 import { getSetting, setSetting } from './db'
 
 export const isAuthed = ref<boolean>(sessionStorage.getItem('authed') === '1')
 
-// PIN unutilganda maxsus kalit so'z bilan qayta o'rnatish.
+// SHA-512 hex (sync) — kalit so'zni ochiq saqlamaslik uchun.
+function sha512hex(s: string): string {
+  return Array.from(nacl.hash(new TextEncoder().encode(s))).map((b) => b.toString(16).padStart(2, '0')).join('')
+}
+
+// PIN unutilganda owner master kalit bilan qayta o'rnatish.
+// BITTA kalit — owner master (VITE_OWNER_MASTER_HASH) hamma joyda ishlaydi.
 export async function verifyRecoveryKey(recoveryKey: string): Promise<boolean> {
-  // Faqat .env dagi master kalit (build-time). DB'da saqlanmaydi.
-  const master = (import.meta.env.VITE_RECOVERY_MASTER ?? '').trim().toUpperCase()
-  return master !== '' && recoveryKey.trim().toUpperCase() === master
+  const hash = (import.meta.env.VITE_OWNER_MASTER_HASH ?? '').trim().toLowerCase()
+  return hash !== '' && sha512hex(recoveryKey.trim().toUpperCase()) === hash
 }
 export async function setPin(newPin: string): Promise<void> {
   if (!/^\d{4}$/.test(newPin)) throw new Error('PIN 4 raqam bo\'lishi kerak')
