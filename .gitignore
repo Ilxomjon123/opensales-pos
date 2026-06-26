@@ -33,3 +33,6 @@ src-tauri/target
 *.db-wal
 .env
 .env.local
+
+# Android signing keystore (maxfiy)
+*.jks

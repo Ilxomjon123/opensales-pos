@@ -1,0 +1,113 @@
+name: android
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install NDK
+        run: sdkmanager "ndk;28.2.13676358"
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: Install deps
+        run: npm install --no-audit --no-fund
+
+      - name: Write .env from secrets/vars
+        shell: bash
+        run: |
+          cat > .env <<EOF
+          VITE_RECOVERY_MASTER_HASH=${{ secrets.VITE_RECOVERY_MASTER_HASH }}
+          VITE_OWNER_MASTER_HASH=${{ secrets.VITE_OWNER_MASTER_HASH }}
+          VITE_INTEGRITY_SECRET=${{ secrets.VITE_INTEGRITY_SECRET }}
+          VITE_DEFAULT_PIN=${{ secrets.VITE_DEFAULT_PIN }}
+          VITE_LICENSE_PUBKEY=${{ vars.VITE_LICENSE_PUBKEY }}
+          VITE_TRIAL_DAYS=${{ vars.VITE_TRIAL_DAYS }}
+          VITE_SUPPORT_PHONE=${{ vars.VITE_SUPPORT_PHONE }}
+          VITE_SUPPORT_NAME=${{ vars.VITE_SUPPORT_NAME }}
+          VITE_SITE_URL=${{ vars.VITE_SITE_URL }}
+          VITE_BACKUP_PROXY_URL=${{ vars.VITE_BACKUP_PROXY_URL }}
+          EOF
+
+      # Release imzo kaliti — secrets'dan keystore.properties + .jks yoziladi.
+      # Secret bo'lmasa imzosiz qoladi (faqat sinov uchun).
+      - name: Configure signing
+        if: env.ANDROID_KEYSTORE_BASE64 != ''
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          cd src-tauri/gen/android
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > keystore.jks
+          cat > keystore.properties <<EOF
+          storeFile=keystore.jks
+          storePassword=$ANDROID_KEYSTORE_PASSWORD
+          keyAlias=$ANDROID_KEY_ALIAS
+          keyPassword=$ANDROID_KEY_PASSWORD
+          EOF
+
+      - name: Build APK + AAB
+        env:
+          NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/28.2.13676358
+        run: npx tauri android build --apk --aab
+
+      - name: Collect artifacts
+        id: collect
+        run: |
+          set -e
+          TAG="${{ github.ref_name }}"
+          OUT=android-dist
+          mkdir -p "$OUT"
+          APK=$(find src-tauri/gen/android -path '*apk/universal/release/*.apk' | head -1)
+          AAB=$(find src-tauri/gen/android -path '*bundle/universalRelease/*.aab' | head -1)
+          [ -n "$APK" ] && cp "$APK" "$OUT/OpenSales-POS_${TAG}_android.apk" || echo "no apk"
+          [ -n "$AAB" ] && cp "$AAB" "$OUT/OpenSales-POS_${TAG}_android.aab" || echo "no aab"
+          ls -la "$OUT"
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: android
+          path: android-dist/*
+
+      # Tag push'da — ochiq releases repoga APK ni yuklaymiz (desktop bilan bir joyda).
+      - name: Publish APK to releases repo
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          PUB_TOKEN: ${{ secrets.GH_RELEASES_TOKEN }}
+        run: |
+          set -e
+          TAG="${{ github.ref_name }}"
+          PUB=Ilxomjon123/opensales-pos-releases
+          GH_TOKEN=$PUB_TOKEN gh release view "$TAG" -R "$PUB" >/dev/null 2>&1 \
+            || GH_TOKEN=$PUB_TOKEN gh release create "$TAG" -R "$PUB" -t "OpenSales POS $TAG" --notes "OpenSales POS $TAG"
+          GH_TOKEN=$PUB_TOKEN gh release upload "$TAG" -R "$PUB" android-dist/* --clobber

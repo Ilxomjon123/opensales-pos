@@ -13,8 +13,6 @@
     "sql:allow-select",
     "sql:allow-close",
     "log:default",
-    "updater:default",
-    "process:default",
     "os:default",
     "os:allow-hostname",
     "opener:default",

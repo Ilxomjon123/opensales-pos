@@ -118,7 +118,7 @@ async function remove(c: Customer) {
       </select>
     </div>
 
-    <div class="flex-1 overflow-auto">
+    <div class="flex-1 overflow-auto pb-[calc(env(safe-area-inset-bottom)+5rem)] lg:pb-0">
       <table class="w-full text-sm">
         <thead class="sticky top-0 z-10 border-b bg-muted text-left text-xs tracking-wide text-muted-foreground uppercase">
           <tr><th class="px-4 py-3">Mijoz</th><th class="px-4 py-3">Telefon</th><th class="px-4 py-3 text-right">Saldo</th><th class="px-4 py-3">Holat</th><th class="px-4 py-3"></th></tr>

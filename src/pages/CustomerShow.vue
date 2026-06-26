@@ -90,7 +90,7 @@ async function saveBal() {
       </div>
     </header>
 
-    <div class="flex-1 space-y-5 overflow-auto p-6">
+    <div class="flex-1 space-y-5 overflow-auto p-4 pb-[calc(env(safe-area-inset-bottom)+5.5rem)] sm:p-6 lg:pb-6">
       <div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <div class="rounded-xl border bg-card p-4">
           <div class="text-xs text-muted-foreground">Joriy saldo</div>

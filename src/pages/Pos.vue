@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { Search, Plus, Minus, Trash2, Package, ShoppingCart, X, ClipboardList, LogOut, Magnet } from 'lucide-vue-next'
+import { Search, Plus, Minus, Trash2, Package, ShoppingCart, X, ClipboardList, LogOut, Magnet, ChevronUp } from 'lucide-vue-next'
 import {
   listProducts, listCategories, listCustomers, activeShift, openShift, closeShift,
   shiftStats, createSale, getSetting, type Product, type Category, type Customer, type Shift, type CartLine,
@@ -25,6 +25,8 @@ const paidCash = ref(0)
 const paidCard = ref(0)
 const submitting = ref(false)
 const toast = ref('')
+// Mobil: savat pastdan ko'tariladigan sheet sifatida ochiladi.
+const cartOpen = ref(false)
 
 // Savat paneli kengligi (resize)
 const clampW = (w: number) => Math.min(640, Math.max(300, w))
@@ -149,6 +151,7 @@ async function submit() {
       debt: sale.debt_amount,
     }
     clearCart()
+    cartOpen.value = false
     await reload()
   } catch (e: any) {
     toast.value = e?.message ?? 'Xato'
@@ -200,7 +203,7 @@ async function doCloseShift() {
   <div v-else class="flex h-full" :class="dragging ? 'select-none' : ''">
     <!-- Chap: mahsulotlar -->
     <div class="flex min-w-0 flex-1 flex-col gap-3 overflow-hidden p-4">
-      <div class="flex items-center gap-3 rounded-xl border bg-card p-3">
+      <div class="flex flex-wrap items-center gap-2 rounded-xl border bg-card p-2.5 sm:gap-3 sm:p-3">
         <div class="flex items-center gap-2 text-sm">
           <div class="flex h-9 w-9 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-600">
             <ClipboardList class="h-4 w-4" />
@@ -210,15 +213,15 @@ async function doCloseShift() {
             <div class="text-xs text-muted-foreground">{{ stats.sales_count }} ta · {{ moneySum(stats.total_sales) }}</div>
           </div>
         </div>
-        <div class="relative ml-auto w-72">
+        <button @click="showClose = true"
+          class="order-2 ml-auto flex h-9 items-center gap-2 rounded-md border px-3 text-sm hover:bg-muted sm:order-3">
+          <LogOut class="h-4 w-4" /> <span class="hidden sm:inline">Smenani yopish</span>
+        </button>
+        <div class="relative order-3 w-full sm:order-2 sm:ml-auto sm:w-56 lg:w-72">
           <Search class="absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <input v-model="search" placeholder="Mahsulot qidirish…"
             class="h-9 w-full rounded-md border bg-background pl-9 pr-2 text-sm focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none" />
         </div>
-        <button @click="showClose = true"
-          class="flex h-9 items-center gap-2 rounded-md border px-3 text-sm hover:bg-muted">
-          <LogOut class="h-4 w-4" /> Smenani yopish
-        </button>
       </div>
 
       <!-- Kategoriya tablar -->
@@ -236,7 +239,7 @@ async function doCloseShift() {
       </div>
 
       <!-- Grid -->
-      <div class="grid flex-1 auto-rows-max grid-cols-[repeat(auto-fill,minmax(150px,1fr))] items-start gap-3 overflow-y-auto">
+      <div class="grid flex-1 auto-rows-max grid-cols-[repeat(auto-fill,minmax(140px,1fr))] items-start gap-2.5 overflow-y-auto pb-20 sm:gap-3 lg:pb-0">
         <button v-for="p in filtered" :key="p.id" type="button" :disabled="!allowNegative && p.stock <= 0" @click="addProduct(p)"
           class="group flex flex-col overflow-hidden rounded-xl border bg-card text-left transition hover:border-primary/40 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-50">
           <div class="relative h-28 w-full shrink-0 bg-muted">
@@ -254,13 +257,25 @@ async function doCloseShift() {
       </div>
     </div>
 
-    <!-- Resize handle -->
-    <div @pointerdown="startDrag" class="group/handle relative w-1 shrink-0 cursor-col-resize bg-border transition hover:bg-primary/60" :class="dragging ? 'bg-primary' : ''">
+    <!-- Resize handle (faqat desktop) -->
+    <div @pointerdown="startDrag" class="group/handle relative hidden w-1 shrink-0 cursor-col-resize bg-border transition hover:bg-primary/60 lg:block" :class="dragging ? 'bg-primary' : ''">
       <div class="absolute inset-y-0 -left-1.5 -right-1.5"></div>
     </div>
 
-    <!-- O'ng: savat -->
-    <aside class="flex shrink-0 flex-col bg-card" :style="{ width: cartW + 'px' }">
+    <!-- Mobil savat backdrop -->
+    <div v-if="cartOpen" class="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm lg:hidden" @click="cartOpen = false"></div>
+
+    <!-- O'ng: savat. Desktop'da yon panel, mobil'da pastdan ko'tariladigan sheet. -->
+    <aside
+      :style="{ '--cart-w': cartW + 'px' }"
+      class="fixed inset-x-0 bottom-0 z-50 flex max-h-[90vh] flex-col rounded-t-2xl border-t bg-card shadow-2xl transition-transform duration-300 lg:static lg:z-auto lg:max-h-none lg:w-[var(--cart-w)] lg:translate-y-0 lg:rounded-none lg:border-t-0 lg:border-l lg:shadow-none"
+      :class="cartOpen ? 'translate-y-0' : 'translate-y-full lg:translate-y-0'"
+    >
+      <!-- Mobil sheet sarlavhasi -->
+      <div class="flex shrink-0 items-center justify-between border-b px-4 py-2.5 lg:hidden">
+        <div class="flex items-center gap-2 text-sm font-semibold"><ShoppingCart class="h-4 w-4" /> Savat · {{ cart.length }}</div>
+        <button @click="cartOpen = false" class="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted"><X class="h-4 w-4" /></button>
+      </div>
       <!-- Mijoz -->
       <div class="shrink-0 space-y-2 border-b p-4">
         <span class="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Mijoz</span>
@@ -308,7 +323,7 @@ async function doCloseShift() {
       </div>
 
       <!-- To'lov -->
-      <div class="shrink-0 space-y-3 border-t p-4">
+      <div class="shrink-0 space-y-3 border-t p-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] lg:pb-4">
         <div class="flex items-center justify-between rounded-lg bg-muted/40 px-3 py-2">
           <span class="text-sm font-medium text-muted-foreground">JAMI</span>
           <span class="text-2xl font-bold tabular-nums">{{ moneySum(total) }}</span>
@@ -347,6 +362,22 @@ async function doCloseShift() {
         </button>
       </div>
     </aside>
+
+    <!-- Mobil mini savat bar — app tab bar ustida suzadi -->
+    <button
+      v-if="!cartOpen"
+      type="button"
+      @click="cartOpen = true"
+      class="fixed inset-x-3 bottom-[calc(env(safe-area-inset-bottom)+4.6rem)] z-30 flex items-center gap-3 rounded-2xl border border-border/50 bg-primary px-4 py-3 text-primary-foreground shadow-lg backdrop-blur-xl active:scale-[0.98] lg:hidden"
+    >
+      <div class="relative">
+        <ShoppingCart class="h-5 w-5" />
+        <span v-if="cart.length" class="absolute -right-2 -top-2 flex h-4 min-w-4 items-center justify-center rounded-full bg-background px-1 text-[10px] font-bold text-foreground">{{ cart.length }}</span>
+      </div>
+      <span class="text-sm font-semibold">Savat</span>
+      <span class="ml-auto text-base font-bold tabular-nums">{{ moneySum(total) }}</span>
+      <ChevronUp class="h-4 w-4 opacity-80" />
+    </button>
   </div>
 
   <!-- Smena yopish -->

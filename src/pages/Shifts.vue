@@ -70,7 +70,7 @@ function pickStatus(v: 'open' | 'closed') { statusFilter.value = statusFilter.va
       </select>
     </div>
 
-    <div class="flex-1 overflow-auto">
+    <div class="flex-1 overflow-auto pb-[calc(env(safe-area-inset-bottom)+5rem)] lg:pb-0">
       <table class="w-full text-sm">
         <thead class="sticky top-0 z-10 border-b bg-muted text-left text-xs tracking-wide text-muted-foreground uppercase">
           <tr><th class="px-4 py-3">#</th><th class="px-4 py-3">Ochilgan</th><th class="px-4 py-3">Yopilgan</th><th class="px-4 py-3 text-right">Sotuvlar</th><th class="px-4 py-3 text-right">Summa</th><th class="px-4 py-3">Holat</th></tr>

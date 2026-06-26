@@ -1,6 +1,7 @@
 import { ref } from 'vue'
 import { check, type Update } from '@tauri-apps/plugin-updater'
 import { relaunch } from '@tauri-apps/plugin-process'
+import { isMobile } from './platform'
 
 export const updateInfo = ref<{ version: string; notes: string } | null>(null)
 export const updating = ref(false)
@@ -12,6 +13,9 @@ export type CheckResult = 'available' | 'latest' | 'offline' | 'error'
 
 // Yangi versiyani tekshiradi. Internetsizda osilmasligi uchun timeout bor.
 export async function checkForUpdate(): Promise<CheckResult> {
+  // Mobil (Android/iOS) yangilanish Play Store / App Store orqali — Tauri
+  // updater mobil'da ishlamaydi, shu sabab o'tkazib yuboramiz.
+  if (isMobile) return 'latest'
   if (!navigator.onLine) return 'offline'
   checking.value = true
   try {
@@ -31,7 +35,7 @@ export async function checkForUpdate(): Promise<CheckResult> {
 }
 
 export async function installUpdate(): Promise<void> {
-  if (!_update) return
+  if (isMobile || !_update) return
   updating.value = true
   updateProgress.value = 0
   let total = 0

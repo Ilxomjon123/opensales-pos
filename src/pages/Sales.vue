@@ -112,7 +112,7 @@ function itemQtyUnit(i: SaleItem) { return `${i.qty} ${i.unit}` }
       </select>
     </div>
 
-    <div class="flex-1 overflow-auto">
+    <div class="flex-1 overflow-auto pb-[calc(env(safe-area-inset-bottom)+5rem)] lg:pb-0">
       <table class="w-full text-sm">
         <thead class="sticky top-0 z-10 border-b bg-muted text-left text-xs tracking-wide text-muted-foreground uppercase">
           <tr>

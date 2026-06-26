@@ -79,7 +79,7 @@ watch([dateFrom, dateTo], load)
       </div>
     </div>
 
-    <div class="flex-1 space-y-4 overflow-auto p-6">
+    <div class="flex-1 space-y-4 overflow-auto p-4 pb-[calc(env(safe-area-inset-bottom)+5.5rem)] sm:p-6 lg:pb-6">
       <div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <div class="rounded-xl border bg-card p-4">
           <div class="flex items-center gap-2 text-xs text-muted-foreground"><Receipt class="h-4 w-4" /> Davr sotuvlari</div>

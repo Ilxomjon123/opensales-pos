@@ -201,20 +201,20 @@ async function save() {
 
 <template>
   <div class="flex h-full flex-col overflow-hidden">
-    <header class="flex items-center justify-between border-b px-6 py-4">
-      <div>
-        <h1 class="cursor-default text-lg font-semibold select-none" @click="tapTitle">Sozlamalar</h1>
-        <p class="text-sm text-muted-foreground">Do'kon va tizim parametrlari</p>
+    <header class="flex items-center justify-between gap-2 border-b px-4 py-3 sm:px-6 sm:py-4">
+      <div class="min-w-0">
+        <h1 class="cursor-default truncate text-lg font-semibold select-none" @click="tapTitle">Sozlamalar</h1>
+        <p class="hidden text-sm text-muted-foreground sm:block">Do'kon va tizim parametrlari</p>
       </div>
-      <div class="flex items-center gap-3">
-        <span v-if="saved" class="flex items-center gap-1 text-sm text-emerald-600"><Check class="h-4 w-4" /> Saqlandi</span>
-        <button @click="showLogs = true" class="flex h-9 items-center gap-1.5 rounded-lg border px-3 text-sm hover:bg-muted"><FileText class="h-4 w-4" /> Loglar</button>
-        <button @click="save" class="h-9 rounded-lg bg-primary px-5 text-sm font-medium text-primary-foreground transition hover:bg-primary/90">Saqlash</button>
+      <div class="flex items-center gap-2 sm:gap-3">
+        <span v-if="saved" class="flex items-center gap-1 text-sm text-emerald-600"><Check class="h-4 w-4" /> <span class="hidden sm:inline">Saqlandi</span></span>
+        <button @click="showLogs = true" class="flex h-9 items-center gap-1.5 rounded-lg border px-3 text-sm hover:bg-muted"><FileText class="h-4 w-4" /> <span class="hidden sm:inline">Loglar</span></button>
+        <button @click="save" class="h-9 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground transition hover:bg-primary/90 sm:px-5">Saqlash</button>
       </div>
     </header>
 
-    <div class="flex-1 overflow-auto p-6">
-      <div class="mx-auto grid max-w-4xl gap-5 lg:grid-cols-2">
+    <div class="flex-1 overflow-auto p-4 pb-[calc(env(safe-area-inset-bottom)+5.5rem)] sm:p-6 lg:pb-6">
+      <div class="mx-auto grid max-w-4xl gap-4 sm:gap-5 lg:grid-cols-2">
         <!-- Do'kon -->
         <section class="rounded-xl border bg-card p-5">
           <div class="mb-4 flex items-center gap-2 text-sm font-semibold"><Store class="h-4 w-4 text-primary" /> Do'kon</div>

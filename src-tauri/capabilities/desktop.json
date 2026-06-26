@@ -1,0 +1,11 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "desktop",
+  "description": "Desktop-only permissions: auto-update + process restart. Updater/process plugins are not compiled on mobile, so these must stay desktop-scoped.",
+  "platforms": ["macOS", "windows", "linux"],
+  "windows": ["main"],
+  "permissions": [
+    "updater:default",
+    "process:default"
+  ]
+}
