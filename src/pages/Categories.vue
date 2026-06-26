@@ -48,16 +48,16 @@ async function remove(c: Category) {
 
 <template>
   <div class="flex h-full flex-col overflow-hidden">
-    <header class="flex items-center justify-between border-b px-6 py-4">
-      <div>
+    <header class="page-header flex items-center justify-between gap-2">
+      <div class="min-w-0">
         <h1 class="text-lg font-semibold">Kategoriyalar</h1>
-        <p class="text-sm text-muted-foreground">{{ stats.count }} ta · {{ stats.products }} mahsulot</p>
+        <p class="truncate text-sm text-muted-foreground">{{ stats.count }} ta · {{ stats.products }} mahsulot</p>
       </div>
-      <button @click="openNew" class="flex h-9 items-center gap-1.5 rounded-lg bg-primary px-3.5 text-sm font-medium text-primary-foreground transition hover:bg-primary/90"><Plus class="h-4 w-4" /> Yangi</button>
+      <button @click="openNew" class="flex h-9 shrink-0 items-center gap-1.5 rounded-lg bg-primary px-3.5 text-sm font-medium text-primary-foreground transition hover:bg-primary/90"><Plus class="h-4 w-4" /> Yangi</button>
     </header>
 
     <!-- Stat kartalar -->
-    <div class="grid grid-cols-3 gap-3 border-b px-6 py-4">
+    <div class="grid grid-cols-3 gap-2.5 border-b px-4 py-3 sm:gap-3 sm:px-6 sm:py-4">
       <div class="flex items-center gap-3 rounded-xl border bg-card p-3">
         <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary"><FolderTree class="h-4.5 w-4.5" /></div>
         <div><div class="text-xs text-muted-foreground">Kategoriyalar</div><div class="text-lg font-bold tabular-nums">{{ stats.count }}</div></div>
@@ -73,15 +73,32 @@ async function remove(c: Category) {
     </div>
 
     <!-- Filtrlar -->
-    <div class="flex flex-wrap items-center gap-2 border-b px-6 py-3">
-      <div class="relative min-w-48 flex-1">
+    <div class="flex flex-wrap items-center gap-2 border-b px-4 py-3 sm:px-6">
+      <div class="relative w-full flex-1">
         <Search class="absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <input v-model="search" placeholder="Kategoriya qidirish…" class="h-9 w-full rounded-lg border bg-background pl-9 pr-3 text-sm focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none" />
       </div>
     </div>
 
     <div class="flex-1 overflow-auto pb-[calc(env(safe-area-inset-bottom)+5rem)] lg:pb-0">
-      <table class="w-full text-sm">
+      <!-- Mobil: kartalar ro'yxati -->
+      <ul class="divide-y lg:hidden">
+        <li v-for="c in visible" :key="c.id" class="flex items-center gap-3 px-4 py-3">
+          <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary"><FolderTree class="h-5 w-5" /></div>
+          <div class="min-w-0 flex-1">
+            <div class="truncate font-medium">{{ c.name }}</div>
+            <div class="mt-0.5 text-xs text-muted-foreground tabular-nums">{{ counts[c.id]?.n ?? 0 }} ta · {{ moneySum(counts[c.id]?.sum ?? 0) }}</div>
+          </div>
+          <div class="flex shrink-0 items-center gap-0.5">
+            <button @click="openEdit(c)" class="rounded p-2 text-muted-foreground hover:bg-muted hover:text-foreground"><Pencil class="h-4 w-4" /></button>
+            <button @click="remove(c)" class="rounded p-2 text-muted-foreground hover:bg-rose-500/10 hover:text-rose-600"><Trash2 class="h-4 w-4" /></button>
+          </div>
+        </li>
+        <li v-if="visible.length === 0" class="px-4 py-16 text-center text-muted-foreground"><FolderTree class="mx-auto mb-2 h-8 w-8 opacity-40" /> Kategoriya topilmadi</li>
+        <li v-if="visible.length" class="flex justify-between bg-muted/40 px-4 py-3 text-sm font-semibold"><span>Jami: {{ visible.length }} ta</span><span class="tabular-nums">{{ moneySum(visValue) }}</span></li>
+      </ul>
+
+      <table class="hidden w-full text-sm lg:table">
         <thead class="sticky top-0 z-10 border-b bg-muted text-left text-xs tracking-wide text-muted-foreground uppercase">
           <tr><th class="px-4 py-3">Nom</th><th class="px-4 py-3 text-right">Mahsulotlar</th><th class="px-4 py-3 text-right">Qiymat</th><th class="px-4 py-3"></th></tr>
         </thead>

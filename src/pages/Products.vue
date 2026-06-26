@@ -102,16 +102,16 @@ async function remove(p: Product) {
 
 <template>
   <div class="flex h-full flex-col overflow-hidden">
-    <header class="flex items-center justify-between border-b px-6 py-4">
-      <div>
+    <header class="page-header flex items-center justify-between gap-2">
+      <div class="min-w-0">
         <h1 class="text-lg font-semibold">Mahsulotlar</h1>
-        <p class="text-sm text-muted-foreground">{{ stats.count }} ta · ombor qiymati {{ moneySum(stats.value) }}</p>
+        <p class="truncate text-sm text-muted-foreground">{{ stats.count }} ta · ombor qiymati {{ moneySum(stats.value) }}</p>
       </div>
-      <button @click="openNew" class="flex h-9 items-center gap-1.5 rounded-lg bg-primary px-3.5 text-sm font-medium text-primary-foreground transition hover:bg-primary/90"><Plus class="h-4 w-4" /> Yangi</button>
+      <button @click="openNew" class="flex h-9 shrink-0 items-center gap-1.5 rounded-lg bg-primary px-3.5 text-sm font-medium text-primary-foreground transition hover:bg-primary/90"><Plus class="h-4 w-4" /> Yangi</button>
     </header>
 
     <!-- Stat kartalar -->
-    <div class="grid grid-cols-2 gap-3 border-b px-6 py-4 lg:grid-cols-4">
+    <div class="grid grid-cols-2 gap-2.5 border-b px-4 py-3 sm:gap-3 sm:px-6 sm:py-4 lg:grid-cols-4">
       <div class="flex items-center gap-3 rounded-xl border bg-card p-3">
         <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary"><Boxes class="h-4.5 w-4.5" /></div>
         <div><div class="text-xs text-muted-foreground">Mahsulotlar</div><div class="text-lg font-bold tabular-nums">{{ stats.count }}</div></div>
@@ -131,19 +131,19 @@ async function remove(p: Product) {
     </div>
 
     <!-- Filtrlar -->
-    <div class="flex flex-wrap items-center gap-2 border-b px-6 py-3">
-      <div class="relative min-w-48 flex-1">
+    <div class="flex flex-wrap items-center gap-2 border-b px-4 py-3 sm:px-6">
+      <div class="relative w-full sm:min-w-48 sm:flex-1">
         <Search class="absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <input v-model="search" placeholder="Mahsulot qidirish…" class="h-9 w-full rounded-lg border bg-background pl-9 pr-3 text-sm focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none" />
       </div>
-      <div class="w-52"><SearchableSelect v-model="catFilter" :items="catItems" placeholder="Barcha kategoriyalar" search-placeholder="Kategoriya…" clearable /></div>
-      <select v-model="stockFilter" class="h-9 rounded-lg border bg-card px-3 text-sm">
+      <div class="w-full sm:w-52"><SearchableSelect v-model="catFilter" :items="catItems" placeholder="Barcha kategoriyalar" search-placeholder="Kategoriya…" clearable /></div>
+      <select v-model="stockFilter" class="h-9 flex-1 rounded-lg border bg-card px-3 text-sm sm:flex-none">
         <option value="all">Barcha qoldiq</option>
         <option value="in">Yetarli</option>
         <option value="low">Kam ({{ '≤' + LOW }})</option>
         <option value="out">Tugagan</option>
       </select>
-      <select v-model="statusFilter" class="h-9 rounded-lg border bg-card px-3 text-sm">
+      <select v-model="statusFilter" class="h-9 flex-1 rounded-lg border bg-card px-3 text-sm sm:flex-none">
         <option value="all">Hammasi</option>
         <option value="active">Aktiv</option>
         <option value="inactive">Deaktiv</option>
@@ -151,7 +151,36 @@ async function remove(p: Product) {
     </div>
 
     <div class="flex-1 overflow-auto pb-[calc(env(safe-area-inset-bottom)+5rem)] lg:pb-0">
-      <table class="w-full text-sm">
+      <!-- Mobil: kartalar ro'yxati -->
+      <ul class="divide-y lg:hidden">
+        <li v-for="p in visible" :key="p.id" class="flex items-center gap-3 px-4 py-3" :class="p.is_active ? '' : 'opacity-50'">
+          <img v-if="p.image" :src="p.image" class="h-12 w-12 shrink-0 rounded-lg border object-cover" />
+          <div v-else class="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg border bg-muted text-muted-foreground"><Package class="h-5 w-5" /></div>
+          <div class="min-w-0 flex-1">
+            <div class="flex items-center gap-1.5">
+              <span class="truncate font-medium">{{ p.name }}</span>
+              <span v-if="!p.is_active" class="shrink-0 rounded bg-rose-500/15 px-1.5 py-0.5 text-[10px] font-medium tracking-wide text-rose-600 uppercase">Deaktiv</span>
+            </div>
+            <div class="mt-0.5 truncate text-xs text-muted-foreground">{{ catName(p.category_id) }}</div>
+            <div class="mt-1 flex items-center gap-2 text-sm">
+              <span class="font-semibold tabular-nums">{{ moneySum(p.price) }}</span>
+              <span class="tabular-nums" :class="p.stock <= 0 ? 'text-rose-500' : p.stock <= LOW ? 'text-amber-600' : 'text-muted-foreground'">· {{ p.stock }} {{ p.unit }}</span>
+            </div>
+          </div>
+          <div class="flex shrink-0 flex-col items-end gap-1.5">
+            <div class="flex items-center gap-0.5">
+              <button @click="openEdit(p)" class="rounded p-2 text-muted-foreground hover:bg-muted hover:text-foreground"><Pencil class="h-4 w-4" /></button>
+              <button @click="toggle(p)" class="rounded p-2 text-muted-foreground hover:bg-muted hover:text-foreground"><component :is="p.is_active ? EyeOff : Eye" class="h-4 w-4" /></button>
+              <button @click="remove(p)" class="rounded p-2 text-muted-foreground hover:bg-rose-500/10 hover:text-rose-600"><Trash2 class="h-4 w-4" /></button>
+            </div>
+            <span class="text-xs text-muted-foreground tabular-nums">{{ moneySum(p.price * p.stock) }}</span>
+          </div>
+        </li>
+        <li v-if="visible.length === 0" class="px-4 py-16 text-center text-muted-foreground"><Package class="mx-auto mb-2 h-8 w-8 opacity-40" /> Mahsulot topilmadi</li>
+        <li v-if="visible.length" class="flex justify-between bg-muted/40 px-4 py-3 text-sm font-semibold"><span>Jami: {{ visible.length }} ta</span><span class="tabular-nums">{{ moneySum(totalValue) }}</span></li>
+      </ul>
+
+      <table class="hidden w-full text-sm lg:table">
         <thead class="sticky top-0 z-10 border-b bg-muted text-left text-xs tracking-wide text-muted-foreground uppercase">
           <tr><th class="px-4 py-3">Nom</th><th class="px-4 py-3">Kategoriya</th><th class="px-4 py-3 text-right">Narx</th><th class="px-4 py-3 text-right">Qoldiq</th><th class="px-4 py-3 text-right">Qiymat</th><th class="px-4 py-3"></th></tr>
         </thead>
@@ -189,7 +218,7 @@ async function remove(p: Product) {
     </div>
 
     <div v-if="showForm" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div class="w-full max-w-md rounded-xl border bg-card p-5 shadow-xl">
+      <div class="max-h-[90vh] w-full max-w-md overflow-auto rounded-xl border bg-card p-5 shadow-xl">
         <div class="mb-4 text-lg font-semibold">{{ form.id ? 'Tahrirlash' : 'Yangi mahsulot' }}</div>
         <div class="space-y-3">
           <div class="flex items-center gap-3">

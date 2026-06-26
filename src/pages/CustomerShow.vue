@@ -72,20 +72,20 @@ async function saveBal() {
 
 <template>
   <div class="flex h-full flex-col overflow-hidden">
-    <header class="flex items-center justify-between border-b px-6 py-4">
-      <div class="flex items-center gap-3">
-        <button @click="router.back()" class="rounded-lg p-2 hover:bg-muted"><ArrowLeft class="h-5 w-5" /></button>
-        <div>
-          <h1 class="text-lg font-semibold">{{ customer?.name ?? '—' }}</h1>
-          <p class="text-sm text-muted-foreground">{{ customer?.phone ?? 'Telefon yo\'q' }}</p>
+    <header class="page-header flex items-center justify-between gap-2">
+      <div class="flex min-w-0 items-center gap-2 sm:gap-3">
+        <button @click="router.back()" class="shrink-0 rounded-lg p-2 hover:bg-muted"><ArrowLeft class="h-5 w-5" /></button>
+        <div class="min-w-0">
+          <h1 class="truncate text-lg font-semibold">{{ customer?.name ?? '—' }}</h1>
+          <p class="truncate text-sm text-muted-foreground">{{ customer?.phone ?? 'Telefon yo\'q' }}</p>
         </div>
       </div>
-      <div v-if="customer && !customer.is_walk_in" class="flex items-center gap-2">
-        <button @click="openBal" class="flex h-9 items-center gap-1.5 rounded-lg border px-3.5 text-sm font-medium hover:bg-muted">
-          <Scale class="h-4 w-4" /> Saldoni belgilash
+      <div v-if="customer && !customer.is_walk_in" class="flex shrink-0 items-center gap-2">
+        <button @click="openBal" title="Saldoni belgilash" class="flex h-9 items-center gap-1.5 rounded-lg border px-2.5 text-sm font-medium hover:bg-muted sm:px-3.5">
+          <Scale class="h-4 w-4" /> <span class="hidden sm:inline">Saldoni belgilash</span>
         </button>
-        <button @click="showPay = true" class="flex h-9 items-center gap-1.5 rounded-lg bg-primary px-3.5 text-sm font-medium text-primary-foreground hover:bg-primary/90">
-          <HandCoins class="h-4 w-4" /> To'lov qabul qilish
+        <button @click="showPay = true" title="To'lov qabul qilish" class="flex h-9 items-center gap-1.5 rounded-lg bg-primary px-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 sm:px-3.5">
+          <HandCoins class="h-4 w-4" /> <span class="hidden sm:inline">To'lov qabul qilish</span>
         </button>
       </div>
     </header>
@@ -108,7 +108,24 @@ async function saveBal() {
 
       <div class="overflow-hidden rounded-xl border bg-card">
         <div class="border-b px-4 py-3 text-sm font-semibold">Oldi-berdilar</div>
-        <table class="w-full text-sm">
+        <!-- Mobil: kartalar ro'yxati -->
+        <ul class="divide-y lg:hidden">
+          <li v-for="(r, i) in ledger" :key="i" class="flex items-center gap-3 px-4 py-3">
+            <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full" :class="r.kind === 'payment' ? 'bg-emerald-500/10 text-emerald-600' : r.kind === 'opening' ? 'bg-muted text-muted-foreground' : 'bg-primary/10 text-primary'">
+              <component :is="r.kind === 'payment' ? Wallet : r.kind === 'opening' ? History : Receipt" class="h-4 w-4" />
+            </div>
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center gap-1.5">
+                <span class="truncate text-sm font-medium">{{ r.label }}</span>
+                <span v-if="r.status" class="shrink-0 rounded-full px-1.5 py-0.5 text-[10px]" :class="statusStyles[r.status]">{{ statusLabels[r.status] ?? r.status }}</span>
+              </div>
+              <div class="mt-0.5 text-xs text-muted-foreground">{{ r.kind === 'opening' ? 'Tizimdan oldin' : formatDateTime(r.date) }}</div>
+            </div>
+            <div class="shrink-0 text-right font-semibold tabular-nums" :class="r.debit > 0 ? 'text-rose-500' : 'text-emerald-600'">{{ r.debit > 0 ? '+ ' + moneySum(r.debit) : '− ' + moneySum(r.credit) }}</div>
+          </li>
+          <li v-if="ledger.length === 0" class="px-4 py-12 text-center text-muted-foreground">Hali oldi-berdi yo'q</li>
+        </ul>
+        <table class="hidden w-full text-sm lg:table">
           <thead class="border-b bg-muted/30 text-left text-xs tracking-wide text-muted-foreground uppercase">
             <tr><th class="px-4 py-2.5">Amal</th><th class="px-4 py-2.5">Vaqt</th><th class="px-4 py-2.5 text-right">Qarz (+)</th><th class="px-4 py-2.5 text-right">To'lov (−)</th><th class="px-4 py-2.5">Holat</th></tr>
           </thead>

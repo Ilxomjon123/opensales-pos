@@ -202,7 +202,7 @@ async function doCloseShift() {
   <!-- Terminal -->
   <div v-else class="flex h-full" :class="dragging ? 'select-none' : ''">
     <!-- Chap: mahsulotlar -->
-    <div class="flex min-w-0 flex-1 flex-col gap-3 overflow-hidden p-4">
+    <div class="flex min-w-0 flex-1 flex-col gap-3 overflow-hidden p-4 pt-[calc(env(safe-area-inset-top)+1rem)] lg:pt-4">
       <div class="flex flex-wrap items-center gap-2 rounded-xl border bg-card p-2.5 sm:gap-3 sm:p-3">
         <div class="flex items-center gap-2 text-sm">
           <div class="flex h-9 w-9 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-600">

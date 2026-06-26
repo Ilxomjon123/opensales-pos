@@ -69,13 +69,13 @@ function itemQtyUnit(i: SaleItem) { return `${i.qty} ${i.unit}` }
 
 <template>
   <div class="flex h-full flex-col overflow-hidden">
-    <header class="border-b px-6 py-4">
+    <header class="page-header">
       <h1 class="text-lg font-semibold">Sotuvlar</h1>
-      <p class="text-sm text-muted-foreground">{{ totals.count }} ta · jami {{ moneySum(totals.total) }} · qarz {{ moneySum(totals.debt) }}</p>
+      <p class="truncate text-sm text-muted-foreground">{{ totals.count }} ta · jami {{ moneySum(totals.total) }} · qarz {{ moneySum(totals.debt) }}</p>
     </header>
 
     <!-- Stat kartalar -->
-    <div class="grid grid-cols-2 gap-3 border-b px-6 py-4 lg:grid-cols-4">
+    <div class="grid grid-cols-2 gap-2.5 border-b px-4 py-3 sm:gap-3 sm:px-6 sm:py-4 lg:grid-cols-4">
       <div class="flex items-center gap-3 rounded-xl border bg-card p-3">
         <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary"><Receipt class="h-4.5 w-4.5" /></div>
         <div><div class="text-xs text-muted-foreground">Sotuvlar</div><div class="text-lg font-bold tabular-nums">{{ totals.count }}</div></div>
@@ -94,17 +94,19 @@ function itemQtyUnit(i: SaleItem) { return `${i.qty} ${i.unit}` }
       </button>
     </div>
 
-    <div class="flex flex-wrap items-center gap-2 border-b px-6 py-3">
-      <div class="relative min-w-48 flex-1">
+    <div class="flex flex-wrap items-center gap-2 border-b px-4 py-3 sm:px-6">
+      <div class="relative w-full sm:min-w-48 sm:flex-1">
         <Search class="absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <input v-model="search" placeholder="Chek raqami…" class="h-9 w-full rounded-md border bg-background pl-9 pr-2 text-sm" />
       </div>
-      <div class="w-52"><SearchableSelect v-model="customerId" :items="customerItems" placeholder="Barcha mijozlar" search-placeholder="Mijoz…" clearable /></div>
-      <div class="w-52"><SearchableSelect v-model="productId" :items="productItems" placeholder="Barcha tovarlar" search-placeholder="Tovar nomi…" clearable /></div>
-      <input v-model="dateFrom" type="date" class="h-9 rounded-md border bg-background px-2 text-sm" />
-      <span class="text-muted-foreground">—</span>
-      <input v-model="dateTo" type="date" class="h-9 rounded-md border bg-background px-2 text-sm" />
-      <select v-model="status" class="h-9 rounded-md border bg-card px-3 text-sm">
+      <div class="w-full sm:w-52"><SearchableSelect v-model="customerId" :items="customerItems" placeholder="Barcha mijozlar" search-placeholder="Mijoz…" clearable /></div>
+      <div class="w-full sm:w-52"><SearchableSelect v-model="productId" :items="productItems" placeholder="Barcha tovarlar" search-placeholder="Tovar nomi…" clearable /></div>
+      <div class="flex w-full items-center gap-2 sm:w-auto">
+        <input v-model="dateFrom" type="date" class="h-9 min-w-0 flex-1 rounded-md border bg-background px-2 text-sm sm:flex-none" />
+        <span class="text-muted-foreground">—</span>
+        <input v-model="dateTo" type="date" class="h-9 min-w-0 flex-1 rounded-md border bg-background px-2 text-sm sm:flex-none" />
+      </div>
+      <select v-model="status" class="h-9 w-full rounded-md border bg-card px-3 text-sm sm:w-auto">
         <option value="">Barcha holatlar</option>
         <option value="paid">To'langan</option>
         <option value="partial">Qisman</option>
@@ -113,7 +115,40 @@ function itemQtyUnit(i: SaleItem) { return `${i.qty} ${i.unit}` }
     </div>
 
     <div class="flex-1 overflow-auto pb-[calc(env(safe-area-inset-bottom)+5rem)] lg:pb-0">
-      <table class="w-full text-sm">
+      <!-- Mobil: kartalar ro'yxati -->
+      <ul class="divide-y lg:hidden">
+        <li v-for="s in visible" :key="s.id">
+          <button type="button" class="flex w-full items-center gap-3 px-4 py-3 text-left" @click="toggle(s.id)">
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center gap-2">
+                <span class="inline-flex items-center gap-1 truncate font-medium text-primary"><Receipt class="h-3.5 w-3.5 shrink-0" />{{ s.receipt_number }}</span>
+                <span class="shrink-0 rounded-full px-2 py-0.5 text-[11px]" :class="statusStyles[s.payment_status]">{{ statusLabels[s.payment_status] }}</span>
+              </div>
+              <div class="mt-0.5 truncate text-xs text-muted-foreground">{{ s.customer_name ?? '—' }} · {{ formatDateTime(s.created_at) }}</div>
+            </div>
+            <div class="shrink-0 text-right">
+              <div class="font-semibold tabular-nums">{{ moneySum(s.total) }}</div>
+              <div v-if="s.debt_amount > 0" class="text-xs text-rose-500 tabular-nums">qarz {{ moneySum(s.debt_amount) }}</div>
+            </div>
+            <ChevronDown class="h-4 w-4 shrink-0 text-muted-foreground transition-transform" :class="expanded.has(s.id) ? 'rotate-180' : ''" />
+          </button>
+          <div v-if="expanded.has(s.id)" class="bg-muted/20 px-4 py-3">
+            <div v-for="i in s.items" :key="i.id" class="flex items-center justify-between gap-2 border-b border-border/40 py-1.5 text-xs last:border-0">
+              <span class="min-w-0 flex-1 truncate">{{ i.product_name }}</span>
+              <span class="shrink-0 text-muted-foreground tabular-nums">{{ itemQtyUnit(i) }} × {{ moneySum(i.price) }}</span>
+              <span class="w-20 shrink-0 text-right font-medium tabular-nums">{{ moneySum(i.subtotal) }}</span>
+            </div>
+            <div class="mt-2 flex items-center justify-between">
+              <span class="text-xs text-emerald-600 tabular-nums">To'langan {{ moneySum(s.paid_amount) }}</span>
+              <button @click.stop="printSale(s)" class="flex h-8 items-center gap-1.5 rounded-md border bg-card px-3 text-xs font-medium"><Printer class="h-3.5 w-3.5" /> Chek</button>
+            </div>
+          </div>
+        </li>
+        <li v-if="visible.length === 0" class="px-4 py-12 text-center text-muted-foreground">Sotuv topilmadi</li>
+        <li v-if="visible.length" class="flex justify-between bg-muted/40 px-4 py-3 text-sm font-semibold"><span>Jami: {{ totals.count }} ta</span><span class="tabular-nums">{{ moneySum(totals.total) }}</span></li>
+      </ul>
+
+      <table class="hidden w-full text-sm lg:table">
         <thead class="sticky top-0 z-10 border-b bg-muted text-left text-xs tracking-wide text-muted-foreground uppercase">
           <tr>
             <th class="w-8 px-2 py-3"></th>

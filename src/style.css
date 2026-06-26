@@ -173,6 +173,39 @@
     }
 }
 
+/* --- Mobil/responsiv yordamchilar --- */
+/* Bo'lim sarlavhasi: status bar (kamera/soat) ustiga chiqmasligi uchun
+   yuqoridan safe-area inset qo'shadi. Sticky + bg → scrollda ham ustni yopadi.
+   Desktopda (lg) notch yo'q → oddiy padding. */
+@layer components {
+  .page-header {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    border-bottom: 1px solid var(--border);
+    background: var(--background);
+    padding-left: 1rem;
+    padding-right: 1rem;
+    padding-top: calc(env(safe-area-inset-top) + 0.875rem);
+    padding-bottom: 0.875rem;
+  }
+  @media (min-width: 1024px) {
+    .page-header {
+      padding: 1rem 1.5rem;
+    }
+  }
+  /* Sahifa yuqorisidagi ixtiyoriy blok (filtr/grid) uchun safe-area top —
+     sarlavhasiz sahifalarda (POS) ishlatiladi. */
+  .pt-safe {
+    padding-top: calc(env(safe-area-inset-top) + 0.5rem);
+  }
+  @media (min-width: 1024px) {
+    .pt-safe {
+      padding-top: 0;
+    }
+  }
+}
+
 /* type=number spinner (up/down) ni hamma joydan olib tashlash */
 input[type='number'] {
   -moz-appearance: textfield;

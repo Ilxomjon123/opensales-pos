@@ -72,16 +72,16 @@ async function remove(c: Customer) {
 
 <template>
   <div class="flex h-full flex-col overflow-hidden">
-    <header class="flex items-center justify-between border-b px-6 py-4">
-      <div>
+    <header class="page-header flex items-center justify-between gap-2">
+      <div class="min-w-0">
         <h1 class="text-lg font-semibold">Mijozlar</h1>
-        <p class="text-sm text-muted-foreground">{{ stats.count }} ta · jami qarz {{ moneySum(stats.debt) }}</p>
+        <p class="truncate text-sm text-muted-foreground">{{ stats.count }} ta · jami qarz {{ moneySum(stats.debt) }}</p>
       </div>
-      <button @click="openNew" class="flex h-9 items-center gap-1.5 rounded-lg bg-primary px-3.5 text-sm font-medium text-primary-foreground transition hover:bg-primary/90"><Plus class="h-4 w-4" /> Yangi mijoz</button>
+      <button @click="openNew" class="flex h-9 shrink-0 items-center gap-1.5 rounded-lg bg-primary px-3.5 text-sm font-medium text-primary-foreground transition hover:bg-primary/90"><Plus class="h-4 w-4" /> Yangi<span class="hidden sm:inline">&nbsp;mijoz</span></button>
     </header>
 
     <!-- Stat kartalar -->
-    <div class="grid grid-cols-2 gap-3 border-b px-6 py-4 lg:grid-cols-4">
+    <div class="grid grid-cols-2 gap-2.5 border-b px-4 py-3 sm:gap-3 sm:px-6 sm:py-4 lg:grid-cols-4">
       <div class="flex items-center gap-3 rounded-xl border bg-card p-3">
         <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary"><Users class="h-4.5 w-4.5" /></div>
         <div><div class="text-xs text-muted-foreground">Mijozlar</div><div class="text-lg font-bold tabular-nums">{{ stats.count }}</div></div>
@@ -101,17 +101,17 @@ async function remove(c: Customer) {
     </div>
 
     <!-- Filtrlar -->
-    <div class="flex flex-wrap items-center gap-2 border-b px-6 py-3">
-      <div class="relative min-w-48 flex-1">
+    <div class="flex flex-wrap items-center gap-2 border-b px-4 py-3 sm:px-6">
+      <div class="relative w-full sm:min-w-48 sm:flex-1">
         <Search class="absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <input v-model="search" placeholder="Ism yoki telefon…" class="h-9 w-full rounded-lg border bg-background pl-9 pr-3 text-sm focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none" />
       </div>
-      <select v-model="balFilter" class="h-9 rounded-lg border bg-card px-3 text-sm">
+      <select v-model="balFilter" class="h-9 flex-1 rounded-lg border bg-card px-3 text-sm sm:flex-none">
         <option value="all">Barcha saldo</option>
         <option value="debt">Qarzdorlar</option>
         <option value="credit">Haqdorlar</option>
       </select>
-      <select v-model="statusFilter" class="h-9 rounded-lg border bg-card px-3 text-sm">
+      <select v-model="statusFilter" class="h-9 flex-1 rounded-lg border bg-card px-3 text-sm sm:flex-none">
         <option value="all">Hammasi</option>
         <option value="active">Aktiv</option>
         <option value="inactive">Deaktiv</option>
@@ -119,7 +119,33 @@ async function remove(c: Customer) {
     </div>
 
     <div class="flex-1 overflow-auto pb-[calc(env(safe-area-inset-bottom)+5rem)] lg:pb-0">
-      <table class="w-full text-sm">
+      <!-- Mobil: kartalar ro'yxati -->
+      <ul class="divide-y lg:hidden">
+        <li v-for="c in visible" :key="c.id" class="flex items-center gap-3 px-4 py-3" :class="c.is_active ? '' : 'opacity-50'" @click="go(c)">
+          <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary"><UserCircle2 class="h-5 w-5" /></div>
+          <div class="min-w-0 flex-1" @click="go(c)">
+            <div class="flex items-center gap-1.5">
+              <span class="truncate font-medium">{{ c.name }}</span>
+              <span v-if="c.is_walk_in" class="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium tracking-wide text-muted-foreground uppercase">Anonim</span>
+              <span v-if="!c.is_active" class="shrink-0 rounded bg-rose-500/15 px-1.5 py-0.5 text-[10px] font-medium tracking-wide text-rose-600 uppercase">Deaktiv</span>
+            </div>
+            <div class="mt-0.5 truncate text-xs text-muted-foreground">{{ c.phone ?? '—' }}</div>
+            <div class="mt-1 font-semibold tabular-nums" :class="c.balance < 0 ? 'text-rose-600' : c.balance > 0 ? 'text-emerald-600' : 'text-muted-foreground'">{{ c.balance < 0 ? '− ' + moneySum(-c.balance) : moneySum(c.balance) }}</div>
+          </div>
+          <div class="flex shrink-0 items-center gap-0.5" @click.stop>
+            <template v-if="!c.is_walk_in">
+              <button @click="openEdit(c)" class="rounded p-2 text-muted-foreground hover:bg-muted hover:text-foreground"><Pencil class="h-4 w-4" /></button>
+              <button @click="toggle(c)" class="rounded p-2 text-muted-foreground hover:bg-muted hover:text-foreground"><component :is="c.is_active ? EyeOff : Eye" class="h-4 w-4" /></button>
+              <button @click="remove(c)" class="rounded p-2 text-muted-foreground hover:bg-rose-500/10 hover:text-rose-600"><Trash2 class="h-4 w-4" /></button>
+            </template>
+            <ChevronRight class="h-4 w-4 text-muted-foreground/50" @click="go(c)" />
+          </div>
+        </li>
+        <li v-if="visible.length === 0" class="px-4 py-16 text-center text-muted-foreground"><UserCircle2 class="mx-auto mb-2 h-8 w-8 opacity-40" /> Mijoz topilmadi</li>
+        <li v-if="visible.length" class="flex justify-between bg-muted/40 px-4 py-3 text-sm font-semibold"><span>Jami: {{ visible.length }} ta</span><span class="tabular-nums text-rose-600">{{ moneySum(stats.debt) }}</span></li>
+      </ul>
+
+      <table class="hidden w-full text-sm lg:table">
         <thead class="sticky top-0 z-10 border-b bg-muted text-left text-xs tracking-wide text-muted-foreground uppercase">
           <tr><th class="px-4 py-3">Mijoz</th><th class="px-4 py-3">Telefon</th><th class="px-4 py-3 text-right">Saldo</th><th class="px-4 py-3">Holat</th><th class="px-4 py-3"></th></tr>
         </thead>

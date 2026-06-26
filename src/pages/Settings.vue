@@ -201,7 +201,7 @@ async function save() {
 
 <template>
   <div class="flex h-full flex-col overflow-hidden">
-    <header class="flex items-center justify-between gap-2 border-b px-4 py-3 sm:px-6 sm:py-4">
+    <header class="page-header flex items-center justify-between gap-2">
       <div class="min-w-0">
         <h1 class="cursor-default truncate text-lg font-semibold select-none" @click="tapTitle">Sozlamalar</h1>
         <p class="hidden text-sm text-muted-foreground sm:block">Do'kon va tizim parametrlari</p>

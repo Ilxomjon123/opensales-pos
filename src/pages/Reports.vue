@@ -60,18 +60,20 @@ watch([dateFrom, dateTo], load)
 
 <template>
   <div class="flex h-full flex-col overflow-hidden">
-    <header class="border-b px-6 py-4">
+    <header class="page-header">
       <h1 class="text-lg font-semibold">Hisobotlar</h1>
-      <p class="text-sm text-muted-foreground">Savdo va inventar tahlili</p>
+      <p class="truncate text-sm text-muted-foreground">Savdo va inventar tahlili</p>
     </header>
 
     <!-- Sana filtri -->
-    <div class="flex flex-wrap items-center gap-2 border-b px-6 py-3">
-      <Calendar class="h-4 w-4 text-muted-foreground" />
-      <input v-model="dateFrom" type="date" class="h-9 rounded-lg border bg-background px-2 text-sm" />
-      <span class="text-muted-foreground">—</span>
-      <input v-model="dateTo" type="date" class="h-9 rounded-lg border bg-background px-2 text-sm" />
-      <div class="ml-1 flex gap-1.5">
+    <div class="space-y-2 border-b px-4 py-3 sm:flex sm:flex-wrap sm:items-center sm:gap-2 sm:space-y-0 sm:px-6">
+      <div class="flex items-center gap-2">
+        <Calendar class="h-4 w-4 shrink-0 text-muted-foreground" />
+        <input v-model="dateFrom" type="date" class="h-9 min-w-0 flex-1 rounded-lg border bg-background px-2 text-sm sm:flex-none" />
+        <span class="text-muted-foreground">—</span>
+        <input v-model="dateTo" type="date" class="h-9 min-w-0 flex-1 rounded-lg border bg-background px-2 text-sm sm:flex-none" />
+      </div>
+      <div class="grid grid-cols-4 gap-1.5 sm:ml-1 sm:flex">
         <button @click="preset('today')" class="h-9 rounded-lg border bg-card px-3 text-sm hover:bg-muted">Bugun</button>
         <button @click="preset('week')" class="h-9 rounded-lg border bg-card px-3 text-sm hover:bg-muted">7 kun</button>
         <button @click="preset('month')" class="h-9 rounded-lg border bg-card px-3 text-sm hover:bg-muted">Oy</button>
