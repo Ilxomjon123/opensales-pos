@@ -216,7 +216,7 @@ async function save() {
     <div class="flex-1 overflow-auto p-4 pb-[calc(env(safe-area-inset-bottom)+5.5rem)] sm:p-6 lg:pb-6">
       <div class="mx-auto grid max-w-4xl gap-4 sm:gap-5 lg:grid-cols-2">
         <!-- Do'kon -->
-        <section class="rounded-xl border bg-card p-5">
+        <section class="rounded-xl border bg-card p-4 sm:p-5">
           <div class="mb-4 flex items-center gap-2 text-sm font-semibold"><Store class="h-4 w-4 text-primary" /> Do'kon</div>
           <div class="space-y-4">
             <div>
@@ -228,7 +228,7 @@ async function save() {
         </section>
 
         <!-- Valyuta -->
-        <section class="rounded-xl border bg-card p-5">
+        <section class="rounded-xl border bg-card p-4 sm:p-5">
           <div class="mb-4 flex items-center gap-2 text-sm font-semibold"><Coins class="h-4 w-4 text-primary" /> Valyuta</div>
           <label class="mb-1.5 block text-sm font-medium">Belgisi</label>
           <input v-model="currency" placeholder="so'm" class="h-10 w-full rounded-lg border bg-background px-3 text-sm focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none" />
@@ -238,7 +238,7 @@ async function save() {
         </section>
 
         <!-- Sotuv -->
-        <section class="rounded-xl border bg-card p-5">
+        <section class="rounded-xl border bg-card p-4 sm:p-5">
           <div class="mb-4 flex items-center gap-2 text-sm font-semibold"><ShoppingCart class="h-4 w-4 text-primary" /> Sotuv</div>
           <label class="flex items-center justify-between gap-4">
             <div>
@@ -252,7 +252,7 @@ async function save() {
         </section>
 
         <!-- Xavfsizlik -->
-        <section class="rounded-xl border bg-card p-5">
+        <section class="rounded-xl border bg-card p-4 sm:p-5">
           <div class="mb-4 flex items-center gap-2 text-sm font-semibold"><ShieldCheck class="h-4 w-4 text-primary" /> Xavfsizlik</div>
           <label class="mb-1.5 block text-sm font-medium">Yangi PIN-kod</label>
           <input v-model="newPin" inputmode="numeric" maxlength="4" placeholder="• • • •" class="h-10 w-32 rounded-lg border bg-background px-3 text-center text-sm tracking-[0.4em] focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none" />
@@ -261,8 +261,8 @@ async function save() {
         </section>
 
         <!-- Litsenziya -->
-        <section class="rounded-xl border bg-card p-5 lg:col-span-2">
-          <div class="mb-4 flex items-center justify-between">
+        <section class="rounded-xl border bg-card p-4 sm:p-5 lg:col-span-2">
+          <div class="mb-4 flex flex-wrap items-center justify-between gap-2">
             <div class="flex items-center gap-2 text-sm font-semibold"><button @click="tapKey" class="rounded p-0.5"><KeyRound class="h-4 w-4 text-primary" /></button> Litsenziya</div>
             <span class="rounded-full px-2.5 py-0.5 text-xs font-medium"
               :class="license.mode === 'licensed' ? 'bg-emerald-500/15 text-emerald-600' : license.mode === 'trial' ? 'bg-amber-500/15 text-amber-600' : 'bg-rose-500/15 text-rose-600'">{{ licText }}</span>
@@ -279,23 +279,23 @@ async function save() {
             <div>
               <label class="mb-1.5 block text-sm font-medium">Aktivatsiya kaliti</label>
               <div class="flex items-center gap-2">
-                <input v-model="licKey" placeholder="Kalitni joylang" class="h-10 flex-1 rounded-lg border bg-background px-3 font-mono text-xs focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none" />
+                <input v-model="licKey" placeholder="Kalitni joylang" class="h-10 min-w-0 flex-1 rounded-lg border bg-background px-3 font-mono text-xs focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none" />
                 <QrScanButton @decoded="licKey = $event" />
-                <button @click="applyKey" :disabled="!licKey.trim()" class="h-10 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50">Faollashtirish</button>
+                <button @click="applyKey" :disabled="!licKey.trim()" class="h-10 shrink-0 rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 sm:px-4">Faollashtirish</button>
               </div>
             </div>
           </div>
         </section>
 
         <!-- Zaxira nusxa (maxfiy — sarlavhani 5 marta bosish) -->
-        <section v-if="showBackup" class="rounded-xl border bg-card p-5 lg:col-span-2">
-          <div class="mb-4 flex items-center justify-between">
+        <section v-if="showBackup" class="rounded-xl border bg-card p-4 sm:p-5 lg:col-span-2">
+          <div class="mb-4 flex flex-wrap items-center justify-between gap-2">
             <div class="flex items-center gap-2 text-sm font-semibold"><DatabaseBackup class="h-4 w-4 text-primary" /> Zaxira nusxa (backup)</div>
-            <div class="flex items-center gap-2">
-              <button @click="syncNow" :disabled="syncing" class="flex h-9 items-center gap-1.5 rounded-lg border px-3 text-sm hover:bg-muted disabled:opacity-60">
+            <div class="flex flex-1 items-center gap-2 sm:flex-none">
+              <button @click="syncNow" :disabled="syncing" class="flex h-9 flex-1 items-center justify-center gap-1.5 rounded-lg border px-3 text-sm hover:bg-muted disabled:opacity-60 sm:flex-none">
                 <component :is="syncing ? RefreshCw : CloudUpload" class="h-4 w-4" :class="syncing ? 'animate-spin' : ''" /> {{ syncing ? 'Yuklanmoqda…' : 'Sync' }}
               </button>
-              <button @click="backupNow" :disabled="busyBackup" class="flex h-9 items-center gap-1.5 rounded-lg bg-primary px-3.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"><DatabaseBackup class="h-4 w-4" /> Hozir nusxa olish</button>
+              <button @click="backupNow" :disabled="busyBackup" class="flex h-9 flex-1 items-center justify-center gap-1.5 rounded-lg bg-primary px-3.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 sm:flex-none"><DatabaseBackup class="h-4 w-4" /> <span class="whitespace-nowrap">Hozir nusxa olish</span></button>
             </div>
           </div>
           <p class="mb-3 text-xs text-muted-foreground">Har kuni avtomatik nusxa olinadi (oxirgi 14 ta saqlanadi). Internet bo'lsa Claude'ga sync qilinadi. Tiklash uchun nusxani tanlang.</p>
@@ -339,7 +339,7 @@ async function save() {
         </section>
 
         <!-- Yangilanish -->
-        <section class="rounded-xl border bg-card p-5 lg:col-span-2">
+        <section class="rounded-xl border bg-card p-4 sm:p-5 lg:col-span-2">
           <div class="flex items-center justify-between">
             <div>
               <div class="flex items-center gap-2 text-sm font-semibold"><Download class="h-4 w-4 text-primary" /> Yangilanish</div>
@@ -365,7 +365,7 @@ async function save() {
 
     <!-- Zaxira bo'limi uchun master so'rovi -->
     <div v-if="askMaster" class="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
-      <div class="w-full max-w-sm rounded-xl border bg-card p-5 shadow-xl">
+      <div class="w-full max-w-sm rounded-xl border bg-card p-4 sm:p-5 shadow-xl">
         <div class="mb-1 flex items-center gap-2 text-lg font-semibold"><DatabaseBackup class="h-5 w-5 text-primary" /> Zaxira bo'limi</div>
         <p class="mb-4 text-sm text-muted-foreground">Faqat dastur egasi uchun. Master kalitni kiriting.</p>
         <div class="flex gap-2">
@@ -382,7 +382,7 @@ async function save() {
 
     <!-- Tiklash tasdiqlash: o'sha nusxa ichidagi PIN yoki owner master kalit -->
     <div v-if="verifyOpen" class="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 p-4">
-      <div class="w-full max-w-xs rounded-xl border bg-card p-5 shadow-xl">
+      <div class="w-full max-w-xs rounded-xl border bg-card p-4 sm:p-5 shadow-xl">
         <div class="mb-1 flex items-center gap-2 text-lg font-semibold">
           <button @click="tapVerifyIcon" class="rounded p-0.5" title="Tiklashni tasdiqlang"><ShieldCheck class="h-5 w-5 text-primary" /></button> Tiklashni tasdiqlang
         </div>
@@ -409,7 +409,7 @@ async function save() {
 
     <!-- Cloud shifrlashni yoqish: owner master = parol -->
     <div v-if="showEncSet" class="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 p-4">
-      <div class="w-full max-w-sm rounded-xl border bg-card p-5 shadow-xl">
+      <div class="w-full max-w-sm rounded-xl border bg-card p-4 sm:p-5 shadow-xl">
         <div class="mb-1 flex items-center gap-2 text-lg font-semibold"><Lock class="h-5 w-5 text-primary" /> Cloud shifrlash</div>
         <p class="mb-4 text-sm text-muted-foreground">Owner master kalit shifrlash paroli bo'ladi. Cloud nusxa shu bilan shifrlanadi — serverda parol YO'Q. Boshqa kompda tiklashda shu kalit so'raladi. <b>Kalitni yo'qotmang</b> — aks holda cloud nusxa ochilmaydi.</p>
         <div class="flex gap-2">
@@ -426,7 +426,7 @@ async function save() {
 
     <!-- Boshqa kompda shifrlangan nusxani ochish — parol -->
     <div v-if="showRp" class="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 p-4">
-      <div class="w-full max-w-sm rounded-xl border bg-card p-5 shadow-xl">
+      <div class="w-full max-w-sm rounded-xl border bg-card p-4 sm:p-5 shadow-xl">
         <div class="mb-1 flex items-center gap-2 text-lg font-semibold"><Lock class="h-5 w-5 text-primary" /> Shifrlangan nusxa</div>
         <p class="mb-4 text-sm text-muted-foreground">Bu nusxa shifrlangan. Ochish uchun owner master kalitni kiriting.</p>
         <div class="flex gap-2">
