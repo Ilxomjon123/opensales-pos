@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, watch } from 'vue'
-import { TrendingUp, Receipt, Coins, Boxes, Calendar } from 'lucide-vue-next'
-import { db } from '../lib/db'
+import { TrendingUp, Receipt, Coins, Boxes, Calendar, Wallet, PiggyBank } from 'lucide-vue-next'
+import { db, expensesTotal } from '../lib/db'
 import { moneySum } from '../lib/format'
 
 function iso(d: Date) { return d.toISOString().slice(0, 10) }
@@ -11,7 +11,7 @@ const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
 const dateFrom = ref(iso(monthStart))
 const dateTo = ref(iso(now))
 
-const period = ref({ count: 0, total: 0, cash: 0, card: 0, debt: 0, profit: 0 })
+const period = ref({ count: 0, total: 0, cash: 0, card: 0, debt: 0, profit: 0, expenses: 0, net: 0 })
 const topProducts = ref<{ name: string; qty: number; total: number }[]>([])
 const lowStock = ref<{ name: string; stock: number; unit: string }[]>([])
 
@@ -45,7 +45,13 @@ async function load() {
      JOIN sales s ON s.id = si.sale_id
      WHERE date(s.created_at) BETWEEN ? AND ?`, [from, to],
   )
-  period.value = { ...t[0], profit: p[0]?.profit ?? 0 }
+  const grossProfit = p[0]?.profit ?? 0
+  // Savdo natijalarini darhol o'rnatamiz — xarajat jadvali bo'lmasa ham hisobot ko'rinadi.
+  period.value = { ...t[0], profit: grossProfit, expenses: 0, net: grossProfit }
+  try {
+    const exp = await expensesTotal(from, to)
+    period.value = { ...period.value, expenses: exp, net: grossProfit - exp }
+  } catch { /* expenses jadvali hali yo'q (migration qo'llanmagan) — xarajat 0 */ }
   topProducts.value = await d.select(
     `SELECT si.product_name name, SUM(si.qty) qty, SUM(si.subtotal) total
      FROM sale_items si JOIN sales s ON s.id = si.sale_id
@@ -98,11 +104,30 @@ watch([dateFrom, dateTo], load)
         <div class="rounded-xl border bg-card p-4">
           <div class="flex items-center gap-2 text-xs text-muted-foreground"><TrendingUp class="h-4 w-4" /> Aylanma</div>
           <div class="mt-2 text-lg font-bold tabular-nums">{{ moneySum(period.total) }}</div>
-          <div class="text-sm text-emerald-600">foyda ~ {{ moneySum(period.profit) }}</div>
+          <div class="text-sm text-muted-foreground">{{ period.count }} ta sotuv</div>
         </div>
         <div class="rounded-xl border bg-card p-4">
           <div class="flex items-center gap-2 text-xs text-muted-foreground"><Boxes class="h-4 w-4" /> Qarz</div>
           <div class="mt-2 text-lg font-bold tabular-nums text-rose-600">{{ moneySum(period.debt) }}</div>
+        </div>
+      </div>
+
+      <!-- Foyda xulosasi: yalpi foyda − xarajat = sof foyda -->
+      <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <div class="rounded-xl border bg-card p-4">
+          <div class="flex items-center gap-2 text-xs text-muted-foreground"><TrendingUp class="h-4 w-4" /> Yalpi foyda</div>
+          <div class="mt-2 text-xl font-bold tabular-nums text-emerald-600">{{ moneySum(period.profit) }}</div>
+          <div class="text-xs text-muted-foreground">savdo foydasi (tannarxdan keyin)</div>
+        </div>
+        <div class="rounded-xl border bg-card p-4">
+          <div class="flex items-center gap-2 text-xs text-muted-foreground"><Wallet class="h-4 w-4" /> Xarajatlar</div>
+          <div class="mt-2 text-xl font-bold tabular-nums text-rose-600">− {{ moneySum(period.expenses) }}</div>
+          <div class="text-xs text-muted-foreground">davr ichidagi jami xarajat</div>
+        </div>
+        <div class="rounded-xl border-2 p-4" :class="period.net >= 0 ? 'border-emerald-500/40 bg-emerald-500/5' : 'border-rose-500/40 bg-rose-500/5'">
+          <div class="flex items-center gap-2 text-xs text-muted-foreground"><PiggyBank class="h-4 w-4" /> Sof foyda</div>
+          <div class="mt-2 text-2xl font-bold tabular-nums" :class="period.net >= 0 ? 'text-emerald-600' : 'text-rose-600'">{{ period.net < 0 ? '− ' + moneySum(-period.net) : moneySum(period.net) }}</div>
+          <div class="text-xs text-muted-foreground">yalpi foyda − xarajat</div>
         </div>
       </div>
 

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref, watch } from 'vue'
 import { RouterLink, RouterView, useRouter, useRoute } from 'vue-router'
-import { ShoppingBag, Receipt, Clock, UserCircle2, Box, FolderTree, BarChart3, Monitor, Sun, Moon, LogOut, Settings, LayoutGrid } from 'lucide-vue-next'
+import { ShoppingBag, Receipt, Clock, UserCircle2, Box, FolderTree, BarChart3, Monitor, Sun, Moon, LogOut, Settings, LayoutGrid, Wallet } from 'lucide-vue-next'
 import { theme, setTheme } from './lib/theme'
 import { logout } from './lib/auth'
 import { appVersion } from './lib/version'
@@ -31,6 +31,7 @@ const bottomNav = [
 const moreItems = [
   { to: '/shifts', label: 'Smenalar', icon: Clock },
   { to: '/categories', label: 'Kategoriyalar', icon: FolderTree },
+  { to: '/expenses', label: 'Xarajatlar', icon: Wallet },
   { to: '/reports', label: 'Hisobotlar', icon: BarChart3 },
   { to: '/settings', label: 'Sozlamalar', icon: Settings },
 ]
@@ -56,6 +57,7 @@ const groups = [
     { to: '/categories', label: 'Kategoriyalar', icon: FolderTree },
   ] },
   { label: 'Boshqaruv', items: [
+    { to: '/expenses', label: 'Xarajatlar', icon: Wallet },
     { to: '/reports', label: 'Hisobotlar', icon: BarChart3 },
     { to: '/settings', label: 'Sozlamalar', icon: Settings },
   ] },

@@ -44,6 +44,7 @@ export type Product = {
   is_active: number
 }
 export type Customer = { id: number; name: string; phone: string | null; balance: number; opening_balance: number; is_walk_in: number; is_active: number }
+export type Expense = { id: number; amount: number; category: string; note: string | null; shift_id: number | null; created_at: string }
 export type Shift = {
   id: number
   opened_at: string
@@ -451,6 +452,54 @@ export async function productCustomerHistory(productId: number, customerId: numb
      ORDER BY s.id DESC`,
     [productId, customerId],
   )
+}
+
+// ---- Xarajatlar ----
+export type ExpenseFilter = { dateFrom?: string; dateTo?: string; category?: string }
+export async function listExpenses(f: ExpenseFilter = {}): Promise<Expense[]> {
+  const d = await db()
+  const where: string[] = []
+  const args: any[] = []
+  if (f.dateFrom) { where.push('date(created_at) >= date(?)'); args.push(f.dateFrom) }
+  if (f.dateTo) { where.push('date(created_at) <= date(?)'); args.push(f.dateTo) }
+  if (f.category) { where.push('category = ?'); args.push(f.category) }
+  const w = where.length ? 'WHERE ' + where.join(' AND ') : ''
+  return d.select<Expense[]>(`SELECT * FROM expenses ${w} ORDER BY id DESC`, args)
+}
+// Tanlangan sanani (YYYY-MM-DD) ISO created_at'ga aylantiradi. Bugun bo'lsa joriy vaqt,
+// aks holda o'sha kun peshini (kun-chegarasi timezone siljishini oldini oladi).
+function expenseIso(date?: string): string {
+  if (!date) return new Date().toISOString()
+  const today = new Date().toISOString().slice(0, 10)
+  if (date === today) return new Date().toISOString()
+  const [y, m, d] = date.split('-').map(Number)
+  return new Date(y, m - 1, d, 12, 0, 0).toISOString()
+}
+// Xarajat qo'shish/tahrirlash. Joriy ochiq smenaга bog'lanadi (yangi yozuvда).
+export async function saveExpense(e: { id?: number; amount: number; category: string; note?: string | null; date?: string }): Promise<void> {
+  const d = await db()
+  const amount = Math.max(0, Math.round(e.amount || 0))
+  if (amount === 0) throw new Error('Summa 0 dan katta bo\'lsin')
+  const category = e.category?.trim() || 'Boshqa'
+  const note = e.note?.trim() || null
+  const createdAt = expenseIso(e.date)
+  if (e.id) {
+    await d.execute('UPDATE expenses SET amount=?, category=?, note=?, created_at=? WHERE id=?', [amount, category, note, createdAt, e.id])
+  } else {
+    const sh = await activeShift()
+    await d.execute('INSERT INTO expenses(amount, category, note, shift_id, created_at) VALUES(?,?,?,?,?)',
+      [amount, category, note, sh?.id ?? null, createdAt])
+  }
+}
+export async function deleteExpense(id: number): Promise<void> {
+  const d = await db()
+  await d.execute('DELETE FROM expenses WHERE id = ?', [id])
+}
+// Davr ichidagi jami xarajat (hisobot uchun).
+export async function expensesTotal(dateFrom: string, dateTo: string): Promise<number> {
+  const d = await db()
+  const r = await d.select<{ t: number }[]>('SELECT COALESCE(SUM(amount),0) t FROM expenses WHERE date(created_at) BETWEEN ? AND ?', [dateFrom, dateTo])
+  return r[0]?.t ?? 0
 }
 
 // ---- Boshlang'ich ma'lumot ----

@@ -282,6 +282,15 @@ async function save() {
           </div>
         </section>
 
+        <!-- Xavfsizlik -->
+        <section class="rounded-xl border bg-card p-4 sm:p-5">
+          <div class="mb-4 flex items-center gap-2 text-sm font-semibold"><ShieldCheck class="h-4 w-4 text-primary" /> Xavfsizlik</div>
+          <label class="mb-1.5 block text-sm font-medium">Yangi PIN-kod</label>
+          <input v-model="newPin" inputmode="numeric" maxlength="4" placeholder="• • • •" class="h-10 w-32 rounded-lg border bg-background px-3 text-center text-sm tracking-[0.4em] focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none" />
+          <p class="mt-1 text-xs text-muted-foreground">O'zgartirmaslik uchun bo'sh qoldiring</p>
+          <div v-if="pinError" class="mt-1 text-xs text-rose-600">{{ pinError }}</div>
+        </section>
+
         <!-- Printer (browsersiz pechat) -->
         <section class="rounded-xl border bg-card p-4 sm:p-5 lg:col-span-2">
           <div class="mb-4 flex items-center justify-between gap-2">
@@ -308,15 +317,6 @@ async function save() {
             Printer tanlansa — brauzer ochilmasdan to'g'ridan-to'g'ri chop etiladi. Bo'sh qolsa eski usul (brauzerда auto-print).
             <template v-if="printers.length === 0"><br>Printer topilmadi — O'rnatilganini tekshiring, so'ng «Yangilash».</template>
           </p>
-        </section>
-
-        <!-- Xavfsizlik -->
-        <section class="rounded-xl border bg-card p-4 sm:p-5">
-          <div class="mb-4 flex items-center gap-2 text-sm font-semibold"><ShieldCheck class="h-4 w-4 text-primary" /> Xavfsizlik</div>
-          <label class="mb-1.5 block text-sm font-medium">Yangi PIN-kod</label>
-          <input v-model="newPin" inputmode="numeric" maxlength="4" placeholder="• • • •" class="h-10 w-32 rounded-lg border bg-background px-3 text-center text-sm tracking-[0.4em] focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none" />
-          <p class="mt-1 text-xs text-muted-foreground">O'zgartirmaslik uchun bo'sh qoldiring</p>
-          <div v-if="pinError" class="mt-1 text-xs text-rose-600">{{ pinError }}</div>
         </section>
 
         <!-- Litsenziya -->

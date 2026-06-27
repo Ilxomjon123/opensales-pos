@@ -20,6 +20,7 @@ const routes = [
   { path: '/customers/:id', name: 'customer', component: () => import('./pages/CustomerShow.vue') },
   { path: '/products', name: 'products', component: () => import('./pages/Products.vue') },
   { path: '/categories', name: 'categories', component: () => import('./pages/Categories.vue') },
+  { path: '/expenses', name: 'expenses', component: () => import('./pages/Expenses.vue') },
   { path: '/reports', name: 'reports', component: () => import('./pages/Reports.vue') },
   { path: '/settings', name: 'settings', component: () => import('./pages/Settings.vue') },
 ]

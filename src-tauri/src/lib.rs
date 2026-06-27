@@ -216,6 +216,24 @@ CREATE INDEX IF NOT EXISTS idx_cust_pay ON customer_payments(customer_id);
         sql: "ALTER TABLE products ADD COLUMN barcode_type TEXT;",
         kind: MigrationKind::Up,
     },
+    Migration {
+        version: 9,
+        description: "expenses",
+        // Do'kon xarajatlari (ijara, oylik, kommunal, tovar olib kelish va h.k.).
+        // Hisobotда sof foyda = savdo foydasi − xarajatlar.
+        sql: r#"
+CREATE TABLE IF NOT EXISTS expenses (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  amount INTEGER NOT NULL,
+  category TEXT NOT NULL DEFAULT 'Boshqa',
+  note TEXT,
+  shift_id INTEGER,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_expenses_created ON expenses(created_at);
+"#,
+        kind: MigrationKind::Up,
+    },
     ];
 
     tauri::Builder::default()
