@@ -149,7 +149,7 @@ async function saveBal() {
 
     <!-- To'lov modal -->
     <div v-if="showPay" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div class="w-full max-w-sm rounded-xl border bg-card p-5 shadow-xl">
+      <div class="max-h-[90vh] w-full max-w-sm overflow-y-auto rounded-xl border bg-card p-5 shadow-xl">
         <div class="mb-1 text-lg font-semibold">To'lov qabul qilish</div>
         <p class="mb-4 text-sm text-muted-foreground">{{ customer?.name }}</p>
         <label class="mb-1 block text-sm font-medium">Summa</label>
@@ -167,7 +167,7 @@ async function saveBal() {
 
     <!-- Saldoni belgilash modal -->
     <div v-if="showBal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div class="w-full max-w-sm rounded-xl border bg-card p-5 shadow-xl">
+      <div class="max-h-[90vh] w-full max-w-sm overflow-y-auto rounded-xl border bg-card p-5 shadow-xl">
         <div class="mb-1 text-lg font-semibold">Joriy saldoni belgilash</div>
         <p class="mb-4 text-sm text-muted-foreground">{{ customer?.name }}</p>
 

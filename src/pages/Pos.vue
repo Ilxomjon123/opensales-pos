@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
-import { Search, Plus, Minus, Trash2, Package, ShoppingCart, X, ClipboardList, LogOut, Magnet, ChevronUp } from 'lucide-vue-next'
+import { ref, computed, onMounted, watch } from 'vue'
+import { Search, Plus, Minus, Trash2, Package, ShoppingCart, X, ClipboardList, LogOut, Magnet, ChevronUp, History } from 'lucide-vue-next'
 import {
   listProducts, listCategories, listCustomers, activeShift, openShift, closeShift,
-  shiftStats, createSale, getSetting, type Product, type Category, type Customer, type Shift, type CartLine,
+  shiftStats, createSale, getSetting, productCustomerHistory,
+  type Product, type Category, type Customer, type Shift, type CartLine, type ProductCustomerHistoryRow,
 } from '../lib/db'
 import { money, moneySum, currencySymbol, translitMatch, formatDateTime } from '../lib/format'
 import SearchableSelect from '../components/SearchableSelect.vue'
@@ -15,6 +16,7 @@ const customers = ref<Customer[]>([])
 const shift = ref<Shift | null>(null)
 const stats = ref({ sales_count: 0, total_sales: 0 })
 const allowNegative = ref(false)
+const keepCart = ref(false)
 
 const search = ref('')
 const activeCat = ref<number | null>(null)
@@ -27,6 +29,26 @@ const submitting = ref(false)
 const toast = ref('')
 // Mobil: savat pastdan ko'tariladigan sheet sifatida ochiladi.
 const cartOpen = ref(false)
+
+// Shu mahsulot tanlangan mijozga oldin necha puldan / nechta sotilgani.
+// product_id -> tarix qatorlari (eng yangisi birinchi). Mijoz yoki savat o'zgarsa qayta yuklanadi.
+const histories = ref<Record<number, ProductCustomerHistoryRow[]>>({})
+async function loadHistory(productId: number) {
+  if (!customerId.value) { histories.value[productId] = []; return }
+  histories.value[productId] = await productCustomerHistory(productId, customerId.value)
+}
+function lastSold(productId: number): ProductCustomerHistoryRow | null {
+  return histories.value[productId]?.[0] ?? null
+}
+// Mijoz almashsa — barcha savat qatorlari uchun qayta yukla.
+watch(customerId, () => { cart.value.forEach((l) => loadHistory(l.product_id)) })
+
+// Tarix modali
+const histModal = ref<{ name: string; productId: number } | null>(null)
+const histRows = computed(() => (histModal.value ? histories.value[histModal.value.productId] ?? [] : []))
+const histTotalQty = computed(() => histRows.value.reduce((s, r) => s + r.qty, 0))
+const histTotalSum = computed(() => histRows.value.reduce((s, r) => s + r.subtotal, 0))
+function openHistory(l: CartLine) { histModal.value = { name: l.name, productId: l.product_id } }
 
 // Savat paneli kengligi (resize)
 const clampW = (w: number) => Math.min(640, Math.max(300, w))
@@ -77,9 +99,45 @@ async function reload() {
   ])
   customerId.value = customers.value.find((c) => c.is_walk_in)?.id ?? customers.value[0]?.id ?? 0
   allowNegative.value = (await getSetting('allow_negative_stock', '0')) === '1'
+  keepCart.value = (await getSetting('keep_cart', '0')) === '1'
   if (shift.value) stats.value = await shiftStats(shift.value.id)
+  restoreCart()
 }
 onMounted(reload)
+
+// --- Savatni saqlash (sozlama: keep_cart) ---
+const CART_KEY = 'pos_saved_cart'
+const CART_CUST_KEY = 'pos_saved_cart_customer'
+let restoring = false
+// Boshqa bo'limdan qaytganda saqlangan savatni tiklash. Mahsulot/qoldiq joriy holatga moslanadi,
+// o'chirilgan mahsulot tushib qoladi. Smena yopiq bo'lsa tiklanmaydi.
+function restoreCart() {
+  if (!keepCart.value || !shift.value) return
+  restoring = true
+  try {
+    const raw = localStorage.getItem(CART_KEY)
+    if (raw) {
+      const saved = JSON.parse(raw) as CartLine[]
+      cart.value = saved
+        .map((s) => {
+          const p = products.value.find((x) => x.id === s.product_id)
+          return p ? { ...s, name: p.name, unit: p.unit, cost_price: p.cost_price, stock: p.stock } : null
+        })
+        .filter((l): l is CartLine => l !== null)
+    }
+    const cust = Number(localStorage.getItem(CART_CUST_KEY))
+    if (cust && customers.value.some((c) => c.id === cust)) customerId.value = cust
+    cart.value.forEach((l) => loadHistory(l.product_id))
+  } catch { /* buzilgan saqlash — e'tiborsiz */ }
+  finally { restoring = false }
+}
+function persistCart() {
+  if (restoring || !keepCart.value) return
+  if (cart.value.length === 0) { localStorage.removeItem(CART_KEY); localStorage.removeItem(CART_CUST_KEY); return }
+  localStorage.setItem(CART_KEY, JSON.stringify(cart.value))
+  localStorage.setItem(CART_CUST_KEY, String(customerId.value))
+}
+watch([cart, customerId], persistCart, { deep: true })
 
 const filtered = computed(() => {
   let list = products.value
@@ -99,6 +157,9 @@ const debt = computed(() => Math.max(0, total.value - paid.value))
 const change = computed(() => Math.max(0, paid.value - total.value))
 const debtBlocked = computed(() => debt.value > 0 && selectedCustomer.value?.is_walk_in)
 const canSubmit = computed(() => cart.value.length > 0 && !debtBlocked.value && !!shift.value)
+// Mijozning joriy saldosi. Manfiy = qarzdor. Bu sotuv qarzi saldoni kamaytiradi (ortiqcha to'lov qaytim, saldoga yozilmaydi).
+const curBalance = computed(() => (selectedCustomer.value && !selectedCustomer.value.is_walk_in ? selectedCustomer.value.balance : 0))
+const balanceAfter = computed(() => curBalance.value - debt.value)
 
 function addProduct(p: Product) {
   if (!allowNegative.value && p.stock <= 0) return
@@ -106,7 +167,8 @@ function addProduct(p: Product) {
   if (line) {
     if (allowNegative.value || line.qty < p.stock) line.qty++
   } else {
-    cart.value.push({ product_id: p.id, name: p.name, unit: p.unit, price: p.price, qty: 1, stock: p.stock })
+    cart.value.push({ product_id: p.id, name: p.name, unit: p.unit, price: p.price, cost_price: p.cost_price, qty: 1, stock: p.stock })
+    loadHistory(p.id)
   }
 }
 function inc(l: CartLine) { if (allowNegative.value || l.qty < l.stock) l.qty++ }
@@ -280,6 +342,14 @@ async function doCloseShift() {
       <div class="shrink-0 space-y-2 border-b p-4">
         <span class="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Mijoz</span>
         <SearchableSelect v-model="customerId" :items="customerItems" placeholder="Mijozni tanlang" search-placeholder="Ism yoki telefon…" />
+        <div v-if="selectedCustomer && !selectedCustomer.is_walk_in" class="flex items-center justify-between text-xs">
+          <span class="text-muted-foreground">Joriy saldo</span>
+          <span class="font-semibold tabular-nums"
+            :class="selectedCustomer.balance < 0 ? 'text-rose-600' : selectedCustomer.balance > 0 ? 'text-emerald-600' : 'text-muted-foreground'">
+            {{ moneySum(Math.abs(selectedCustomer.balance)) }}
+            <span class="font-normal text-muted-foreground">{{ selectedCustomer.balance < 0 ? '· qarzdor' : selectedCustomer.balance > 0 ? '· haqdor' : '' }}</span>
+          </span>
+        </div>
       </div>
 
       <!-- Savat header -->
@@ -302,21 +372,33 @@ async function doCloseShift() {
         <ul v-else class="divide-y">
           <li v-for="l in cart" :key="l.product_id" class="group px-3 py-1.5 hover:bg-muted/40">
             <div class="flex items-center gap-2">
+              <div class="line-clamp-1 min-w-0 flex-1 text-[13px] font-medium leading-tight">{{ l.name }}</div>
+              <button @click="removeLine(l)" class="flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground/70 hover:bg-rose-500/10 hover:text-rose-600"><Trash2 class="h-3.5 w-3.5" /></button>
+            </div>
+            <div class="mt-1 flex items-start gap-2">
               <div class="min-w-0 flex-1">
-                <div class="line-clamp-1 text-[13px] font-medium leading-tight">{{ l.name }}</div>
-                <div class="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
+                <div class="flex items-center gap-1.5 text-xs text-muted-foreground">
                   <input v-model.number="l.price" type="number" min="0" @blur="normalizePrice(l)" :style="{ width: numW(l.price, 84) }"
                     class="h-8 rounded-md border bg-background px-2 text-sm text-foreground tabular-nums [appearance:textfield] focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none" />
                   <span>{{ currencySymbol }} /{{ l.unit }}</span>
                 </div>
+                <button v-if="lastSold(l.product_id)" type="button" @click="openHistory(l)"
+                  class="mt-1 flex items-center gap-1 text-left text-[11px] leading-tight text-muted-foreground hover:text-primary">
+                  <History class="h-3 w-3 shrink-0" /> oxirgi: {{ moneySum(lastSold(l.product_id)!.price) }}
+                </button>
               </div>
-              <div class="inline-flex shrink-0 items-center rounded-md border bg-background">
-                <button @click="dec(l)" class="flex h-8 w-8 items-center justify-center text-muted-foreground hover:bg-muted"><Minus class="h-3.5 w-3.5" /></button>
-                <input v-model.number="l.qty" type="number" min="0" :max="l.stock" :style="{ width: numW(l.qty, 44) }" class="h-8 border-0 bg-transparent px-0 text-center text-sm tabular-nums [appearance:textfield] focus:outline-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none" />
-                <button @click="inc(l)" class="flex h-8 w-8 items-center justify-center text-muted-foreground hover:bg-muted"><Plus class="h-3.5 w-3.5" /></button>
+              <div class="flex shrink-0 flex-col items-center gap-1">
+                <div class="inline-flex items-center rounded-md border bg-background">
+                  <button @click="dec(l)" class="flex h-8 w-8 items-center justify-center text-muted-foreground hover:bg-muted"><Minus class="h-3.5 w-3.5" /></button>
+                  <input v-model.number="l.qty" type="number" min="0" :max="l.stock" :style="{ width: numW(l.qty, 44) }" class="h-8 border-0 bg-transparent px-0 text-center text-sm tabular-nums [appearance:textfield] focus:outline-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none" />
+                  <button @click="inc(l)" class="flex h-8 w-8 items-center justify-center text-muted-foreground hover:bg-muted"><Plus class="h-3.5 w-3.5" /></button>
+                </div>
+                <button v-if="lastSold(l.product_id)" type="button" @click="openHistory(l)"
+                  class="whitespace-nowrap text-[11px] leading-tight text-muted-foreground hover:text-primary">
+                  {{ lastSold(l.product_id)!.qty }} {{ l.unit }}
+                </button>
               </div>
-              <div class="shrink-0 whitespace-nowrap pl-1 text-right text-[13px] font-semibold tabular-nums">{{ moneySum(lineTotal(l)) }}</div>
-              <button @click="removeLine(l)" class="flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground/70 hover:bg-rose-500/10 hover:text-rose-600"><Trash2 class="h-3.5 w-3.5" /></button>
+              <div class="flex h-8 shrink-0 items-center justify-end whitespace-nowrap pl-1 text-right text-[13px] font-semibold tabular-nums">{{ moneySum(lineTotal(l)) }}</div>
             </div>
           </li>
         </ul>
@@ -353,7 +435,15 @@ async function doCloseShift() {
         </div>
 
         <div v-if="change > 0" class="flex justify-between text-sm"><span class="text-muted-foreground">Qaytim</span><span class="font-semibold tabular-nums">{{ moneySum(change) }}</span></div>
-        <div v-if="debt > 0 && !debtBlocked" class="flex justify-between text-sm text-rose-600"><span>Qarz</span><span class="font-semibold tabular-nums">{{ moneySum(debt) }}</span></div>
+        <!-- Hozirgi: shu sotuv qarzi -->
+        <div v-if="debt > 0 && !debtBlocked" class="flex justify-between text-sm text-rose-600"><span>Qarz (shu sotuv)</span><span class="font-semibold tabular-nums">{{ moneySum(debt) }}</span></div>
+        <!-- Saldoni hisobga olgan: sotuvdan keyingi yangi saldo -->
+        <div v-if="selectedCustomer && !selectedCustomer.is_walk_in" class="flex justify-between text-sm">
+          <span class="text-muted-foreground">Saldo (sotuvdan keyin)</span>
+          <span class="font-semibold tabular-nums" :class="balanceAfter < 0 ? 'text-rose-600' : balanceAfter > 0 ? 'text-emerald-600' : 'text-muted-foreground'">
+            {{ moneySum(Math.abs(balanceAfter)) }}<span class="font-normal text-muted-foreground">{{ balanceAfter < 0 ? ' · qarzdor' : balanceAfter > 0 ? ' · haqdor' : '' }}</span>
+          </span>
+        </div>
         <div v-if="debtBlocked" class="rounded-md bg-rose-500/10 px-3 py-2 text-center text-xs font-medium text-rose-600">Yo'l-yo'lakay xaridorga qarzga bo'lmaydi</div>
 
         <button :disabled="!canSubmit || submitting" @click="submit"
@@ -381,8 +471,8 @@ async function doCloseShift() {
   </div>
 
   <!-- Smena yopish -->
-  <div v-if="showClose" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-    <div class="w-full max-w-sm rounded-xl border bg-card p-5">
+  <div v-if="showClose" class="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/50 p-4">
+    <div class="max-h-[90vh] w-full max-w-sm overflow-y-auto rounded-xl border bg-card p-5">
       <div class="mb-3 text-lg font-semibold">Smenani yopish</div>
       <div class="mb-3 space-y-1 rounded-md bg-muted/40 p-3 text-sm">
         <div class="flex justify-between"><span class="text-muted-foreground">Sotuvlar</span><strong>{{ stats.sales_count }} ta</strong></div>
@@ -399,7 +489,7 @@ async function doCloseShift() {
 
   <!-- Chek modal -->
   <div v-if="receipt" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 print:static print:bg-transparent print:p-0">
-    <div class="receipt-print w-full max-w-sm rounded-xl border bg-card p-5 print:max-w-none print:rounded-none print:border-0 print:shadow-none">
+    <div class="receipt-print max-h-[90vh] w-full max-w-sm overflow-y-auto rounded-xl border bg-card p-5 print:max-h-none print:max-w-none print:overflow-visible print:rounded-none print:border-0 print:shadow-none">
       <div class="mb-3 text-center">
         <div class="text-lg font-bold">OpenSales POS</div>
         <div class="text-sm text-muted-foreground">Chek #{{ receipt.receipt_number }}</div>
@@ -427,6 +517,49 @@ async function doCloseShift() {
       <div class="mt-4 flex gap-2 print:hidden">
         <button @click="doPrint" class="h-10 flex-1 rounded-md bg-primary text-sm font-medium text-primary-foreground hover:bg-primary/90">Chop etish</button>
         <button @click="receipt = null" class="h-10 rounded-md border px-4 text-sm hover:bg-muted">Yopish</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Mahsulot × mijoz sotuv tarixi -->
+  <div v-if="histModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+    <div class="flex max-h-[85vh] w-full max-w-md flex-col rounded-xl border bg-card">
+      <div class="flex shrink-0 items-start justify-between border-b p-4">
+        <div class="min-w-0">
+          <div class="flex items-center gap-2 text-sm font-semibold"><History class="h-4 w-4 shrink-0" /> Sotuv tarixi</div>
+          <div class="mt-0.5 truncate text-xs text-muted-foreground">{{ histModal.name }} · {{ selectedCustomer?.name ?? '—' }}</div>
+        </div>
+        <button @click="histModal = null" class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted"><X class="h-4 w-4" /></button>
+      </div>
+
+      <div class="min-h-0 flex-1 overflow-auto">
+        <div v-if="histRows.length === 0" class="px-4 py-12 text-center text-sm text-muted-foreground">Bu mijozga avval sotilmagan</div>
+        <table v-else class="w-full text-sm">
+          <thead class="sticky top-0 bg-muted">
+            <tr class="text-left text-xs text-muted-foreground">
+              <th class="px-4 py-2 font-medium">Sana</th>
+              <th class="px-2 py-2 text-right font-medium">Soni</th>
+              <th class="px-2 py-2 text-right font-medium">Narx</th>
+              <th class="px-4 py-2 text-right font-medium">Summa</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="r in histRows" :key="r.sale_id" class="border-b border-border/50">
+              <td class="px-4 py-2 whitespace-nowrap text-xs text-muted-foreground">{{ formatDateTime(r.created_at) }}</td>
+              <td class="px-2 py-2 text-right tabular-nums">{{ r.qty }} {{ r.unit }}</td>
+              <td class="px-2 py-2 text-right tabular-nums">{{ moneySum(r.price) }}</td>
+              <td class="px-4 py-2 text-right font-medium tabular-nums">{{ moneySum(r.subtotal) }}</td>
+            </tr>
+          </tbody>
+          <tfoot class="sticky bottom-0 bg-muted">
+            <tr class="font-semibold">
+              <td class="px-4 py-2">Jami</td>
+              <td class="px-2 py-2 text-right tabular-nums">{{ histTotalQty }}</td>
+              <td class="px-2 py-2"></td>
+              <td class="px-4 py-2 text-right tabular-nums">{{ moneySum(histTotalSum) }}</td>
+            </tr>
+          </tfoot>
+        </table>
       </div>
     </div>
   </div>

@@ -38,8 +38,10 @@ async function load() {
      FROM sales WHERE date(created_at) BETWEEN ? AND ?`, [from, to],
   )
   const p = await d.select<any[]>(
-    `SELECT COALESCE(SUM((si.price - pr.cost_price) * si.qty),0) profit
-     FROM sale_items si JOIN products pr ON pr.id = si.product_id
+    // Tannarx sotuvda muzlatiladi (si.cost_price). Eski sotuvlarda u 0 — o'shanda joriy
+    // mahsulot tannarxiga qaytamiz (eski hisobotlar buzilmasin).
+    `SELECT COALESCE(SUM((si.price - COALESCE(NULLIF(si.cost_price,0), pr.cost_price, 0)) * si.qty),0) profit
+     FROM sale_items si LEFT JOIN products pr ON pr.id = si.product_id
      JOIN sales s ON s.id = si.sale_id
      WHERE date(s.created_at) BETWEEN ? AND ?`, [from, to],
   )

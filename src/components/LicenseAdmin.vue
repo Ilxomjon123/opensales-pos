@@ -77,7 +77,7 @@ async function revoke() {
 
 <template>
   <div class="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4">
-    <div class="w-full max-w-lg rounded-xl border bg-card p-5 shadow-xl">
+    <div class="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl border bg-card p-5 shadow-xl">
       <div class="mb-4 flex items-center justify-between">
         <div class="flex items-center gap-2 text-lg font-semibold"><KeyRound class="h-5 w-5 text-primary" /> Litsenziya boshqaruvi</div>
         <button @click="emit('close')" class="rounded-lg p-1.5 hover:bg-muted"><X class="h-5 w-5" /></button>

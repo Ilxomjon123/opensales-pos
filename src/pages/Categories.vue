@@ -133,7 +133,7 @@ async function remove(c: Category) {
     </div>
 
     <div v-if="showForm" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div class="w-full max-w-sm rounded-xl border bg-card p-5 shadow-xl">
+      <div class="max-h-[90vh] w-full max-w-sm overflow-y-auto rounded-xl border bg-card p-5 shadow-xl">
         <div class="mb-3 text-lg font-semibold">{{ editId ? 'Tahrirlash' : 'Yangi kategoriya' }}</div>
         <input v-model="name" autofocus placeholder="Nomi" class="mb-4 h-10 w-full rounded-md border bg-background px-3 text-sm" @keyup.enter="save" />
         <div class="flex gap-2">

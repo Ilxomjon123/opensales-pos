@@ -1,7 +1,10 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
-import { Plus, Pencil, Trash2, Search, Package, ImagePlus, X, Eye, EyeOff, Boxes, Coins, AlertTriangle, PackageX } from 'lucide-vue-next'
-import { listProducts, listCategories, saveProduct, deleteProduct, setProductActive, type Product, type Category } from '../lib/db'
+import { ref, computed, onMounted, watch } from 'vue'
+import { Plus, Pencil, Trash2, Search, Package, ImagePlus, X, Eye, EyeOff, Boxes, Coins, AlertTriangle, PackageX, Percent, ArrowUp, ArrowDown } from 'lucide-vue-next'
+import {
+  listProducts, listCategories, saveProduct, deleteProduct, setProductActive,
+  bulkPricePreview, bulkAdjustPrices, type Product, type Category, type BulkPriceParams, type BulkPricePreviewRow,
+} from '../lib/db'
 import { moneySum, translitMatch } from '../lib/format'
 import SearchableSelect from '../components/SearchableSelect.vue'
 import { confirmDialog } from '../lib/confirm'
@@ -98,6 +101,39 @@ async function remove(p: Product) {
   try { await deleteProduct(p.id); await load(); notify("Mahsulot o'chirildi", 'success') }
   catch (e: any) { notify(e?.message ?? 'Xato', 'error') }
 }
+
+// --- Narxlarni ommaviy o'zgartirish ---
+const showBulk = ref(false)
+const bulk = ref<BulkPriceParams>({ scope: 'all', categoryId: null, mode: 'percent', direction: 'up', value: 0 })
+const bulkPrev = ref<{ count: number; preview: BulkPricePreviewRow[] }>({ count: 0, preview: [] })
+const bulkBusy = ref(false)
+function openBulk() {
+  bulk.value = { scope: 'all', categoryId: categories.value[0]?.id ?? null, mode: 'percent', direction: 'up', value: 0 }
+  bulkPrev.value = { count: 0, preview: [] }
+  showBulk.value = true
+}
+async function refreshBulkPreview() {
+  if (!showBulk.value) return
+  if (!bulk.value.value || bulk.value.value <= 0) { bulkPrev.value = { count: 0, preview: [] }; return }
+  bulkPrev.value = await bulkPricePreview(bulk.value)
+}
+watch(bulk, refreshBulkPreview, { deep: true })
+async function applyBulk() {
+  if (!bulk.value.value || bulk.value.value <= 0) { notify('Qiymat kiriting', 'error'); return }
+  if (bulk.value.scope === 'category' && !bulk.value.categoryId) { notify('Kategoriya tanlang', 'error'); return }
+  const scopeTxt = bulk.value.scope === 'all' ? 'barcha mahsulotlar' : `"${catName(bulk.value.categoryId ?? null)}" kategoriyasi`
+  const dirTxt = bulk.value.direction === 'up' ? 'oshiriladi' : 'kamaytiriladi'
+  const valTxt = bulk.value.mode === 'percent' ? `${bulk.value.value}%` : moneySum(bulk.value.value)
+  if (!(await confirmDialog(`${scopeTxt} narxi ${valTxt} ga ${dirTxt} (${bulkPrev.value.count} ta). Davom etilsinmi?`, { title: 'Narxlarni o\'zgartirish' }))) return
+  bulkBusy.value = true
+  try {
+    const n = await bulkAdjustPrices(bulk.value)
+    await load()
+    showBulk.value = false
+    notify(`Narx yangilandi: ${n} ta mahsulot`, 'success')
+  } catch (e: any) { notify(e?.message ?? 'Xato', 'error') }
+  finally { bulkBusy.value = false }
+}
 </script>
 
 <template>
@@ -107,7 +143,10 @@ async function remove(p: Product) {
         <h1 class="text-lg font-semibold">Mahsulotlar</h1>
         <p class="truncate text-sm text-muted-foreground">{{ stats.count }} ta · ombor qiymati {{ moneySum(stats.value) }}</p>
       </div>
-      <button @click="openNew" class="flex h-9 shrink-0 items-center gap-1.5 rounded-lg bg-primary px-3.5 text-sm font-medium text-primary-foreground transition hover:bg-primary/90"><Plus class="h-4 w-4" /> Yangi</button>
+      <div class="flex shrink-0 items-center gap-2">
+        <button @click="openBulk" class="flex h-9 items-center gap-1.5 rounded-lg border px-3 text-sm font-medium transition hover:bg-muted"><Percent class="h-4 w-4" /> <span class="hidden sm:inline">Narxlar</span></button>
+        <button @click="openNew" class="flex h-9 items-center gap-1.5 rounded-lg bg-primary px-3.5 text-sm font-medium text-primary-foreground transition hover:bg-primary/90"><Plus class="h-4 w-4" /> Yangi</button>
+      </div>
     </header>
 
     <!-- Stat kartalar -->
@@ -246,6 +285,65 @@ async function remove(p: Product) {
         <div class="mt-5 flex gap-2">
           <button @click="save" class="h-10 flex-1 rounded-md bg-primary text-sm font-medium text-primary-foreground hover:bg-primary/90">Saqlash</button>
           <button @click="showForm = false" class="h-10 rounded-md border px-4 text-sm hover:bg-muted">Bekor</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Narxlarni ommaviy o'zgartirish -->
+    <div v-if="showBulk" class="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/50 p-4">
+      <div class="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-xl border bg-card p-5 shadow-xl">
+        <div class="mb-4 flex items-center gap-2 text-lg font-semibold"><Percent class="h-5 w-5 text-primary" /> Narxlarni o'zgartirish</div>
+        <div class="space-y-4">
+          <!-- Doira -->
+          <div>
+            <label class="mb-1.5 block text-sm font-medium">Qaysi mahsulotlar</label>
+            <div class="grid grid-cols-2 gap-2">
+              <button @click="bulk.scope = 'all'" class="h-9 rounded-md border text-sm font-medium" :class="bulk.scope === 'all' ? 'border-primary bg-primary/10 text-primary' : 'hover:bg-muted'">Hammasi</button>
+              <button @click="bulk.scope = 'category'" class="h-9 rounded-md border text-sm font-medium" :class="bulk.scope === 'category' ? 'border-primary bg-primary/10 text-primary' : 'hover:bg-muted'">Kategoriya</button>
+            </div>
+            <div v-if="bulk.scope === 'category'" class="mt-2">
+              <SearchableSelect v-model="bulk.categoryId" :items="catItems" placeholder="Kategoriya tanlang" search-placeholder="Kategoriya…" />
+            </div>
+          </div>
+
+          <!-- Yo'nalish -->
+          <div>
+            <label class="mb-1.5 block text-sm font-medium">Amal</label>
+            <div class="grid grid-cols-2 gap-2">
+              <button @click="bulk.direction = 'up'" class="flex h-9 items-center justify-center gap-1.5 rounded-md border text-sm font-medium" :class="bulk.direction === 'up' ? 'border-emerald-500 bg-emerald-500/10 text-emerald-600' : 'hover:bg-muted'"><ArrowUp class="h-4 w-4" /> Oshirish</button>
+              <button @click="bulk.direction = 'down'" class="flex h-9 items-center justify-center gap-1.5 rounded-md border text-sm font-medium" :class="bulk.direction === 'down' ? 'border-rose-500 bg-rose-500/10 text-rose-600' : 'hover:bg-muted'"><ArrowDown class="h-4 w-4" /> Kamaytirish</button>
+            </div>
+          </div>
+
+          <!-- Usul + qiymat -->
+          <div>
+            <label class="mb-1.5 block text-sm font-medium">Qancha</label>
+            <div class="flex gap-2">
+              <div class="inline-flex shrink-0 rounded-md border p-0.5">
+                <button @click="bulk.mode = 'percent'" class="h-8 rounded px-3 text-sm font-medium" :class="bulk.mode === 'percent' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'">Foiz %</button>
+                <button @click="bulk.mode = 'amount'" class="h-8 rounded px-3 text-sm font-medium" :class="bulk.mode === 'amount' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'">Summa</button>
+              </div>
+              <input v-model.number="bulk.value" type="number" min="0" :placeholder="bulk.mode === 'percent' ? '10' : '1000'" class="h-9 w-full rounded-md border bg-background px-3 text-sm tabular-nums" />
+            </div>
+          </div>
+
+          <!-- Oldindan ko'rish -->
+          <div v-if="bulk.value > 0" class="rounded-lg border bg-muted/30">
+            <div class="border-b px-3 py-2 text-xs font-medium text-muted-foreground">{{ bulkPrev.count }} ta mahsulot o'zgaradi · misol:</div>
+            <div v-if="bulkPrev.preview.length === 0" class="px-3 py-4 text-center text-sm text-muted-foreground">Mos mahsulot yo'q</div>
+            <ul v-else class="max-h-44 divide-y overflow-auto">
+              <li v-for="r in bulkPrev.preview" :key="r.id" class="flex items-center justify-between gap-2 px-3 py-1.5 text-sm">
+                <span class="min-w-0 flex-1 truncate">{{ r.name }}</span>
+                <span class="shrink-0 tabular-nums text-muted-foreground line-through">{{ moneySum(r.old_price) }}</span>
+                <span class="shrink-0 tabular-nums font-semibold" :class="r.new_price >= r.old_price ? 'text-emerald-600' : 'text-rose-600'">{{ moneySum(r.new_price) }}</span>
+              </li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="mt-5 flex gap-2">
+          <button @click="applyBulk" :disabled="bulkBusy || !bulk.value || bulkPrev.count === 0" class="h-10 flex-1 rounded-md bg-primary text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50">Qo'llash</button>
+          <button @click="showBulk = false" class="h-10 rounded-md border px-4 text-sm hover:bg-muted">Bekor</button>
         </div>
       </div>
     </div>

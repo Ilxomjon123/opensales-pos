@@ -111,6 +111,14 @@ CREATE INDEX IF NOT EXISTS idx_cust_pay ON customer_payments(customer_id);
         sql: "ALTER TABLE customers ADD COLUMN opening_balance INTEGER NOT NULL DEFAULT 0;",
         kind: MigrationKind::Up,
     },
+    Migration {
+        version: 5,
+        description: "sale_item_cost_price",
+        // Tannarxni HAR sotuvda muzlatib saqlash. Keyin mahsulot tannarxi o'zgarsa eski
+        // sotuvlar foydasi o'zgarmaydi. Eski qatorlar 0 bo'lib qoladi (tarixiy tannarx noma'lum).
+        sql: "ALTER TABLE sale_items ADD COLUMN cost_price INTEGER NOT NULL DEFAULT 0;",
+        kind: MigrationKind::Up,
+    },
     ];
 
     tauri::Builder::default()

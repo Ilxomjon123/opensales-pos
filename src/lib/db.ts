@@ -58,6 +58,7 @@ export type SaleItem = {
   product_id: number | null
   product_name: string
   price: number
+  cost_price: number
   qty: number
   unit: string
   subtotal: number
@@ -67,6 +68,7 @@ export type CartLine = {
   name: string
   unit: string
   price: number // tahrirlanadigan narx
+  cost_price: number // sotuv paytidagi tannarx (muzlatiladi)
   qty: number
   stock: number
 }
@@ -131,6 +133,56 @@ export async function deleteProduct(id: number): Promise<void> {
   const sales = await d.select<{ c: number }[]>('SELECT COUNT(*) c FROM sale_items WHERE product_id = ?', [id])
   if ((sales[0]?.c ?? 0) > 0) throw new Error("Bu mahsulot sotuvlarda bor — o'chirib bo'lmaydi, deaktiv qiling")
   await d.execute('DELETE FROM products WHERE id = ?', [id])
+}
+
+// ---- Narxlarni ommaviy o'zgartirish (backend BulkPriceService porti) ----
+// scope: hammasi yoki bitta kategoriya. mode: foiz yoki qiymat. direction: oshirish/kamaytirish.
+export type BulkPriceParams = {
+  scope: 'all' | 'category'
+  categoryId?: number | null
+  mode: 'percent' | 'amount'
+  direction: 'up' | 'down'
+  value: number
+}
+export type BulkPricePreviewRow = { id: number; name: string; old_price: number; new_price: number }
+
+function bulkWhere(params: BulkPriceParams): { sql: string; args: any[] } {
+  if (params.scope === 'category' && params.categoryId) return { sql: 'WHERE category_id = ?', args: [params.categoryId] }
+  return { sql: '', args: [] }
+}
+function applyBulkDelta(cur: number, params: BulkPriceParams): number {
+  const sign = params.direction === 'up' ? 1 : -1
+  const v = Math.max(0, params.value || 0)
+  if (params.mode === 'percent') return Math.max(0, Math.round(cur * (1 + (sign * v) / 100)))
+  return Math.max(0, Math.round(cur + sign * v))
+}
+// Oldindan ko'rish: nechta mahsulot ta'sirlanadi + birinchi N tasining eski/yangi narxi.
+export async function bulkPricePreview(params: BulkPriceParams, limit = 12): Promise<{ count: number; preview: BulkPricePreviewRow[] }> {
+  const d = await db()
+  const { sql, args } = bulkWhere(params)
+  const rows = await d.select<{ id: number; name: string; price: number }[]>(`SELECT id, name, price FROM products ${sql} ORDER BY name`, args)
+  return {
+    count: rows.length,
+    preview: rows.slice(0, limit).map((p) => ({ id: p.id, name: p.name, old_price: p.price, new_price: applyBulkDelta(p.price, params) })),
+  }
+}
+// Qo'llash: bitta UPDATE bilan, narx 0 dan past bo'lmaydi. O'zgartirilgan qatorlar sonini qaytaradi.
+export async function bulkAdjustPrices(params: BulkPriceParams): Promise<number> {
+  const d = await db()
+  const { sql, args } = bulkWhere(params)
+  const sign = params.direction === 'up' ? 1 : -1
+  const v = Math.max(0, params.value || 0)
+  let expr: string
+  if (params.mode === 'percent') {
+    const factor = 1 + (sign * v) / 100
+    if (!Number.isFinite(factor)) return 0
+    expr = `CAST(ROUND(price * ${factor}) AS INTEGER)`
+  } else {
+    const delta = Math.round(sign * v)
+    expr = `CAST(ROUND(price + (${delta})) AS INTEGER)`
+  }
+  const res = await d.execute(`UPDATE products SET price = CASE WHEN ${expr} < 0 THEN 0 ELSE ${expr} END ${sql}`, args)
+  return (res.rowsAffected as number) ?? 0
 }
 
 // ---- Mijozlar ----
@@ -300,8 +352,8 @@ export async function createSale(input: CreateSaleInput): Promise<Sale> {
   for (const it of input.items) {
     const sub = Math.round(it.qty * it.price)
     await d.execute(
-      'INSERT INTO sale_items(sale_id, product_id, product_name, price, qty, unit, subtotal) VALUES(?,?,?,?,?,?,?)',
-      [saleId, it.product_id, it.name, it.price, it.qty, it.unit, sub],
+      'INSERT INTO sale_items(sale_id, product_id, product_name, price, cost_price, qty, unit, subtotal) VALUES(?,?,?,?,?,?,?,?)',
+      [saleId, it.product_id, it.name, it.price, it.cost_price ?? 0, it.qty, it.unit, sub],
     )
     await d.execute('UPDATE products SET stock = stock - ? WHERE id = ?', [it.qty, it.product_id])
   }
@@ -343,6 +395,28 @@ export async function listSales(f: SalesFilter = {}): Promise<(Sale & { items: S
     out.push({ ...s, items })
   }
   return out
+}
+
+// ---- Mahsulot × mijoz sotuv tarixi ----
+// Shu mahsulot shu mijozga qachon, qancha sonda, qaysi narxda sotilgani (eng yangisi birinchi).
+export type ProductCustomerHistoryRow = {
+  sale_id: number
+  receipt_number: string
+  created_at: string
+  price: number
+  qty: number
+  unit: string
+  subtotal: number
+}
+export async function productCustomerHistory(productId: number, customerId: number): Promise<ProductCustomerHistoryRow[]> {
+  const d = await db()
+  return d.select<ProductCustomerHistoryRow[]>(
+    `SELECT s.id sale_id, s.receipt_number, s.created_at, si.price, si.qty, si.unit, si.subtotal
+     FROM sale_items si JOIN sales s ON s.id = si.sale_id
+     WHERE si.product_id = ? AND s.customer_id = ?
+     ORDER BY s.id DESC`,
+    [productId, customerId],
+  )
 }
 
 // ---- Boshlang'ich ma'lumot ----

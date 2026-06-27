@@ -17,6 +17,7 @@ import { notify } from '../lib/notify'
 
 const currency = ref("so'm")
 const allowNegative = ref(false)
+const keepCart = ref(false)
 const shopName = ref('OpenSales POS')
 const newPin = ref('')
 const pinError = ref('')
@@ -170,6 +171,7 @@ const licText = computed(() => {
 onMounted(async () => {
   currency.value = await getSetting('currency_symbol', "so'm")
   allowNegative.value = (await getSetting('allow_negative_stock', '0')) === '1'
+  keepCart.value = (await getSetting('keep_cart', '0')) === '1'
   shopName.value = await getSetting('shop_name', 'OpenSales POS')
   await refreshLicense()
   await loadBackups()
@@ -192,6 +194,7 @@ async function save() {
   }
   await setSetting('currency_symbol', currency.value || "so'm")
   await setSetting('allow_negative_stock', allowNegative.value ? '1' : '0')
+  await setSetting('keep_cart', keepCart.value ? '1' : '0')
   await setSetting('shop_name', shopName.value || 'OpenSales POS')
   setCurrency(currency.value)
   saved.value = true
@@ -240,15 +243,26 @@ async function save() {
         <!-- Sotuv -->
         <section class="rounded-xl border bg-card p-4 sm:p-5">
           <div class="mb-4 flex items-center gap-2 text-sm font-semibold"><ShoppingCart class="h-4 w-4 text-primary" /> Sotuv</div>
-          <label class="flex items-center justify-between gap-4">
-            <div>
-              <div class="text-sm font-medium">Ostatkasiz sotish</div>
-              <div class="text-xs text-muted-foreground">Qoldiq 0 bo'lsa ham sotishga ruxsat</div>
-            </div>
-            <button type="button" @click="allowNegative = !allowNegative" class="relative h-6 w-11 shrink-0 rounded-full transition-colors" :class="allowNegative ? 'bg-primary' : 'bg-muted'">
-              <span class="absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform" :class="allowNegative ? 'translate-x-5' : ''"></span>
-            </button>
-          </label>
+          <div class="space-y-4">
+            <label class="flex items-center justify-between gap-4">
+              <div>
+                <div class="text-sm font-medium">Ostatkasiz sotish</div>
+                <div class="text-xs text-muted-foreground">Qoldiq 0 bo'lsa ham sotishga ruxsat</div>
+              </div>
+              <button type="button" @click="allowNegative = !allowNegative" class="relative h-6 w-11 shrink-0 rounded-full transition-colors" :class="allowNegative ? 'bg-primary' : 'bg-muted'">
+                <span class="absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform" :class="allowNegative ? 'translate-x-5' : ''"></span>
+              </button>
+            </label>
+            <label class="flex items-center justify-between gap-4">
+              <div>
+                <div class="text-sm font-medium">Savatni eslab qolish</div>
+                <div class="text-xs text-muted-foreground">Boshqa bo'limga o'tib qaytganda savat va mijoz saqlanadi</div>
+              </div>
+              <button type="button" @click="keepCart = !keepCart" class="relative h-6 w-11 shrink-0 rounded-full transition-colors" :class="keepCart ? 'bg-primary' : 'bg-muted'">
+                <span class="absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform" :class="keepCart ? 'translate-x-5' : ''"></span>
+              </button>
+            </label>
+          </div>
         </section>
 
         <!-- Xavfsizlik -->
@@ -365,7 +379,7 @@ async function save() {
 
     <!-- Zaxira bo'limi uchun master so'rovi -->
     <div v-if="askMaster" class="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
-      <div class="w-full max-w-sm rounded-xl border bg-card p-4 sm:p-5 shadow-xl">
+      <div class="max-h-[90vh] w-full max-w-sm overflow-y-auto rounded-xl border bg-card p-4 sm:p-5 shadow-xl">
         <div class="mb-1 flex items-center gap-2 text-lg font-semibold"><DatabaseBackup class="h-5 w-5 text-primary" /> Zaxira bo'limi</div>
         <p class="mb-4 text-sm text-muted-foreground">Faqat dastur egasi uchun. Master kalitni kiriting.</p>
         <div class="flex gap-2">
@@ -382,7 +396,7 @@ async function save() {
 
     <!-- Tiklash tasdiqlash: o'sha nusxa ichidagi PIN yoki owner master kalit -->
     <div v-if="verifyOpen" class="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 p-4">
-      <div class="w-full max-w-xs rounded-xl border bg-card p-4 sm:p-5 shadow-xl">
+      <div class="max-h-[90vh] w-full max-w-xs overflow-y-auto rounded-xl border bg-card p-4 sm:p-5 shadow-xl">
         <div class="mb-1 flex items-center gap-2 text-lg font-semibold">
           <button @click="tapVerifyIcon" class="rounded p-0.5" title="Tiklashni tasdiqlang"><ShieldCheck class="h-5 w-5 text-primary" /></button> Tiklashni tasdiqlang
         </div>
@@ -409,7 +423,7 @@ async function save() {
 
     <!-- Cloud shifrlashni yoqish: owner master = parol -->
     <div v-if="showEncSet" class="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 p-4">
-      <div class="w-full max-w-sm rounded-xl border bg-card p-4 sm:p-5 shadow-xl">
+      <div class="max-h-[90vh] w-full max-w-sm overflow-y-auto rounded-xl border bg-card p-4 sm:p-5 shadow-xl">
         <div class="mb-1 flex items-center gap-2 text-lg font-semibold"><Lock class="h-5 w-5 text-primary" /> Cloud shifrlash</div>
         <p class="mb-4 text-sm text-muted-foreground">Owner master kalit shifrlash paroli bo'ladi. Cloud nusxa shu bilan shifrlanadi — serverda parol YO'Q. Boshqa kompda tiklashda shu kalit so'raladi. <b>Kalitni yo'qotmang</b> — aks holda cloud nusxa ochilmaydi.</p>
         <div class="flex gap-2">
@@ -426,7 +440,7 @@ async function save() {
 
     <!-- Boshqa kompda shifrlangan nusxani ochish — parol -->
     <div v-if="showRp" class="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 p-4">
-      <div class="w-full max-w-sm rounded-xl border bg-card p-4 sm:p-5 shadow-xl">
+      <div class="max-h-[90vh] w-full max-w-sm overflow-y-auto rounded-xl border bg-card p-4 sm:p-5 shadow-xl">
         <div class="mb-1 flex items-center gap-2 text-lg font-semibold"><Lock class="h-5 w-5 text-primary" /> Shifrlangan nusxa</div>
         <p class="mb-4 text-sm text-muted-foreground">Bu nusxa shifrlangan. Ochish uchun owner master kalitni kiriting.</p>
         <div class="flex gap-2">
