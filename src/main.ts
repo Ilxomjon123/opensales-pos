@@ -50,12 +50,24 @@ app.use(router)
 // Aks holda db ESKI pos.db'ni ochib _dbp'ga cache qiladi, keyin restore fayl ustiga
 // yozadi + wal/shm o'chiradi → ochiq connection buziladi → Device ID bo'sh, license xato.
 // Shu sabab valyuta o'qishi ham shu zanjir ichida, restore'dan KEYIN.
+// Litsenziyani ishonchli o'qish — vaqtinchalik DB xatosida qayta urinadi.
+// Aks holda bitta transient xato litsenziyalangan foydalanuvchini "expired" ekraniга tashlaydi.
+async function initLicense() {
+  let lastErr: unknown
+  for (let i = 0; i < 4; i++) {
+    try { return await refreshLicense() }
+    catch (e) { lastErr = e; await new Promise((r) => setTimeout(r, 250 * (i + 1))) }
+  }
+  void appendErr(`license init error (retry tugadi): ${(lastErr as any)?.stack ?? lastErr}`)
+  return null
+}
+
 applyPendingRestore()
   .catch((e) => void appendErr(`restore apply error: ${e?.stack ?? e}`))
-  .then(() => refreshLicense())
-  .then((l) => void info(`license ok · mode=${l.mode} days=${l.daysLeft}`))
+  .then(() => initLicense())
+  .then((l) => void info(`license ok · mode=${l?.mode ?? 'xato'} days=${l?.daysLeft ?? '-'}`))
   .then(() => getSetting('currency_symbol', "so'm").then(setCurrency).catch((e) => void warn(`currency read: ${e}`)))
-  .catch((e) => void appendErr(`license init error: ${e?.stack ?? e}`))
+  .catch((e) => void appendErr(`init error: ${e?.stack ?? e}`))
   .finally(() => {
     try {
       app.mount('#app')

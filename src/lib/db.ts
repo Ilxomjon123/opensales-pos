@@ -7,10 +7,23 @@ let _dbp: Promise<Database> | null = null
 export function db(): Promise<Database> {
   if (!_dbp) {
     _dbp = (async () => {
-      const d = await Database.load('sqlite:pos.db')
-      await seedIfEmpty(d)
-      return d
+      // Startupда SQLITE_BUSY (WAL/zaxira/parallel o'qish) bo'lishi mumkin — bir necha marta urinamiz.
+      let lastErr: unknown
+      for (let i = 0; i < 6; i++) {
+        try {
+          const d = await Database.load('sqlite:pos.db')
+          await seedIfEmpty(d)
+          return d
+        } catch (e) {
+          lastErr = e
+          await new Promise((r) => setTimeout(r, 150 * (i + 1)))
+        }
+      }
+      throw lastErr
     })()
+    // MUHIM: rad etilgan promise'ni cache'da qoldirmaymiz — aks holda bitta vaqtinchalik
+    // xato butun sessiya DB'ni o'ldiradi (license "expired", Device ID bo'sh ko'rinadi).
+    _dbp.catch(() => { _dbp = null })
   }
   return _dbp
 }
