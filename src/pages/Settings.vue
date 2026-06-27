@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue'
 import SearchableSelect from '../components/SearchableSelect.vue'
-import { Check, Store, Coins, ShoppingCart, ShieldCheck, KeyRound, Copy, FileText, DatabaseBackup, RotateCcw, RefreshCw, Download, CloudUpload, Lock, LockOpen } from 'lucide-vue-next'
+import { Check, Store, Coins, ShoppingCart, ShieldCheck, KeyRound, Copy, FileText, DatabaseBackup, RotateCcw, RefreshCw, Download, CloudUpload, Lock, LockOpen, Printer } from 'lucide-vue-next'
 import { getSetting, setSetting } from '../lib/db'
+import { listPrinters } from '../lib/silentprint'
 import { setCurrency, formatDateTime } from '../lib/format'
 import { license, refreshLicense, activate, isOwnerMaster } from '../lib/license'
 import { listBackups, makeBackup, restoreBackup, backupPin, githubDownload, syncNow as libSyncNow, lastSync, loadLastSync, syncing, githubDevices, githubBackups, NEED_PASS, type BackupFile, type GhDevice } from '../lib/backup'
@@ -19,6 +20,11 @@ const currency = ref("so'm")
 const allowNegative = ref(false)
 const keepCart = ref(false)
 const shopName = ref('OpenSales POS')
+// Browsersiz pechat: printerlar ro'yxati + tanlangan (bo'sh = brauzer orqali).
+const printers = ref<string[]>([])
+const receiptPrinter = ref('')
+const labelPrinter = ref('')
+async function loadPrinters() { try { printers.value = await listPrinters() } catch { printers.value = [] } }
 const newPin = ref('')
 const pinError = ref('')
 const saved = ref(false)
@@ -175,6 +181,9 @@ onMounted(async () => {
   allowNegative.value = (await getSetting('allow_negative_stock', '0')) === '1'
   keepCart.value = (await getSetting('keep_cart', '0')) === '1'
   shopName.value = await getSetting('shop_name', 'OpenSales POS')
+  receiptPrinter.value = await getSetting('receipt_printer', '')
+  labelPrinter.value = await getSetting('label_printer', '')
+  await loadPrinters()
   await refreshLicense()
   await loadBackups()
   await loadLastSync()
@@ -199,6 +208,8 @@ async function save() {
   await setSetting('allow_negative_stock', allowNegative.value ? '1' : '0')
   await setSetting('keep_cart', keepCart.value ? '1' : '0')
   await setSetting('shop_name', shopName.value || 'OpenSales POS')
+  await setSetting('receipt_printer', receiptPrinter.value || '')
+  await setSetting('label_printer', labelPrinter.value || '')
   setCurrency(currency.value)
   saved.value = true
   setTimeout(() => (saved.value = false), 2000)
@@ -269,6 +280,34 @@ async function save() {
               </button>
             </label>
           </div>
+        </section>
+
+        <!-- Printer (browsersiz pechat) -->
+        <section class="rounded-xl border bg-card p-4 sm:p-5 lg:col-span-2">
+          <div class="mb-4 flex items-center justify-between gap-2">
+            <div class="flex items-center gap-2 text-sm font-semibold"><Printer class="h-4 w-4 text-primary" /> Printer</div>
+            <button @click="loadPrinters" class="flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-xs hover:bg-muted"><RefreshCw class="h-3.5 w-3.5" /> Yangilash</button>
+          </div>
+          <div class="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label class="mb-1.5 block text-sm font-medium">Chek printeri</label>
+              <select v-model="receiptPrinter" class="h-10 w-full rounded-lg border bg-background px-3 text-sm">
+                <option value="">Brauzer orqali (standart)</option>
+                <option v-for="p in printers" :key="p" :value="p">{{ p }}</option>
+              </select>
+            </div>
+            <div>
+              <label class="mb-1.5 block text-sm font-medium">Yorliq (nakleyka) printeri</label>
+              <select v-model="labelPrinter" class="h-10 w-full rounded-lg border bg-background px-3 text-sm">
+                <option value="">Brauzer orqali (standart)</option>
+                <option v-for="p in printers" :key="p" :value="p">{{ p }}</option>
+              </select>
+            </div>
+          </div>
+          <p class="mt-2 text-xs text-muted-foreground">
+            Printer tanlansa — brauzer ochilmasdan to'g'ridan-to'g'ri chop etiladi. Bo'sh qolsa eski usul (brauzerда auto-print).
+            <template v-if="printers.length === 0"><br>Printer topilmadi — O'rnatilganini tekshiring, so'ng «Yangilash».</template>
+          </p>
         </section>
 
         <!-- Xavfsizlik -->

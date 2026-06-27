@@ -26,6 +26,8 @@ export type Product = {
   stock: number
   unit: string
   image: string | null
+  barcode: string | null
+  barcode_type: string | null
   is_active: number
 }
 export type Customer = { id: number; name: string; phone: string | null; balance: number; opening_balance: number; is_walk_in: number; is_active: number }
@@ -112,17 +114,36 @@ export async function listProducts(activeOnly = true): Promise<Product[]> {
 }
 export async function saveProduct(p: Partial<Product> & { name: string; price: number }): Promise<void> {
   const d = await db()
+  const barcode = p.barcode?.trim() || null
+  // Bitta shtrix/QR kod ikki mahsulotга qo'yilmasin (tahrirда o'zini hisobламaymiz).
+  if (barcode) {
+    const dup = await d.select<{ id: number; name: string }[]>(
+      'SELECT id, name FROM products WHERE barcode = ? AND id != ? LIMIT 1',
+      [barcode, p.id ?? 0],
+    )
+    if (dup[0]) throw new Error(`Bu kod allaqachon "${dup[0].name}" mahsulotiда ishlatilgan`)
+  }
+  const barcodeType = barcode ? (p.barcode_type || null) : null
   if (p.id) {
     await d.execute(
-      'UPDATE products SET category_id=?, name=?, price=?, cost_price=?, stock=?, unit=?, image=? WHERE id=?',
-      [p.category_id ?? null, p.name, p.price, p.cost_price ?? 0, p.stock ?? 0, p.unit ?? 'dona', p.image ?? null, p.id],
+      'UPDATE products SET category_id=?, name=?, price=?, cost_price=?, stock=?, unit=?, image=?, barcode=?, barcode_type=? WHERE id=?',
+      [p.category_id ?? null, p.name, p.price, p.cost_price ?? 0, p.stock ?? 0, p.unit ?? 'dona', p.image ?? null, barcode, barcodeType, p.id],
     )
   } else {
     await d.execute(
-      'INSERT INTO products(category_id, name, price, cost_price, stock, unit, image) VALUES(?,?,?,?,?,?,?)',
-      [p.category_id ?? null, p.name, p.price, p.cost_price ?? 0, p.stock ?? 0, p.unit ?? 'dona', p.image ?? null],
+      'INSERT INTO products(category_id, name, price, cost_price, stock, unit, image, barcode, barcode_type) VALUES(?,?,?,?,?,?,?,?,?)',
+      [p.category_id ?? null, p.name, p.price, p.cost_price ?? 0, p.stock ?? 0, p.unit ?? 'dona', p.image ?? null, barcode, barcodeType],
     )
   }
+}
+
+// Shtrix/QR kod bo'yicha aktiv mahsulot topish (savatga qo'shish uchun). Topilmasa null.
+export async function findProductByBarcode(code: string): Promise<Product | null> {
+  const d = await db()
+  const c = code.trim()
+  if (!c) return null
+  const r = await d.select<Product[]>('SELECT * FROM products WHERE barcode = ? AND is_active = 1 LIMIT 1', [c])
+  return r[0] ?? null
 }
 export async function setProductActive(id: number, active: boolean): Promise<void> {
   const d = await db()

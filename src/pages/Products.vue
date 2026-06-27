@@ -1,14 +1,17 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
-import { Plus, Pencil, Trash2, Search, Package, ImagePlus, X, Eye, EyeOff, Boxes, Coins, AlertTriangle, PackageX, Percent, ArrowUp, ArrowDown } from 'lucide-vue-next'
+import { Plus, Pencil, Trash2, Search, Package, ImagePlus, X, Eye, EyeOff, Boxes, Coins, AlertTriangle, PackageX, Percent, ArrowUp, ArrowDown, Sparkles, Printer } from 'lucide-vue-next'
 import {
   listProducts, listCategories, saveProduct, deleteProduct, setProductActive,
   bulkPricePreview, bulkAdjustPrices, type Product, type Category, type BulkPriceParams, type BulkPricePreviewRow,
 } from '../lib/db'
 import { moneySum, translitMatch } from '../lib/format'
 import SearchableSelect from '../components/SearchableSelect.vue'
+import QrScanButton from '../components/QrScanButton.vue'
 import { confirmDialog } from '../lib/confirm'
 import { notify } from '../lib/notify'
+import { generateUniqueBarcode, barcodeDataUrl } from '../lib/barcode'
+import { printLabel } from '../lib/print'
 
 const products = ref<Product[]>([])
 const categories = ref<Category[]>([])
@@ -17,7 +20,7 @@ const catFilter = ref<number | null>(null)
 const stockFilter = ref<'all' | 'in' | 'low' | 'out'>('all')
 const statusFilter = ref<'all' | 'active' | 'inactive'>('all')
 const showForm = ref(false)
-const form = ref<Partial<Product>>({ name: '', price: 0, cost_price: 0, stock: 0, unit: 'dona', category_id: null, image: null })
+const form = ref<Partial<Product>>({ name: '', price: 0, cost_price: 0, stock: 0, unit: 'dona', category_id: null, image: null, barcode: null, barcode_type: null })
 
 const LOW = 10
 async function load() { ;[products.value, categories.value] = await Promise.all([listProducts(false), listCategories()]) }
@@ -82,14 +85,39 @@ async function onImage(e: Event) {
   try { form.value.image = await compressImage(file) }
   catch { notify('Rasmni o\'qib bo\'lmadi', 'error') }
 }
-function openNew() { form.value = { name: '', price: 0, cost_price: 0, stock: 0, unit: 'dona', category_id: categories.value[0]?.id ?? null, image: null }; showForm.value = true }
+function openNew() { form.value = { name: '', price: 0, cost_price: 0, stock: 0, unit: 'dona', category_id: categories.value[0]?.id ?? null, image: null, barcode: null, barcode_type: null }; showForm.value = true }
 function openEdit(p: Product) { form.value = { ...p }; showForm.value = true }
+// --- Shtrix kod: generatsiya, ko'rish, yorliq chop etish ---
+const genBusy = ref(false)
+const labelCopies = ref(1)
+const labelSize = ref('40mm 30mm')
+// Preview AYNAN saqlangan formatда (QR/DataMatrix/EAN...).
+const barcodePreview = computed(() => (form.value.barcode?.trim() ? barcodeDataUrl(form.value.barcode.trim(), form.value.barcode_type, { scale: 3 }) : ''))
+// Skan qilinса — matn + simbologiya saqlanadi (o'sha turда chop etiladi).
+function onBarcodeScan(text: string, format: string) { form.value.barcode = text; form.value.barcode_type = format || 'AUTO' }
+// Qo'lда yozilса — tur auto (tarkибга qarab).
+function onBarcodeInput() { form.value.barcode_type = 'AUTO' }
+async function genBarcode() {
+  genBusy.value = true
+  try { form.value.barcode = await generateUniqueBarcode(); form.value.barcode_type = 'EAN_13' }
+  finally { genBusy.value = false }
+}
+async function printProductLabel() {
+  const code = form.value.barcode?.trim()
+  if (!code) { notify('Avval kod kiriting, skanерланг yoki generatsiya qiling', 'error'); return }
+  await printLabel({ name: form.value.name || '—', price: form.value.price || 0, barcode: code, type: form.value.barcode_type, copies: labelCopies.value, size: labelSize.value })
+}
+
 async function save() {
   if (!form.value.name?.trim()) return
-  await saveProduct(form.value as any)
-  showForm.value = false
-  await load()
-  notify('Saqlandi', 'success')
+  try {
+    await saveProduct(form.value as any)
+    showForm.value = false
+    await load()
+    notify('Saqlandi', 'success')
+  } catch (e: any) {
+    notify(e?.message ?? 'Xato', 'error')
+  }
 }
 async function toggle(p: Product) {
   await setProductActive(p.id, !p.is_active)
@@ -272,6 +300,40 @@ async function applyBulk() {
             </label>
           </div>
           <div><label class="mb-1 block text-sm font-medium">Nomi</label><input v-model="form.name" class="h-10 w-full rounded-md border bg-background px-3 text-sm" /></div>
+          <div>
+            <label class="mb-1 block text-sm font-medium">Shtrix / QR kod</label>
+            <div class="flex gap-2">
+              <input v-model="form.barcode" @input="onBarcodeInput" placeholder="Skanerlang, kiriting yoki generatsiya qiling" class="h-10 w-full rounded-md border bg-background px-3 text-sm tabular-nums" />
+              <button type="button" @click="genBarcode" :disabled="genBusy" title="Yangi kod generatsiya qilish"
+                class="flex w-10 shrink-0 items-center justify-center self-stretch rounded-md border bg-background text-muted-foreground transition hover:bg-muted hover:text-primary disabled:opacity-50">
+                <Sparkles class="h-4 w-4" />
+              </button>
+              <QrScanButton @decoded="onBarcodeScan" />
+            </div>
+            <!-- Ko'rish + nakleyka printerда chop etish -->
+            <div v-if="barcodePreview" class="mt-2 rounded-lg border bg-white p-2">
+              <div class="flex justify-center"><img :src="barcodePreview" class="max-h-28" /></div>
+              <div class="mt-2 flex flex-wrap items-end gap-2 border-t pt-2">
+                <div>
+                  <label class="mb-0.5 block text-[11px] text-muted-foreground">Nusxa</label>
+                  <input v-model.number="labelCopies" type="number" min="1" max="100" class="h-8 w-16 rounded-md border bg-background px-2 text-sm tabular-nums" />
+                </div>
+                <div>
+                  <label class="mb-0.5 block text-[11px] text-muted-foreground">Yorliq o'lchami</label>
+                  <select v-model="labelSize" class="h-8 rounded-md border bg-background px-2 text-sm">
+                    <option value="40mm 30mm">40×30 mm</option>
+                    <option value="58mm 40mm">58×40 mm</option>
+                    <option value="58mm 30mm">58×30 mm</option>
+                    <option value="30mm 20mm">30×20 mm</option>
+                  </select>
+                </div>
+                <button type="button" @click="printProductLabel"
+                  class="ml-auto flex h-8 items-center gap-1.5 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90">
+                  <Printer class="h-4 w-4" /> Yorliq chop etish
+                </button>
+              </div>
+            </div>
+          </div>
           <div><label class="mb-1 block text-sm font-medium">Kategoriya</label>
             <SearchableSelect v-model="form.category_id" :items="catItems" placeholder="Kategoriya tanlang" />
           </div>

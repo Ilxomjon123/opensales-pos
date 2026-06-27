@@ -1,14 +1,16 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
-import { Search, Plus, Minus, Trash2, Package, ShoppingCart, X, ClipboardList, LogOut, Magnet, ChevronUp, History } from 'lucide-vue-next'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { Search, Plus, Minus, Trash2, Package, ShoppingCart, X, ClipboardList, LogOut, Magnet, ChevronUp, History, ScanLine } from 'lucide-vue-next'
 import {
   listProducts, listCategories, listCustomers, activeShift, openShift, closeShift,
-  shiftStats, createSale, getSetting, productCustomerHistory,
+  shiftStats, createSale, getSetting, productCustomerHistory, findProductByBarcode,
   type Product, type Category, type Customer, type Shift, type CartLine, type ProductCustomerHistoryRow,
 } from '../lib/db'
 import { money, moneySum, currencySymbol, translitMatch, formatDateTime } from '../lib/format'
 import SearchableSelect from '../components/SearchableSelect.vue'
+import QrScanner from '../components/QrScanner.vue'
 import { printReceipt } from '../lib/print'
+import { beepOk, beepFail, unlockAudio } from '../lib/beep'
 
 const products = ref<Product[]>([])
 const categories = ref<Category[]>([])
@@ -29,6 +31,8 @@ const submitting = ref(false)
 const toast = ref('')
 // Mobil: savat pastdan ko'tariladigan sheet sifatida ochiladi.
 const cartOpen = ref(false)
+// Kamera skaneri modali (QR + shtrix kod).
+const showScanner = ref(false)
 
 // Shu mahsulot tanlangan mijozga oldin necha puldan / nechta sotilgani.
 // product_id -> tarix qatorlari (eng yangisi birinchi). Mijoz yoki savat o'zgarsa qayta yuklanadi.
@@ -178,6 +182,52 @@ function clearCart() { cart.value = []; discount.value = 0; paidCash.value = 0; 
 function normalizePrice(l: CartLine) { if (!Number.isFinite(l.price) || l.price < 0) l.price = 0 }
 function lineTotal(l: CartLine) { return Math.round(l.qty * l.price) }
 
+// --- Shtrix / QR kod orqali savatga qo'shish ---
+function flash(msg: string) { toast.value = msg; setTimeout(() => (toast.value = ''), 1800) }
+// Kodni mahsulotga aylantirib savatga qo'shadi. Ovozsiz fikr-bildirish (toast).
+async function handleScan(code: string): Promise<boolean> {
+  const c = code.trim()
+  if (!c || !shift.value) return false
+  const p = await findProductByBarcode(c)
+  if (!p) { beepFail(); flash(`Kod topilmadi: ${c}`); return false }
+  if (!allowNegative.value && p.stock <= 0) { beepFail(); flash(`${p.name} — tugagan`); return false }
+  addProduct(p)
+  beepOk()
+  flash(`✓ ${p.name}`)
+  return true
+}
+// Kamera ochiq qoladi — user o'zi yopadi (ketma-ket skanerlash).
+function onCameraScan(code: string) { handleScan(code) }
+// Qidiruv maydonida Enter: avval shtrix kod, topilmasa — yagona natija bo'lsa o'shani qo'shadi.
+async function onSearchEnter() {
+  const q = search.value.trim()
+  if (!q) return
+  if (await handleScan(q)) { search.value = ''; return }
+  if (filtered.value.length === 1) { addProduct(filtered.value[0]); search.value = '' }
+}
+
+// USB shtrix skaner (keyboard-wedge): tez ketma-ket belgilar + Enter. Hech qaysi maydon
+// fokusda bo'lmaganda ham ishlaydi — kassir qidiruvni bosishi shart emas.
+let scanBuf = ''
+let lastKey = 0
+function onGlobalKey(e: KeyboardEvent) {
+  unlockAudio() // klavish = foydalanuvchi harakatи → audio ochiladi
+  if (showScanner.value || !shift.value) return
+  const tag = (e.target as HTMLElement)?.tagName
+  if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return // maydon o'zi hal qiladi
+  const now = Date.now()
+  if (now - lastKey > 100) scanBuf = '' // sekin = qo'lda yozilgan, skaner emas
+  lastKey = now
+  if (e.key === 'Enter') {
+    if (scanBuf.length >= 3) { e.preventDefault(); handleScan(scanBuf) }
+    scanBuf = ''
+  } else if (e.key.length === 1) {
+    scanBuf += e.key
+  }
+}
+onMounted(() => window.addEventListener('keydown', onGlobalKey))
+onBeforeUnmount(() => window.removeEventListener('keydown', onGlobalKey))
+
 const quickCash = computed(() => {
   const t = total.value
   const base = [t]
@@ -279,10 +329,16 @@ async function doCloseShift() {
           class="order-2 ml-auto flex h-9 items-center gap-2 rounded-md border px-3 text-sm hover:bg-muted sm:order-3">
           <LogOut class="h-4 w-4" /> <span class="hidden sm:inline">Smenani yopish</span>
         </button>
-        <div class="relative order-3 w-full sm:order-2 sm:ml-auto sm:w-56 lg:w-72">
-          <Search class="absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <input v-model="search" placeholder="Mahsulot qidirish…"
-            class="h-9 w-full rounded-md border bg-background pl-9 pr-2 text-sm focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none" />
+        <div class="order-3 flex w-full items-center gap-2 sm:order-2 sm:ml-auto sm:w-auto">
+          <div class="relative w-full sm:w-56 lg:w-72">
+            <Search class="absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <input v-model="search" @keyup.enter="onSearchEnter" placeholder="Mahsulot qidirish yoki kod skanerlash…"
+              class="h-9 w-full rounded-md border bg-background pl-9 pr-2 text-sm focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none" />
+          </div>
+          <button @click="unlockAudio(); showScanner = true" title="QR / shtrix kodni skanerlash"
+            class="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border bg-background text-muted-foreground transition hover:bg-muted hover:text-primary">
+            <ScanLine class="h-4 w-4" />
+          </button>
         </div>
       </div>
 
@@ -564,8 +620,11 @@ async function doCloseShift() {
     </div>
   </div>
 
+  <!-- Kamera skaneri (QR + shtrix kod) -->
+  <QrScanner v-if="showScanner" continuous dock @decoded="onCameraScan" @close="showScanner = false" />
+
   <!-- Toast -->
-  <div v-if="toast" class="fixed bottom-4 left-1/2 z-50 -translate-x-1/2 rounded-lg bg-foreground px-4 py-2.5 text-sm font-medium text-background shadow-lg print:hidden">{{ toast }}</div>
+  <div v-if="toast" class="fixed bottom-4 left-1/2 z-[70] -translate-x-1/2 rounded-lg bg-foreground px-4 py-2.5 text-sm font-medium text-background shadow-lg print:hidden">{{ toast }}</div>
 </template>
 
 <style>
