@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
-import { Plus, Pencil, Trash2, Search, Package, ImagePlus, X, Eye, EyeOff, Boxes, Coins, AlertTriangle, PackageX, Percent, ArrowUp, ArrowDown, Sparkles, Printer } from 'lucide-vue-next'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { Plus, Pencil, Trash2, Search, Package, ImagePlus, X, Eye, EyeOff, Boxes, Coins, AlertTriangle, PackageX, Percent, ArrowUp, ArrowDown, Sparkles, Printer, ScanLine } from 'lucide-vue-next'
 import {
   listProducts, listCategories, saveProduct, deleteProduct, setProductActive,
   bulkPricePreview, bulkAdjustPrices, type Product, type Category, type BulkPriceParams, type BulkPricePreviewRow,
@@ -8,6 +8,7 @@ import {
 import { moneySum, translitMatch } from '../lib/format'
 import SearchableSelect from '../components/SearchableSelect.vue'
 import QrScanButton from '../components/QrScanButton.vue'
+import QrScanner from '../components/QrScanner.vue'
 import { confirmDialog } from '../lib/confirm'
 import { notify } from '../lib/notify'
 import { generateUniqueBarcode, barcodeDataUrl } from '../lib/barcode'
@@ -87,6 +88,39 @@ async function onImage(e: Event) {
 }
 function openNew() { form.value = { name: '', price: 0, cost_price: 0, stock: 0, unit: 'dona', category_id: categories.value[0]?.id ?? null, image: null, barcode: null, barcode_type: null }; showForm.value = true }
 function openEdit(p: Product) { form.value = { ...p }; showForm.value = true }
+
+// --- Global skaner (kassa kabi): mavjud kod → tahrir, yangi kod → yaratish ---
+const showScanner = ref(false)
+function handleScan(code: string, format?: string) {
+  const c = code.trim()
+  if (!c) return
+  const exist = products.value.find((p) => p.barcode === c) // aktiv/deaktiv farqsiz
+  if (exist) { openEdit(exist); return }
+  openNew()
+  form.value.barcode = c
+  form.value.barcode_type = format || 'AUTO'
+}
+function onCameraScan(text: string, format: string) { showScanner.value = false; handleScan(text, format) }
+
+// USB shtrix skaner (keyboard-wedge) — tez belgilar + Enter, fokussiz ham ishlaydi.
+let scanBuf = ''
+let lastKey = 0
+function onGlobalKey(e: KeyboardEvent) {
+  if (showScanner.value || showForm.value || showBulk.value) return // modal ochiq — global skan o'chiq
+  const tag = (e.target as HTMLElement)?.tagName
+  if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return
+  const now = Date.now()
+  if (now - lastKey > 100) scanBuf = ''
+  lastKey = now
+  if (e.key === 'Enter') {
+    if (scanBuf.length >= 3) { e.preventDefault(); handleScan(scanBuf) }
+    scanBuf = ''
+  } else if (e.key.length === 1) {
+    scanBuf += e.key
+  }
+}
+onMounted(() => window.addEventListener('keydown', onGlobalKey))
+onBeforeUnmount(() => window.removeEventListener('keydown', onGlobalKey))
 // --- Shtrix kod: generatsiya, ko'rish, yorliq chop etish ---
 const genBusy = ref(false)
 const labelCopies = ref(1)
@@ -172,6 +206,7 @@ async function applyBulk() {
         <p class="truncate text-sm text-muted-foreground">{{ stats.count }} ta · ombor qiymati {{ moneySum(stats.value) }}</p>
       </div>
       <div class="flex shrink-0 items-center gap-2">
+        <button @click="showScanner = true" title="Kod skanerlash" class="flex h-9 items-center gap-1.5 rounded-lg border px-3 text-sm font-medium transition hover:bg-muted"><ScanLine class="h-4 w-4" /> <span class="hidden sm:inline">Skaner</span></button>
         <button @click="openBulk" class="flex h-9 items-center gap-1.5 rounded-lg border px-3 text-sm font-medium transition hover:bg-muted"><Percent class="h-4 w-4" /> <span class="hidden sm:inline">Narxlar</span></button>
         <button @click="openNew" class="flex h-9 items-center gap-1.5 rounded-lg bg-primary px-3.5 text-sm font-medium text-primary-foreground transition hover:bg-primary/90"><Plus class="h-4 w-4" /> Yangi</button>
       </div>
@@ -409,5 +444,8 @@ async function applyBulk() {
         </div>
       </div>
     </div>
+
+    <!-- Kamera skaneri: kod → tahrir yoki yangi mahsulot -->
+    <QrScanner v-if="showScanner" @decoded="onCameraScan" @close="showScanner = false" />
   </div>
 </template>
