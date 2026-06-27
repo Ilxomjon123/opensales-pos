@@ -100,7 +100,11 @@ function handleScan(code: string, format?: string) {
   form.value.barcode = c
   form.value.barcode_type = format || 'AUTO'
 }
-function onCameraScan(text: string, format: string) { showScanner.value = false; handleScan(text, format) }
+// Dock kamera ochiq qoladi (kassa kabi). Forma/Narxlar ochiq bo'lsa skan e'tiborsiz — qayta ochmaydi.
+function onCameraScan(text: string, format: string) {
+  if (showForm.value || showBulk.value) return
+  handleScan(text, format)
+}
 
 // USB shtrix skaner (keyboard-wedge) — tez belgilar + Enter, fokussiz ham ishlaydi.
 let scanBuf = ''
@@ -445,7 +449,7 @@ async function applyBulk() {
       </div>
     </div>
 
-    <!-- Kamera skaneri: kod → tahrir yoki yangi mahsulot -->
-    <QrScanner v-if="showScanner" @decoded="onCameraScan" @close="showScanner = false" />
+    <!-- Kamera skaneri (dock, doimiy) — UI'ni to'smaydi. Kod → tahrir yoki yangi mahsulot -->
+    <QrScanner v-if="showScanner" continuous dock @decoded="onCameraScan" @close="showScanner = false" />
   </div>
 </template>
