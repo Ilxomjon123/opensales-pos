@@ -3,9 +3,9 @@ import { ref, computed, watch, onMounted } from 'vue'
 import SearchableSelect from '../components/SearchableSelect.vue'
 import { Check, Store, Coins, ShoppingCart, ShieldCheck, KeyRound, Copy, FileText, DatabaseBackup, RotateCcw, RefreshCw, Download, CloudUpload, Lock, LockOpen } from 'lucide-vue-next'
 import { getSetting, setSetting } from '../lib/db'
-import { setCurrency } from '../lib/format'
+import { setCurrency, formatDateTime } from '../lib/format'
 import { license, refreshLicense, activate, isOwnerMaster } from '../lib/license'
-import { listBackups, makeBackup, restoreBackup, backupPin, githubDownload, syncToGithub, syncing, githubDevices, githubBackups, NEED_PASS, type BackupFile, type GhDevice } from '../lib/backup'
+import { listBackups, makeBackup, restoreBackup, backupPin, githubDownload, syncNow as libSyncNow, lastSync, loadLastSync, syncing, githubDevices, githubBackups, NEED_PASS, type BackupFile, type GhDevice } from '../lib/backup'
 import { checkForUpdate, checking } from '../lib/updater'
 import { appVersion } from '../lib/version'
 import LicenseAdmin from '../components/LicenseAdmin.vue'
@@ -55,8 +55,8 @@ async function loadGhList() { ghList.value = ghDev.value ? await githubBackups(g
 const ghItems = computed(() => ghDevs.value.map((d) => ({ value: d.id, label: d.label })))
 watch(ghDev, loadGhList)
 async function ghRestore(name: string) {
-  if (!(await confirmDialog(`Claude'dagi "${name}" nusxasidan tiklansinmi? Joriy ma'lumotlar almashtiriladi va dastur qayta ishga tushadi.`, { danger: true, title: 'Claude\'dan tiklash' }))) return
-  restoring.value = 'Claude\'dan yuklab olinmoqda…'
+  if (!(await confirmDialog(`Cloud'dagi "${name}" nusxasidan tiklansinmi? Joriy ma'lumotlar almashtiriladi va dastur qayta ishga tushadi.`, { danger: true, title: 'Cloud\'dan tiklash' }))) return
+  restoring.value = 'Cloud\'dan yuklab olinmoqda…'
   try { await githubDownload(ghDev.value, name); restoring.value = ''; await askRestorePin(name) }
   catch (e: any) {
     restoring.value = ''
@@ -149,10 +149,12 @@ async function applyRestore() {
   restoring.value = 'Tiklanmoqda…'
   try { await restoreBackup(pendingRestore.value) } catch (e: any) { restoring.value = ''; notify('Tiklashda xato: ' + (e?.message ?? e), 'error') }
 }
+// Bazadan yangi nusxa olib GitHub'ga yuboradi (header + zaxira bo'limi tugmasi).
 async function syncNow() {
-  const ok = await syncToGithub(backups.value[0]?.name ?? '')
-  notify(ok ? 'Claude\'ga yuklandi' : 'Sync bo\'lmadi (internet yoki litsenziya yo\'q)', ok ? 'success' : 'error')
-  if (ok) await loadGhDevices() // ro'yxat + komp nomini yangilash
+  if (syncing.value) return
+  const ok = await libSyncNow()
+  notify(ok ? 'Baza Cloud\'ga yuklandi' : 'Sync bo\'lmadi (internet yoki litsenziya yo\'q)', ok ? 'success' : 'error')
+  if (ok) { await loadBackups(); if (showBackup.value) await loadGhDevices() }
 }
 async function checkUpdate() {
   const r = await checkForUpdate()
@@ -175,6 +177,7 @@ onMounted(async () => {
   shopName.value = await getSetting('shop_name', 'OpenSales POS')
   await refreshLicense()
   await loadBackups()
+  await loadLastSync()
   await loadEnc()
 })
 
@@ -207,10 +210,13 @@ async function save() {
     <header class="page-header flex items-center justify-between gap-2">
       <div class="min-w-0">
         <h1 class="cursor-default truncate text-lg font-semibold select-none" @click="tapTitle">Sozlamalar</h1>
-        <p class="hidden text-sm text-muted-foreground sm:block">Do'kon va tizim parametrlari</p>
+        <p class="hidden text-sm text-muted-foreground sm:block">Oxirgi sync: {{ lastSync ? formatDateTime(lastSync) : 'hali yo\'q' }}</p>
       </div>
       <div class="flex items-center gap-2 sm:gap-3">
         <span v-if="saved" class="flex items-center gap-1 text-sm text-emerald-600"><Check class="h-4 w-4" /> <span class="hidden sm:inline">Saqlandi</span></span>
+        <button @click="syncNow" :disabled="syncing" class="flex h-9 items-center gap-1.5 rounded-lg border px-3 text-sm hover:bg-muted disabled:opacity-60">
+          <component :is="syncing ? RefreshCw : CloudUpload" class="h-4 w-4" :class="syncing ? 'animate-spin' : ''" /> <span class="hidden sm:inline">{{ syncing ? 'Yuklanmoqda…' : 'Sync' }}</span>
+        </button>
         <button @click="showLogs = true" class="flex h-9 items-center gap-1.5 rounded-lg border px-3 text-sm hover:bg-muted"><FileText class="h-4 w-4" /> <span class="hidden sm:inline">Loglar</span></button>
         <button @click="save" class="h-9 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground transition hover:bg-primary/90 sm:px-5">Saqlash</button>
       </div>
@@ -312,7 +318,7 @@ async function save() {
               <button @click="backupNow" :disabled="busyBackup" class="flex h-9 flex-1 items-center justify-center gap-1.5 rounded-lg bg-primary px-3.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 sm:flex-none"><DatabaseBackup class="h-4 w-4" /> <span class="whitespace-nowrap">Hozir nusxa olish</span></button>
             </div>
           </div>
-          <p class="mb-3 text-xs text-muted-foreground">Har kuni avtomatik nusxa olinadi (oxirgi 14 ta saqlanadi). Internet bo'lsa Claude'ga sync qilinadi. Tiklash uchun nusxani tanlang.</p>
+          <p class="mb-3 text-xs text-muted-foreground">Har kuni avtomatik nusxa olinadi (oxirgi 14 ta saqlanadi). Internet bo'lsa Cloud'ga sync qilinadi. Tiklash uchun nusxani tanlang.</p>
 
           <!-- Cloud shifrlash (lokal ochiq, cloud nusxa parol bilan) -->
           <div class="mb-3 flex items-center justify-between rounded-lg border bg-muted/30 px-3 py-2">
@@ -334,7 +340,7 @@ async function save() {
               </div>
             </div>
             <div>
-              <div class="mb-1.5 text-xs font-medium text-muted-foreground">Claude'dan tiklash (yangi komp)</div>
+              <div class="mb-1.5 text-xs font-medium text-muted-foreground">Cloud'dan tiklash (yangi komp)</div>
               <div v-if="ghDevs.length" class="mb-2">
                 <SearchableSelect v-model="ghDev" :items="ghItems" placeholder="Qurilmani tanlang" search-placeholder="Do'kon yoki kompyuter nomi…" />
               </div>
@@ -345,7 +351,7 @@ async function save() {
                     <span class="font-mono text-xs">{{ f.name }}</span>
                     <button @click="ghRestore(f.name)" class="flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-xs hover:bg-muted"><RotateCcw class="h-3.5 w-3.5" /> Tiklash</button>
                   </div>
-                  <div v-if="ghList.length === 0" class="px-3 py-6 text-center text-sm text-muted-foreground">Claude'da nusxa yo'q (yoki litsenziya yo'q)</div>
+                  <div v-if="ghList.length === 0" class="px-3 py-6 text-center text-sm text-muted-foreground">Cloud'da nusxa yo'q (yoki litsenziya yo'q)</div>
                 </template>
               </div>
             </div>

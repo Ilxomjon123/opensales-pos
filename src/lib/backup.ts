@@ -10,7 +10,11 @@ import { getDeviceId } from './license'
 const KEEP = 14 // oxirgi 14 kunlik nusxa saqlanadi
 const DIR = 'backups'
 export const lastBackup = ref('')
+export const lastSync = ref('') // oxirgi muvaffaqiyatli cloud sync vaqti (ISO)
 export const syncing = ref(false)
+
+// Sozlamadan oxirgi sync vaqtini yuklash (app ochilganda / Settings'da).
+export async function loadLastSync(): Promise<void> { lastSync.value = await getSetting('last_sync_at', '') }
 
 function today() { return new Date().toISOString().slice(0, 10) }
 function stamp() { return new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-') }
@@ -27,8 +31,9 @@ export async function listBackups(): Promise<BackupFile[]> {
   } catch { return [] }
 }
 
-// Bitta nusxa olish (VACUUM INTO — WAL bilan toza nusxa). Online bo'lsa GitHub'ga sync.
-export async function makeBackup(): Promise<string> {
+// Bitta nusxa olish (VACUUM INTO — WAL bilan toza nusxa). autoSync=true bo'lsa fonda
+// GitHub'ga yuboriladi (kunlik avtomatik oqim). Qo'lda sync o'zi chaqiradi → autoSync=false.
+export async function makeBackup(autoSync = true): Promise<string> {
   await mkdir(DIR, { baseDir: BaseDirectory.AppData, recursive: true }).catch(() => {})
   const name = `pos-${stamp()}.db`
   const abs = await join(await appDataDir(), DIR, name)
@@ -37,7 +42,7 @@ export async function makeBackup(): Promise<string> {
   await setSetting('last_backup_date', today())
   lastBackup.value = name
   await prune()
-  void syncToGithub(name)
+  if (autoSync) void syncToGithub(name)
   return name
 }
 
@@ -242,6 +247,17 @@ export async function syncToGithub(name: string): Promise<boolean> {
     try { host = (await hostname()) ?? '' } catch {}
     const info = JSON.stringify({ device, shop_name: shop, host, updated: new Date().toISOString(), last_file: name })
     await ghPut(`backups/${device}/_info.json`, bytesToB64(new TextEncoder().encode(info)), `info ${device}`)
+    if (ok) {
+      const now = new Date().toISOString()
+      await setSetting('last_sync_at', now)
+      lastSync.value = now
+    }
     return ok
   } catch { return false } finally { syncing.value = false }
+}
+
+// Qo'lda sync (Settings header tugmasi): bazadan YANGI nusxa olib, cloud'ga (GitHub) yuboradi.
+export async function syncNow(): Promise<boolean> {
+  const name = await makeBackup(false)
+  return syncToGithub(name)
 }

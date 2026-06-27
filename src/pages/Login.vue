@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { lastRoute } from '../router'
 import { KeyRound, ArrowLeft, Check, QrCode, Wifi, ShieldCheck, Printer, Globe } from 'lucide-vue-next'
 import { openUrl } from '@tauri-apps/plugin-opener'
 import { loginPin, verifyRecoveryKey, setPin } from '../lib/auth'
@@ -34,7 +35,7 @@ async function onQrDecoded(text: string) {
   else keyError.value = 'QR-kod mos kelmadi'
 }
 async function onLogin(p: string) {
-  if (await loginPin(p)) router.push('/pos')
+  if (await loginPin(p)) router.push(lastRoute())
   else { pinError.value = true; loginPad.value?.shakeNow(); setTimeout(() => (pinError.value = false), 600) }
 }
 async function checkKey() {

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { lastRoute } from '../router'
 import { ShieldCheck, Copy, Check, Phone } from 'lucide-vue-next'
 import { license, refreshLicense, activate, getDeviceId } from '../lib/license'
 import LicenseAdmin from '../components/LicenseAdmin.vue'
@@ -23,7 +24,7 @@ const supportName = import.meta.env.VITE_SUPPORT_NAME ?? ''
 onMounted(async () => {
   await refreshLicense()
   deviceId.value = license.value.deviceId || (await getDeviceId())
-  if (license.value.active) router.replace('/pos')
+  if (license.value.active) router.replace(lastRoute())
 })
 
 async function submit() {
@@ -31,7 +32,7 @@ async function submit() {
   busy.value = true
   const r = await activate(keyInput.value)
   busy.value = false
-  if (r.ok) { notify(r.msg, 'success'); router.replace('/pos') }
+  if (r.ok) { notify(r.msg, 'success'); router.replace(lastRoute()) }
   else err.value = r.msg
 }
 
