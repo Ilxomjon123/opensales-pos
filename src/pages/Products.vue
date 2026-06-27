@@ -105,6 +105,16 @@ function onCameraScan(text: string, format: string) {
   if (showForm.value || showBulk.value) return
   handleScan(text, format)
 }
+// Qidiruv maydonига fokus bo'lganда USB skaner shu yerга yozadi — Enter'да skan kabi ishlaymiz.
+function onSearchEnter() {
+  const q = search.value.trim()
+  if (!q) return
+  const exist = products.value.find((p) => p.barcode === q)
+  if (exist) { openEdit(exist); search.value = ''; return }
+  if (visible.value.length === 1) { openEdit(visible.value[0]); search.value = ''; return }
+  // Topilmadi va probelsiz uzun qator — yangi shtrix kod deb yaratish oynasini ochamiz.
+  if (!/\s/.test(q) && q.length >= 6) { openNew(); form.value.barcode = q; form.value.barcode_type = 'AUTO'; search.value = '' }
+}
 
 // USB shtrix skaner (keyboard-wedge) — tez belgilar + Enter, fokussiz ham ishlaydi.
 let scanBuf = ''
@@ -240,7 +250,7 @@ async function applyBulk() {
     <div class="flex flex-wrap items-center gap-2 border-b px-4 py-3 sm:px-6">
       <div class="relative w-full sm:min-w-48 sm:flex-1">
         <Search class="absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-        <input v-model="search" placeholder="Mahsulot qidirish…" class="h-9 w-full rounded-lg border bg-background pl-9 pr-3 text-sm focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none" />
+        <input v-model="search" @keyup.enter="onSearchEnter" placeholder="Mahsulot qidirish yoki kod skanerlash…" class="h-9 w-full rounded-lg border bg-background pl-9 pr-3 text-sm focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none" />
       </div>
       <div class="w-full sm:w-52"><SearchableSelect v-model="catFilter" :items="catItems" placeholder="Barcha kategoriyalar" search-placeholder="Kategoriya…" clearable /></div>
       <select v-model="stockFilter" class="h-9 flex-1 rounded-lg border bg-card px-3 text-sm sm:flex-none">
