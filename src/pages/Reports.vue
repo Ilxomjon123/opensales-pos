@@ -51,7 +51,7 @@ async function load() {
   try {
     const exp = await expensesTotal(from, to)
     period.value = { ...period.value, expenses: exp, net: grossProfit - exp }
-  } catch { /* expenses jadvali hali yo'q (migration qo'llanmagan) — xarajat 0 */ }
+  } catch (e) { console.error('expensesTotal:', e) /* xarajat o'qilmadi — 0, lekin log qoldiramiz */ }
   topProducts.value = await d.select(
     `SELECT si.product_name name, SUM(si.qty) qty, SUM(si.subtotal) total
      FROM sale_items si JOIN sales s ON s.id = si.sale_id

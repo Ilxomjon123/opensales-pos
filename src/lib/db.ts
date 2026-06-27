@@ -129,6 +129,7 @@ export async function listProducts(activeOnly = true): Promise<Product[]> {
 export async function saveProduct(p: Partial<Product> & { name: string; price: number }): Promise<void> {
   const d = await db()
   const barcode = p.barcode?.trim() || null
+  if (barcode && barcode.length > 512) throw new Error('Shtrix/QR kod juda uzun')
   // Bitta shtrix/QR kod ikki mahsulotга qo'yilmasin (tahrirда o'zini hisobламaymiz).
   if (barcode) {
     const dup = await d.select<{ id: number; name: string }[]>(
@@ -455,8 +456,30 @@ export async function productCustomerHistory(productId: number, customerId: numb
 }
 
 // ---- Xarajatlar ----
+// Jadval kafolati (migration kechikса yoki qo'llanmagan bo'lsa ham ishlasin).
+let _expEnsured: Promise<void> | null = null
+async function ensureExpenses(): Promise<void> {
+  if (!_expEnsured) {
+    _expEnsured = (async () => {
+      const d = await db()
+      await d.execute(`CREATE TABLE IF NOT EXISTS expenses (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        amount INTEGER NOT NULL,
+        category TEXT NOT NULL DEFAULT 'Boshqa',
+        note TEXT,
+        shift_id INTEGER,
+        created_at TEXT NOT NULL
+      )`)
+      await d.execute('CREATE INDEX IF NOT EXISTS idx_expenses_created ON expenses(created_at)')
+    })()
+    _expEnsured.catch(() => { _expEnsured = null })
+  }
+  return _expEnsured
+}
+
 export type ExpenseFilter = { dateFrom?: string; dateTo?: string; category?: string }
 export async function listExpenses(f: ExpenseFilter = {}): Promise<Expense[]> {
+  await ensureExpenses()
   const d = await db()
   const where: string[] = []
   const args: any[] = []
@@ -472,11 +495,12 @@ function expenseIso(date?: string): string {
   if (!date) return new Date().toISOString()
   const today = new Date().toISOString().slice(0, 10)
   if (date === today) return new Date().toISOString()
-  const [y, m, d] = date.split('-').map(Number)
-  return new Date(y, m - 1, d, 12, 0, 0).toISOString()
+  // Peshin UTC — date(created_at) har timezoneда aynan tanlangan kunni beradi.
+  return `${date}T12:00:00.000Z`
 }
 // Xarajat qo'shish/tahrirlash. Joriy ochiq smenaга bog'lanadi (yangi yozuvда).
 export async function saveExpense(e: { id?: number; amount: number; category: string; note?: string | null; date?: string }): Promise<void> {
+  await ensureExpenses()
   const d = await db()
   const amount = Math.max(0, Math.round(e.amount || 0))
   if (amount === 0) throw new Error('Summa 0 dan katta bo\'lsin')
@@ -492,11 +516,13 @@ export async function saveExpense(e: { id?: number; amount: number; category: st
   }
 }
 export async function deleteExpense(id: number): Promise<void> {
+  await ensureExpenses()
   const d = await db()
   await d.execute('DELETE FROM expenses WHERE id = ?', [id])
 }
 // Davr ichidagi jami xarajat (hisobot uchun).
 export async function expensesTotal(dateFrom: string, dateTo: string): Promise<number> {
+  await ensureExpenses()
   const d = await db()
   const r = await d.select<{ t: number }[]>('SELECT COALESCE(SUM(amount),0) t FROM expenses WHERE date(created_at) BETWEEN ? AND ?', [dateFrom, dateTo])
   return r[0]?.t ?? 0
