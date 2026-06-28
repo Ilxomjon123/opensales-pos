@@ -13,6 +13,7 @@ export function db(): Promise<Database> {
         try {
           const d = await Database.load('sqlite:pos.db')
           await seedIfEmpty(d)
+          await healSchema(d)
           return d
         } catch (e) {
           lastErr = e
@@ -26,6 +27,37 @@ export function db(): Promise<Database> {
     _dbp.catch(() => { _dbp = null })
   }
   return _dbp
+}
+
+// Sxemani migration holatидан qat'i nazar to'g'rilaydi (idempotent). Migration bloklansa
+// (mas. v7 unique index eski dublikat barcodeда yiqilса → v8/v9 qo'llanmaydi) ham
+// dastur ishlaydi. CLAUDE.md: eski migration tahrirlanmaydi — bu JS self-heal.
+async function healSchema(d: Database): Promise<void> {
+  // 1) products yangi ustunlari (v6/v8 bloklangan bo'lsa)
+  const cols = await d.select<{ name: string }[]>('PRAGMA table_info(products)')
+  const has = (c: string) => cols.some((x) => x.name === c)
+  if (!has('barcode')) await d.execute('ALTER TABLE products ADD COLUMN barcode TEXT')
+  if (!has('barcode_type')) await d.execute('ALTER TABLE products ADD COLUMN barcode_type TEXT')
+  // 2) dublikat barcode'larni tozalash (eng kichik id qoladi) — v7 unique index keyingi
+  //    ishga tushishda muvaffaqiyatli bo'ladi va bu yerда unique index ham yaratiladi.
+  await d.execute(
+    `UPDATE products SET barcode = NULL
+     WHERE barcode IS NOT NULL AND id NOT IN (
+       SELECT MIN(id) FROM products WHERE barcode IS NOT NULL GROUP BY barcode
+     )`,
+  )
+  await d.execute('CREATE INDEX IF NOT EXISTS idx_products_barcode ON products(barcode)')
+  try { await d.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_products_barcode_unique ON products(barcode) WHERE barcode IS NOT NULL') } catch { /* eski sqlite partial index'ни qo'llamasa — app darajasидаgi tekshiruv yetarli */ }
+  // 3) expenses jadvali (v9 bloklangan bo'lsa)
+  await d.execute(`CREATE TABLE IF NOT EXISTS expenses (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    amount INTEGER NOT NULL,
+    category TEXT NOT NULL DEFAULT 'Boshqa',
+    note TEXT,
+    shift_id INTEGER,
+    created_at TEXT NOT NULL
+  )`)
+  await d.execute('CREATE INDEX IF NOT EXISTS idx_expenses_created ON expenses(created_at)')
 }
 
 // ---- Turlar ----
@@ -456,30 +488,9 @@ export async function productCustomerHistory(productId: number, customerId: numb
 }
 
 // ---- Xarajatlar ----
-// Jadval kafolati (migration kechikса yoki qo'llanmagan bo'lsa ham ishlasin).
-let _expEnsured: Promise<void> | null = null
-async function ensureExpenses(): Promise<void> {
-  if (!_expEnsured) {
-    _expEnsured = (async () => {
-      const d = await db()
-      await d.execute(`CREATE TABLE IF NOT EXISTS expenses (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        amount INTEGER NOT NULL,
-        category TEXT NOT NULL DEFAULT 'Boshqa',
-        note TEXT,
-        shift_id INTEGER,
-        created_at TEXT NOT NULL
-      )`)
-      await d.execute('CREATE INDEX IF NOT EXISTS idx_expenses_created ON expenses(created_at)')
-    })()
-    _expEnsured.catch(() => { _expEnsured = null })
-  }
-  return _expEnsured
-}
-
+// db() ochilishida healSchema expenses jadvalini kafolatlaydi — alohida ensure shart emas.
 export type ExpenseFilter = { dateFrom?: string; dateTo?: string; category?: string }
 export async function listExpenses(f: ExpenseFilter = {}): Promise<Expense[]> {
-  await ensureExpenses()
   const d = await db()
   const where: string[] = []
   const args: any[] = []
@@ -500,7 +511,6 @@ function expenseIso(date?: string): string {
 }
 // Xarajat qo'shish/tahrirlash. Joriy ochiq smenaга bog'lanadi (yangi yozuvда).
 export async function saveExpense(e: { id?: number; amount: number; category: string; note?: string | null; date?: string }): Promise<void> {
-  await ensureExpenses()
   const d = await db()
   const amount = Math.max(0, Math.round(e.amount || 0))
   if (amount === 0) throw new Error('Summa 0 dan katta bo\'lsin')
@@ -516,13 +526,11 @@ export async function saveExpense(e: { id?: number; amount: number; category: st
   }
 }
 export async function deleteExpense(id: number): Promise<void> {
-  await ensureExpenses()
   const d = await db()
   await d.execute('DELETE FROM expenses WHERE id = ?', [id])
 }
 // Davr ichidagi jami xarajat (hisobot uchun).
 export async function expensesTotal(dateFrom: string, dateTo: string): Promise<number> {
-  await ensureExpenses()
   const d = await db()
   const r = await d.select<{ t: number }[]>('SELECT COALESCE(SUM(amount),0) t FROM expenses WHERE date(created_at) BETWEEN ? AND ?', [dateFrom, dateTo])
   return r[0]?.t ?? 0
