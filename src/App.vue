@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { RouterLink, RouterView, useRouter, useRoute } from 'vue-router'
 import { ShoppingBag, Receipt, Clock, UserCircle2, Box, FolderTree, BarChart3, Monitor, Sun, Moon, LogOut, Settings, LayoutGrid, Wallet } from 'lucide-vue-next'
 import { theme, setTheme } from './lib/theme'
@@ -14,6 +15,7 @@ import UpdatePrompt from './components/UpdatePrompt.vue'
 
 const router = useRouter()
 const route = useRoute()
+const { t } = useI18n()
 function doLogout() { logout(); router.push('/login') }
 
 // Mobil: native uslubdagi pastki tab bar + "Ko'proq" sheet.
@@ -21,22 +23,22 @@ const moreOpen = ref(false)
 watch(() => route.fullPath, () => { moreOpen.value = false })
 
 // Pastki tab bar — kassir uchun eng muhim 4 bo'lim.
-const bottomNav = [
-  { to: '/pos', label: 'Kassa', icon: ShoppingBag },
-  { to: '/sales', label: 'Sotuvlar', icon: Receipt },
-  { to: '/products', label: 'Mahsulot', icon: Box },
-  { to: '/customers', label: 'Mijozlar', icon: UserCircle2 },
-]
+const bottomNav = computed(() => [
+  { to: '/pos', label: t('app.navPos'), icon: ShoppingBag },
+  { to: '/sales', label: t('app.navSales'), icon: Receipt },
+  { to: '/products', label: t('app.navProduct'), icon: Box },
+  { to: '/customers', label: t('app.navCustomers'), icon: UserCircle2 },
+])
 // "Ko'proq" sheet — qolgan bo'limlar.
-const moreItems = [
-  { to: '/shifts', label: 'Smenalar', icon: Clock },
-  { to: '/categories', label: 'Kategoriyalar', icon: FolderTree },
-  { to: '/expenses', label: 'Xarajatlar', icon: Wallet },
-  { to: '/reports', label: 'Hisobotlar', icon: BarChart3 },
-  { to: '/settings', label: 'Sozlamalar', icon: Settings },
-]
+const moreItemsT = computed(() => [
+  { to: '/shifts', label: t('app.navShifts'), icon: Clock },
+  { to: '/categories', label: t('app.navCategories'), icon: FolderTree },
+  { to: '/expenses', label: t('app.navExpenses'), icon: Wallet },
+  { to: '/reports', label: t('app.navReports'), icon: BarChart3 },
+  { to: '/settings', label: t('app.navSettings'), icon: Settings },
+])
 const moreActive = ref(false)
-watch(() => route.path, (p) => { moreActive.value = moreItems.some((m) => p.startsWith(m.to)) }, { immediate: true })
+watch(() => route.path, (p) => { moreActive.value = moreItemsT.value.some((m) => p.startsWith(m.to)) }, { immediate: true })
 
 onMounted(() => {
   // Internet bo'lsa — yangilanish tekshirish; offline'da jim.
@@ -45,28 +47,28 @@ onMounted(() => {
   runDueBackup().catch(() => {})
 })
 
-const groups = [
-  { label: 'Savdo', items: [
-    { to: '/pos', label: 'POS kassa', icon: ShoppingBag },
-    { to: '/sales', label: 'Sotuvlar', icon: Receipt },
-    { to: '/shifts', label: 'Smenalar', icon: Clock },
-    { to: '/customers', label: 'Mijozlar', icon: UserCircle2 },
+const groups = computed(() => [
+  { label: t('app.groupSales'), items: [
+    { to: '/pos', label: t('app.navPosFull'), icon: ShoppingBag },
+    { to: '/sales', label: t('app.navSales'), icon: Receipt },
+    { to: '/shifts', label: t('app.navShifts'), icon: Clock },
+    { to: '/customers', label: t('app.navCustomers'), icon: UserCircle2 },
   ] },
-  { label: 'Katalog', items: [
-    { to: '/products', label: 'Mahsulotlar', icon: Box },
-    { to: '/categories', label: 'Kategoriyalar', icon: FolderTree },
+  { label: t('app.groupCatalog'), items: [
+    { to: '/products', label: t('app.navProducts'), icon: Box },
+    { to: '/categories', label: t('app.navCategories'), icon: FolderTree },
   ] },
-  { label: 'Boshqaruv', items: [
-    { to: '/expenses', label: 'Xarajatlar', icon: Wallet },
-    { to: '/reports', label: 'Hisobotlar', icon: BarChart3 },
-    { to: '/settings', label: 'Sozlamalar', icon: Settings },
+  { label: t('app.groupManagement'), items: [
+    { to: '/expenses', label: t('app.navExpenses'), icon: Wallet },
+    { to: '/reports', label: t('app.navReports'), icon: BarChart3 },
+    { to: '/settings', label: t('app.navSettings'), icon: Settings },
   ] },
-]
-const themes = [
-  { v: 'system', icon: Monitor, label: 'Tizim' },
-  { v: 'light', icon: Sun, label: 'Yorug' },
-  { v: 'dark', icon: Moon, label: 'Qorong' },
-] as const
+])
+const themes = computed(() => [
+  { v: 'system', icon: Monitor, label: t('app.themeSystem') },
+  { v: 'light', icon: Sun, label: t('app.themeLight') },
+  { v: 'dark', icon: Moon, label: t('app.themeDark') },
+] as const)
 </script>
 
 <template>
@@ -82,7 +84,7 @@ const themes = [
         </div>
         <div class="leading-tight">
           <div class="text-sm font-semibold">OpenSales</div>
-          <div class="text-xs text-muted-foreground">POS tizimi</div>
+          <div class="text-xs text-muted-foreground">{{ $t('app.subtitle') }}</div>
         </div>
       </div>
       <nav class="flex-1 space-y-5 overflow-y-auto px-3 py-2">
@@ -111,7 +113,7 @@ const themes = [
           </button>
         </div>
         <button @click="doLogout" class="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-rose-500/10 hover:text-rose-600">
-          <LogOut class="h-[18px] w-[18px]" /> Chiqish
+          <LogOut class="h-[18px] w-[18px]" /> {{ $t('app.logout') }}
         </button>
         <div class="px-1 text-center text-[11px] text-muted-foreground/70">OpenSales POS · v{{ appVersion }}</div>
       </div>
@@ -142,7 +144,7 @@ const themes = [
           @click="moreOpen = true"
         >
           <LayoutGrid class="h-[22px] w-[22px]" />
-          Ko'proq
+          {{ $t('app.more') }}
         </button>
       </div>
     </nav>
@@ -155,7 +157,7 @@ const themes = [
           <div class="mx-auto mb-4 h-1.5 w-10 rounded-full bg-muted-foreground/30" />
           <div class="grid grid-cols-4 gap-2">
             <RouterLink
-              v-for="item in moreItems"
+              v-for="item in moreItemsT"
               :key="item.to"
               :to="item.to"
               class="flex flex-col items-center gap-1.5 rounded-2xl bg-muted/40 py-3.5 text-xs font-medium text-foreground transition active:scale-95"
@@ -174,7 +176,7 @@ const themes = [
               </button>
             </div>
             <button @click="doLogout" class="flex h-12 items-center gap-2 rounded-2xl bg-rose-500/10 px-5 text-sm font-medium text-rose-600 active:scale-95">
-              <LogOut class="h-[18px] w-[18px]" /> Chiqish
+              <LogOut class="h-[18px] w-[18px]" /> {{ $t('app.logout') }}
             </button>
           </div>
           <div class="mt-3 text-center text-[11px] text-muted-foreground/70">OpenSales POS · v{{ appVersion }}</div>

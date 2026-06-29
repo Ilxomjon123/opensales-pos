@@ -1,6 +1,7 @@
 import { ref } from 'vue'
 import nacl from 'tweetnacl'
 import { getSetting, setSetting } from './db'
+import { t } from './i18n'
 
 // Barcha key/secret .env'da (build-time). Dasturga FAQAT public kalit joylanadi; private (seed) faqat egasida.
 const PUBLIC_KEY_B64 = (import.meta.env.VITE_LICENSE_PUBKEY ?? '').trim()
@@ -124,13 +125,13 @@ export async function refreshLicense(): Promise<LicenseInfo> {
 export async function activate(key: string): Promise<{ ok: boolean; msg: string }> {
   const deviceId = await getDeviceId()
   const pl = verifyKey(key)
-  if (!pl) return { ok: false, msg: 'Kalit yaroqsiz yoki buzilgan' }
-  if (pl.d !== deviceId) return { ok: false, msg: 'Kalit bu qurilmaga mos emas' }
-  if (pl.exp !== null && Date.parse(pl.exp) < Date.now()) return { ok: false, msg: 'Kalit muddati allaqachon tugagan' }
+  if (!pl) return { ok: false, msg: t('activation.keyInvalid') }
+  if (pl.d !== deviceId) return { ok: false, msg: t('activation.keyDeviceMismatch') }
+  if (pl.exp !== null && Date.parse(pl.exp) < Date.now()) return { ok: false, msg: t('activation.keyExpired') }
   await setSetting('license_key', key.trim())
   await setSetting('license_revoked', '0') // qayta faollashtirilganda bekorni olib tashlash
   await refreshLicense()
-  return { ok: true, msg: pl.exp === null ? 'Dastur butunlay aktivlashtirildi' : `Aktiv: ${pl.exp} gacha` }
+  return { ok: true, msg: pl.exp === null ? t('activation.activatedForever') : t('activation.activatedUntil', { date: pl.exp }) }
 }
 
 // Egasi: shu qurilmada litsenziyani bekor qilish — dastur aktivatsiyani kutadi.
@@ -150,7 +151,7 @@ export function isOwnerMaster(input: string): boolean {
 }
 export function generateKey(deviceId: string, exp: string | null, secretSeedB64: string): string {
   const sk = b64ToBytes(secretSeedB64)
-  if (sk.length !== 64) throw new Error('Maxfiy kalit (seed) noto\'g\'ri — 64 baytli secretKey base64 bo\'lishi kerak')
+  if (sk.length !== 64) throw new Error(t('activation.seedInvalid'))
   const payload: Payload = { d: deviceId.trim().toUpperCase(), exp }
   const msg = enc.encode(JSON.stringify(payload))
   const sig = nacl.sign.detached(msg, sk)

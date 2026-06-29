@@ -11,7 +11,7 @@ function onDecoded(t: string, fmt: string) { open.value = false; emit('decoded',
 </script>
 
 <template>
-  <button type="button" @click="open = true" title="Kodni skanerlash"
+  <button type="button" @click="open = true" :title="$t('qrScanner.scanCode')"
     class="flex w-10 shrink-0 items-center justify-center self-stretch rounded-md border bg-background text-muted-foreground transition hover:bg-muted hover:text-foreground">
     <ScanLine class="h-4 w-4" />
   </button>

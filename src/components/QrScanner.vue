@@ -2,8 +2,11 @@
 // QR VA shtrix kod (EAN-13/8, UPC, Code128/39, ITF) o'qiydigan kamera skaneri.
 // ZXing multi-format. Dekod bo'lgan matnni `decoded` orqali qaytaradi.
 import { ref, onMounted, onBeforeUnmount } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { BrowserMultiFormatReader, DecodeHintType, BarcodeFormat } from '@zxing/library'
 import { X, ScanLine, Minus, ChevronUp } from 'lucide-vue-next'
+
+const { t } = useI18n()
 
 // continuous: true bo'lsa kamera ochiq qoladi (kassa — ketma-ket savatga qo'shish).
 // false (default) bo'lsa birinchi skandan keyin to'xtaydi (litsenziya QR va h.k.).
@@ -100,7 +103,7 @@ onMounted(async () => {
       },
     )
   } catch (e: any) {
-    error.value = "Kameraga ruxsat yo'q yoki kamera topilmadi"
+    error.value = t('qrScanner.cameraError')
   }
 })
 
@@ -120,10 +123,10 @@ onBeforeUnmount(stop)
       class="fixed bottom-[calc(env(safe-area-inset-bottom)+5.5rem)] left-3 z-40 w-48 overflow-hidden rounded-xl border bg-card shadow-2xl lg:bottom-4 lg:left-4 lg:w-56"
     >
       <div @pointerdown="startDrag" class="flex cursor-move touch-none items-center justify-between border-b px-2.5 py-1.5">
-        <div class="flex items-center gap-1.5 text-xs font-semibold"><ScanLine class="h-3.5 w-3.5" /> Skaner</div>
+        <div class="flex items-center gap-1.5 text-xs font-semibold"><ScanLine class="h-3.5 w-3.5" /> {{ $t('qrScanner.scanner') }}</div>
         <div class="flex items-center gap-0.5">
-          <button @click="collapsed = !collapsed" class="rounded p-1 text-muted-foreground hover:bg-muted" :title="collapsed ? 'Ko\'rsatish' : 'Yig\'ish'"><component :is="collapsed ? ChevronUp : Minus" class="h-3.5 w-3.5" /></button>
-          <button @click="emit('close')" class="rounded p-1 text-muted-foreground hover:bg-muted" title="Yopish"><X class="h-3.5 w-3.5" /></button>
+          <button @click="collapsed = !collapsed" class="rounded p-1 text-muted-foreground hover:bg-muted" :title="collapsed ? $t('qrScanner.expand') : $t('qrScanner.collapse')"><component :is="collapsed ? ChevronUp : Minus" class="h-3.5 w-3.5" /></button>
+          <button @click="emit('close')" class="rounded p-1 text-muted-foreground hover:bg-muted" :title="$t('common.close')"><X class="h-3.5 w-3.5" /></button>
         </div>
       </div>
       <div v-show="!collapsed" class="relative aspect-square bg-black">
@@ -140,7 +143,7 @@ onBeforeUnmount(stop)
 
     <div v-else class="w-full max-w-sm overflow-hidden rounded-2xl border bg-card shadow-xl">
       <div class="flex items-center justify-between border-b px-4 py-3">
-        <div class="flex items-center gap-2 text-sm font-semibold"><ScanLine class="h-4 w-4" /> Kodni skanerlang</div>
+        <div class="flex items-center gap-2 text-sm font-semibold"><ScanLine class="h-4 w-4" /> {{ $t('qrScanner.scanCode') }}</div>
         <button @click="emit('close')" class="rounded-md p-1.5 hover:bg-muted"><X class="h-4 w-4" /></button>
       </div>
       <div class="relative aspect-square bg-black">
@@ -159,7 +162,7 @@ onBeforeUnmount(stop)
         <!-- Skan qabul qilindi — yashil chaqnash -->
         <div v-if="hit" class="pointer-events-none absolute inset-0 bg-emerald-400/30"></div>
       </div>
-      <div class="px-4 py-3 text-center text-xs text-muted-foreground">Kodni ramka ichiga tuting<template v-if="continuous"> · ketma-ket skan uchun ochiq qoladi</template></div>
+      <div class="px-4 py-3 text-center text-xs text-muted-foreground">{{ $t('qrScanner.placeInFrame') }}<template v-if="continuous"> · {{ $t('qrScanner.continuousHint') }}</template></div>
     </div>
   </div>
 </template>

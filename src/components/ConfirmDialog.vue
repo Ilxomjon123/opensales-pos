@@ -16,8 +16,8 @@ import { AlertTriangle } from 'lucide-vue-next'
         </div>
       </div>
       <div class="mt-5 flex justify-end gap-2">
-        <button @click="answer(false)" class="h-9 rounded-md border px-4 text-sm hover:bg-muted">Bekor</button>
-        <button @click="answer(true)" class="h-9 rounded-md px-4 text-sm font-medium text-white" :class="confirmState.danger ? 'bg-rose-600 hover:bg-rose-700' : 'bg-primary hover:bg-primary/90'">Ha</button>
+        <button @click="answer(false)" class="h-9 rounded-md border px-4 text-sm hover:bg-muted">{{ $t('common.cancel') }}</button>
+        <button @click="answer(true)" class="h-9 rounded-md px-4 text-sm font-medium text-white" :class="confirmState.danger ? 'bg-rose-600 hover:bg-rose-700' : 'bg-primary hover:bg-primary/90'">{{ $t('common.yes') }}</button>
       </div>
     </div>
   </div>

@@ -7,6 +7,7 @@ import { getSetting } from './lib/db'
 import { initTheme } from './lib/theme'
 import { refreshLicense } from './lib/license'
 import { applyPendingRestore } from './lib/backup'
+import { i18n, loadLocale } from './lib/i18n'
 import { info, warn, error as logError, attachConsole } from '@tauri-apps/plugin-log'
 import { writeTextFile } from '@tauri-apps/plugin-fs'
 import { appLogDir, join } from '@tauri-apps/api/path'
@@ -43,6 +44,7 @@ initTheme()
 
 const app = createApp(App)
 app.use(router)
+app.use(i18n)
 
 // 1) Kutilayotgan tiklash bo'lsa — DB ochilishidan OLDIN bajariladi.
 // 2) Keyin litsenziya. 3) So'ng mount.
@@ -66,6 +68,7 @@ applyPendingRestore()
   .catch((e) => void appendErr(`restore apply error: ${e?.stack ?? e}`))
   .then(() => initLicense())
   .then((l) => void info(`license ok · mode=${l?.mode ?? 'xato'} days=${l?.daysLeft ?? '-'}`))
+  .then(() => loadLocale().catch((e) => void warn(`locale read: ${e}`)))
   .then(() => getSetting('currency_symbol', "so'm").then(setCurrency).catch((e) => void warn(`currency read: ${e}`)))
   .catch((e) => void appendErr(`init error: ${e?.stack ?? e}`))
   .finally(() => {

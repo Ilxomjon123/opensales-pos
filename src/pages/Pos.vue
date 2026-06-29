@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { Search, Plus, Minus, Trash2, Package, ShoppingCart, X, ClipboardList, LogOut, Magnet, ChevronUp, History, ScanLine } from 'lucide-vue-next'
 import {
   listProducts, listCategories, listCustomers, activeShift, openShift, closeShift,
@@ -11,6 +12,14 @@ import SearchableSelect from '../components/SearchableSelect.vue'
 import QrScanner from '../components/QrScanner.vue'
 import { printReceipt } from '../lib/print'
 import { beepOk, beepFail, unlockAudio } from '../lib/beep'
+
+const { t } = useI18n()
+
+// Mijoz nomini ko'rsatish: yo'l-yo'lakay xaridor uchun saqlangan nom emas, tarjima ishlatiladi.
+function customerLabel(c: Customer | null | undefined): string {
+  if (!c) return '—'
+  return c.is_walk_in ? t('common.walkInCustomer') : c.name
+}
 
 const products = ref<Product[]>([])
 const categories = ref<Category[]>([])
@@ -152,7 +161,10 @@ const filtered = computed(() => {
   return list
 })
 
-const customerItems = computed(() => customers.value.map((c) => ({ value: c.id, label: c.phone ? `${c.name} · ${c.phone}` : c.name })))
+const customerItems = computed(() => customers.value.map((c) => {
+  const name = customerLabel(c)
+  return { value: c.id, label: c.phone ? `${name} · ${c.phone}` : name }
+}))
 const selectedCustomer = computed(() => customers.value.find((c) => c.id === customerId.value) ?? null)
 const subtotal = computed(() => cart.value.reduce((s, it) => s + Math.round(it.qty * it.price), 0))
 const total = computed(() => Math.max(0, subtotal.value - (discount.value || 0)))
@@ -189,11 +201,11 @@ async function handleScan(code: string): Promise<boolean> {
   const c = code.trim()
   if (!c || !shift.value) return false
   const p = await findProductByBarcode(c)
-  if (!p) { beepFail(); flash(`Kod topilmadi: ${c}`); return false }
-  if (!allowNegative.value && p.stock <= 0) { beepFail(); flash(`${p.name} — tugagan`); return false }
+  if (!p) { beepFail(); flash(t('pos.codeNotFound', { code: c })); return false }
+  if (!allowNegative.value && p.stock <= 0) { beepFail(); flash(t('pos.productOutOfStock', { name: p.name })); return false }
   addProduct(p)
   beepOk()
-  flash(`✓ ${p.name}`)
+  flash(t('pos.addedToCart', { name: p.name }))
   return true
 }
 // Kamera ochiq qoladi — user o'zi yopadi (ketma-ket skanerlash).
@@ -252,7 +264,7 @@ async function submit() {
     receipt.value = {
       receipt_number: sale.receipt_number,
       created_at: sale.created_at,
-      customer: selectedCustomer.value?.name ?? '—',
+      customer: customerLabel(selectedCustomer.value),
       items,
       subtotal: subtotal.value,
       discount: discount.value || 0,
@@ -266,7 +278,7 @@ async function submit() {
     cartOpen.value = false
     await reload()
   } catch (e: any) {
-    toast.value = e?.message ?? 'Xato'
+    toast.value = e?.message ?? t('pos.error')
     setTimeout(() => (toast.value = ''), 3000)
   } finally {
     submitting.value = false
@@ -297,16 +309,16 @@ async function doCloseShift() {
           <ClipboardList class="h-5 w-5" />
         </div>
         <div>
-          <div class="text-lg font-semibold">Smena ochilmagan</div>
-          <div class="text-sm text-muted-foreground">Sotuvni boshlash uchun smenani oching</div>
+          <div class="text-lg font-semibold">{{ $t('pos.shiftNotOpen') }}</div>
+          <div class="text-sm text-muted-foreground">{{ $t('pos.openShiftToStart') }}</div>
         </div>
       </div>
-      <label class="mb-1 block text-sm font-medium">Boshlang'ich naqd ({{ currencySymbol }})</label>
+      <label class="mb-1 block text-sm font-medium">{{ $t('pos.openingCash', { symbol: currencySymbol }) }}</label>
       <input v-model.number="openCashInput" type="number" min="0"
         class="mb-4 h-10 w-full rounded-md border bg-background px-3 text-sm focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none" />
       <button @click="doOpenShift"
         class="h-10 w-full rounded-md bg-primary text-sm font-medium text-primary-foreground hover:bg-primary/90">
-        Smenani ochish
+        {{ $t('pos.openShift') }}
       </button>
     </div>
   </div>
@@ -321,21 +333,21 @@ async function doCloseShift() {
             <ClipboardList class="h-4 w-4" />
           </div>
           <div>
-            <div class="font-medium">Smena #{{ shift.id }}</div>
-            <div class="text-xs text-muted-foreground">{{ stats.sales_count }} ta · {{ moneySum(stats.total_sales) }}</div>
+            <div class="font-medium">{{ $t('pos.shiftNumber', { id: shift.id }) }}</div>
+            <div class="text-xs text-muted-foreground">{{ $t('pos.salesCount', { count: stats.sales_count }) }} · {{ moneySum(stats.total_sales) }}</div>
           </div>
         </div>
         <button @click="showClose = true"
           class="order-2 ml-auto flex h-9 items-center gap-2 rounded-md border px-3 text-sm hover:bg-muted sm:order-3">
-          <LogOut class="h-4 w-4" /> <span class="hidden sm:inline">Smenani yopish</span>
+          <LogOut class="h-4 w-4" /> <span class="hidden sm:inline">{{ $t('pos.closeShift') }}</span>
         </button>
         <div class="order-3 flex w-full items-center gap-2 sm:order-2 sm:ml-auto sm:w-auto">
           <div class="relative w-full sm:w-56 lg:w-72">
             <Search class="absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <input v-model="search" @keyup.enter="onSearchEnter" placeholder="Mahsulot qidirish yoki kod skanerlash…"
+            <input v-model="search" @keyup.enter="onSearchEnter" :placeholder="$t('pos.searchOrScan')"
               class="h-9 w-full rounded-md border bg-background pl-9 pr-2 text-sm focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none" />
           </div>
-          <button @click="unlockAudio(); showScanner = true" title="QR / shtrix kodni skanerlash"
+          <button @click="unlockAudio(); showScanner = true" :title="$t('pos.scanQrBarcode')"
             class="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border bg-background text-muted-foreground transition hover:bg-muted hover:text-primary">
             <ScanLine class="h-4 w-4" />
           </button>
@@ -347,7 +359,7 @@ async function doCloseShift() {
         <button @click="activeCat = null"
           class="shrink-0 rounded-full border px-4 py-1.5 text-sm font-medium"
           :class="activeCat === null ? 'border-primary bg-primary text-primary-foreground' : 'bg-card hover:bg-muted'">
-          Barchasi
+          {{ $t('common.all') }}
         </button>
         <button v-for="c in categories" :key="c.id" @click="activeCat = c.id"
           class="shrink-0 rounded-full border px-4 py-1.5 text-sm font-medium"
@@ -363,7 +375,7 @@ async function doCloseShift() {
           <div class="relative h-28 w-full shrink-0 bg-muted">
             <img v-if="p.image" :src="p.image" class="h-full w-full object-cover" />
             <div v-else class="flex h-full w-full items-center justify-center text-muted-foreground"><Package class="h-10 w-10" /></div>
-            <div v-if="p.stock <= 0" class="absolute inset-0 flex items-center justify-center bg-rose-500/85 text-sm font-semibold text-white">Tugadi</div>
+            <div v-if="p.stock <= 0" class="absolute inset-0 flex items-center justify-center bg-rose-500/85 text-sm font-semibold text-white">{{ $t('pos.soldOut') }}</div>
           </div>
           <div class="flex flex-col gap-0.5 p-2.5">
             <div class="line-clamp-2 min-h-[2.2rem] text-sm font-medium leading-tight">{{ p.name }}</div>
@@ -371,7 +383,7 @@ async function doCloseShift() {
             <div class="text-xs text-muted-foreground">{{ p.stock }} {{ p.unit }}</div>
           </div>
         </button>
-        <div v-if="filtered.length === 0" class="col-span-full rounded-xl border border-dashed bg-muted/30 p-12 text-center text-muted-foreground">Mahsulot topilmadi</div>
+        <div v-if="filtered.length === 0" class="col-span-full rounded-xl border border-dashed bg-muted/30 p-12 text-center text-muted-foreground">{{ $t('pos.noProductsFound') }}</div>
       </div>
     </div>
 
@@ -391,30 +403,30 @@ async function doCloseShift() {
     >
       <!-- Mobil sheet sarlavhasi -->
       <div class="flex shrink-0 items-center justify-between border-b px-4 py-2.5 lg:hidden">
-        <div class="flex items-center gap-2 text-sm font-semibold"><ShoppingCart class="h-4 w-4" /> Savat · {{ cart.length }}</div>
+        <div class="flex items-center gap-2 text-sm font-semibold"><ShoppingCart class="h-4 w-4" /> {{ $t('pos.cart') }} · {{ cart.length }}</div>
         <button @click="cartOpen = false" class="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted"><X class="h-4 w-4" /></button>
       </div>
       <!-- Mijoz -->
       <div class="shrink-0 space-y-2 border-b p-4">
-        <span class="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Mijoz</span>
-        <SearchableSelect v-model="customerId" :items="customerItems" placeholder="Mijozni tanlang" search-placeholder="Ism yoki telefon…" />
+        <span class="text-xs font-semibold tracking-wide text-muted-foreground uppercase">{{ $t('pos.customer') }}</span>
+        <SearchableSelect v-model="customerId" :items="customerItems" :placeholder="$t('pos.selectCustomer')" :search-placeholder="$t('pos.nameOrPhone')" />
         <div v-if="selectedCustomer && !selectedCustomer.is_walk_in" class="flex items-center justify-between text-xs">
-          <span class="text-muted-foreground">Joriy saldo</span>
+          <span class="text-muted-foreground">{{ $t('pos.currentBalance') }}</span>
           <span class="font-semibold tabular-nums"
             :class="selectedCustomer.balance < 0 ? 'text-rose-600' : selectedCustomer.balance > 0 ? 'text-emerald-600' : 'text-muted-foreground'">
             {{ moneySum(Math.abs(selectedCustomer.balance)) }}
-            <span class="font-normal text-muted-foreground">{{ selectedCustomer.balance < 0 ? '· qarzdor' : selectedCustomer.balance > 0 ? '· haqdor' : '' }}</span>
+            <span class="font-normal text-muted-foreground">{{ selectedCustomer.balance < 0 ? '· ' + $t('pos.debtor') : selectedCustomer.balance > 0 ? '· ' + $t('pos.creditor') : '' }}</span>
           </span>
         </div>
       </div>
 
       <!-- Savat header -->
       <div class="flex shrink-0 items-center justify-between border-b px-4 py-2.5">
-        <span class="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Savat</span>
+        <span class="text-xs font-semibold tracking-wide text-muted-foreground uppercase">{{ $t('pos.cart') }}</span>
         <div class="flex items-center gap-2">
-          <span class="text-xs text-muted-foreground">{{ cart.length }} ta</span>
+          <span class="text-xs text-muted-foreground">{{ $t('pos.itemsCount', { count: cart.length }) }}</span>
           <button v-if="cart.length" @click="clearCart" class="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground hover:text-destructive">
-            <X class="h-3 w-3" /> Tozalash
+            <X class="h-3 w-3" /> {{ $t('pos.clear') }}
           </button>
         </div>
       </div>
@@ -423,7 +435,7 @@ async function doCloseShift() {
       <div class="min-h-0 flex-1 overflow-auto">
         <div v-if="cart.length === 0" class="flex flex-col items-center px-4 py-12 text-center text-muted-foreground">
           <div class="mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-muted"><ShoppingCart class="h-7 w-7 opacity-50" /></div>
-          <div class="text-sm font-medium">Savat bo'sh</div>
+          <div class="text-sm font-medium">{{ $t('pos.cartEmpty') }}</div>
         </div>
         <ul v-else class="divide-y">
           <li v-for="l in cart" :key="l.product_id" class="group px-3 py-1.5 hover:bg-muted/40">
@@ -440,7 +452,7 @@ async function doCloseShift() {
                 </div>
                 <button v-if="lastSold(l.product_id)" type="button" @click="openHistory(l)"
                   class="mt-1 flex items-center gap-1 text-left text-[11px] leading-tight text-muted-foreground hover:text-primary">
-                  <History class="h-3 w-3 shrink-0" /> oxirgi: {{ moneySum(lastSold(l.product_id)!.price) }}
+                  <History class="h-3 w-3 shrink-0" /> {{ $t('pos.lastSoldPrice', { price: moneySum(lastSold(l.product_id)!.price) }) }}
                 </button>
               </div>
               <div class="flex shrink-0 flex-col items-center gap-1">
@@ -463,20 +475,20 @@ async function doCloseShift() {
       <!-- To'lov -->
       <div class="shrink-0 space-y-3 border-t p-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] lg:pb-4">
         <div class="flex items-center justify-between rounded-lg bg-muted/40 px-3 py-2">
-          <span class="text-sm font-medium text-muted-foreground">JAMI</span>
+          <span class="text-sm font-medium text-muted-foreground">{{ $t('pos.totalUpper') }}</span>
           <span class="text-2xl font-bold tabular-nums">{{ moneySum(total) }}</span>
         </div>
 
         <div class="grid grid-cols-2 gap-2">
           <div>
-            <label class="mb-1 block text-xs text-muted-foreground">Chegirma</label>
+            <label class="mb-1 block text-xs text-muted-foreground">{{ $t('pos.discount') }}</label>
             <input v-model.number="discount" type="number" min="0" class="h-9 w-full rounded-md border bg-background px-2 text-sm tabular-nums" />
           </div>
           <div>
-            <label class="mb-1 block text-xs text-muted-foreground">Naqd</label>
+            <label class="mb-1 block text-xs text-muted-foreground">{{ $t('pos.cash') }}</label>
             <div class="flex gap-1.5">
               <input v-model.number="paidCash" type="number" min="0" class="h-9 w-full rounded-md border bg-background px-2 text-sm tabular-nums" />
-              <button @click="setExact" title="Aniq summa" class="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border text-muted-foreground hover:bg-muted hover:text-primary"><Magnet class="h-4 w-4 rotate-90" /></button>
+              <button @click="setExact" :title="$t('pos.exactAmount')" class="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border text-muted-foreground hover:bg-muted hover:text-primary"><Magnet class="h-4 w-4 rotate-90" /></button>
             </div>
           </div>
         </div>
@@ -486,25 +498,25 @@ async function doCloseShift() {
         </div>
 
         <div>
-          <label class="mb-1 block text-xs text-muted-foreground">Karta</label>
+          <label class="mb-1 block text-xs text-muted-foreground">{{ $t('pos.card') }}</label>
           <input v-model.number="paidCard" type="number" min="0" class="h-9 w-full rounded-md border bg-background px-2 text-sm tabular-nums" />
         </div>
 
-        <div v-if="change > 0" class="flex justify-between text-sm"><span class="text-muted-foreground">Qaytim</span><span class="font-semibold tabular-nums">{{ moneySum(change) }}</span></div>
+        <div v-if="change > 0" class="flex justify-between text-sm"><span class="text-muted-foreground">{{ $t('pos.change') }}</span><span class="font-semibold tabular-nums">{{ moneySum(change) }}</span></div>
         <!-- Hozirgi: shu sotuv qarzi -->
-        <div v-if="debt > 0 && !debtBlocked" class="flex justify-between text-sm text-rose-600"><span>Qarz (shu sotuv)</span><span class="font-semibold tabular-nums">{{ moneySum(debt) }}</span></div>
+        <div v-if="debt > 0 && !debtBlocked" class="flex justify-between text-sm text-rose-600"><span>{{ $t('pos.debtThisSale') }}</span><span class="font-semibold tabular-nums">{{ moneySum(debt) }}</span></div>
         <!-- Saldoni hisobga olgan: sotuvdan keyingi yangi saldo -->
         <div v-if="selectedCustomer && !selectedCustomer.is_walk_in" class="flex justify-between text-sm">
-          <span class="text-muted-foreground">Saldo (sotuvdan keyin)</span>
+          <span class="text-muted-foreground">{{ $t('pos.balanceAfterSale') }}</span>
           <span class="font-semibold tabular-nums" :class="balanceAfter < 0 ? 'text-rose-600' : balanceAfter > 0 ? 'text-emerald-600' : 'text-muted-foreground'">
-            {{ moneySum(Math.abs(balanceAfter)) }}<span class="font-normal text-muted-foreground">{{ balanceAfter < 0 ? ' · qarzdor' : balanceAfter > 0 ? ' · haqdor' : '' }}</span>
+            {{ moneySum(Math.abs(balanceAfter)) }}<span class="font-normal text-muted-foreground">{{ balanceAfter < 0 ? ' · ' + $t('pos.debtor') : balanceAfter > 0 ? ' · ' + $t('pos.creditor') : '' }}</span>
           </span>
         </div>
-        <div v-if="debtBlocked" class="rounded-md bg-rose-500/10 px-3 py-2 text-center text-xs font-medium text-rose-600">Yo'l-yo'lakay xaridorga qarzga bo'lmaydi</div>
+        <div v-if="debtBlocked" class="rounded-md bg-rose-500/10 px-3 py-2 text-center text-xs font-medium text-rose-600">{{ $t('pos.noDebtForWalkIn') }}</div>
 
         <button :disabled="!canSubmit || submitting" @click="submit"
           class="h-12 w-full rounded-lg bg-primary text-base font-semibold text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50">
-          Sotuvni yakunlash
+          {{ $t('pos.finishSale') }}
         </button>
       </div>
     </aside>
@@ -520,7 +532,7 @@ async function doCloseShift() {
         <ShoppingCart class="h-5 w-5" />
         <span v-if="cart.length" class="absolute -right-2 -top-2 flex h-4 min-w-4 items-center justify-center rounded-full bg-background px-1 text-[10px] font-bold text-foreground">{{ cart.length }}</span>
       </div>
-      <span class="text-sm font-semibold">Savat</span>
+      <span class="text-sm font-semibold">{{ $t('pos.cart') }}</span>
       <span class="ml-auto text-base font-bold tabular-nums">{{ moneySum(total) }}</span>
       <ChevronUp class="h-4 w-4 opacity-80" />
     </button>
@@ -529,16 +541,16 @@ async function doCloseShift() {
   <!-- Smena yopish -->
   <div v-if="showClose" class="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/50 p-4">
     <div class="max-h-[90vh] w-full max-w-sm overflow-y-auto rounded-xl border bg-card p-5">
-      <div class="mb-3 text-lg font-semibold">Smenani yopish</div>
+      <div class="mb-3 text-lg font-semibold">{{ $t('pos.closeShift') }}</div>
       <div class="mb-3 space-y-1 rounded-md bg-muted/40 p-3 text-sm">
-        <div class="flex justify-between"><span class="text-muted-foreground">Sotuvlar</span><strong>{{ stats.sales_count }} ta</strong></div>
-        <div class="flex justify-between"><span class="text-muted-foreground">Jami</span><strong>{{ moneySum(stats.total_sales) }}</strong></div>
+        <div class="flex justify-between"><span class="text-muted-foreground">{{ $t('pos.sales') }}</span><strong>{{ $t('pos.salesCount', { count: stats.sales_count }) }}</strong></div>
+        <div class="flex justify-between"><span class="text-muted-foreground">{{ $t('common.total') }}</span><strong>{{ moneySum(stats.total_sales) }}</strong></div>
       </div>
-      <label class="mb-1 block text-sm font-medium">Kassadagi naqd ({{ currencySymbol }})</label>
+      <label class="mb-1 block text-sm font-medium">{{ $t('pos.cashInDrawer', { symbol: currencySymbol }) }}</label>
       <input v-model.number="closeCashInput" type="number" min="0" class="mb-4 h-10 w-full rounded-md border bg-background px-3 text-sm" />
       <div class="flex gap-2">
-        <button @click="doCloseShift" class="h-10 flex-1 rounded-md bg-primary text-sm font-medium text-primary-foreground hover:bg-primary/90">Yopish</button>
-        <button @click="showClose = false" class="h-10 rounded-md border px-4 text-sm hover:bg-muted">Bekor</button>
+        <button @click="doCloseShift" class="h-10 flex-1 rounded-md bg-primary text-sm font-medium text-primary-foreground hover:bg-primary/90">{{ $t('common.close') }}</button>
+        <button @click="showClose = false" class="h-10 rounded-md border px-4 text-sm hover:bg-muted">{{ $t('common.cancel') }}</button>
       </div>
     </div>
   </div>
@@ -548,11 +560,11 @@ async function doCloseShift() {
     <div class="receipt-print max-h-[90vh] w-full max-w-sm overflow-y-auto rounded-xl border bg-card p-5 print:max-h-none print:max-w-none print:overflow-visible print:rounded-none print:border-0 print:shadow-none">
       <div class="mb-3 text-center">
         <div class="text-lg font-bold">OpenSales POS</div>
-        <div class="text-sm text-muted-foreground">Chek #{{ receipt.receipt_number }}</div>
+        <div class="text-sm text-muted-foreground">{{ $t('pos.receiptNumber', { number: receipt.receipt_number }) }}</div>
         <div class="text-xs text-muted-foreground">{{ formatDateTime(receipt.created_at) }} · {{ receipt.customer }}</div>
       </div>
       <table class="w-full text-sm">
-        <thead><tr class="border-b text-left text-xs text-muted-foreground"><th class="py-1">Tovar</th><th class="py-1 text-right">Soni</th><th class="py-1 text-right">Summa</th></tr></thead>
+        <thead><tr class="border-b text-left text-xs text-muted-foreground"><th class="py-1">{{ $t('pos.product') }}</th><th class="py-1 text-right">{{ $t('pos.qty') }}</th><th class="py-1 text-right">{{ $t('pos.sum') }}</th></tr></thead>
         <tbody>
           <tr v-for="(it, i) in receipt.items" :key="i" class="border-b border-dashed border-border/50">
             <td class="py-1.5">{{ it.name }}<div class="text-xs text-muted-foreground">{{ moneySum(it.price) }} /{{ it.unit }}</div></td>
@@ -562,17 +574,17 @@ async function doCloseShift() {
         </tbody>
       </table>
       <div class="mt-3 space-y-1 border-t pt-3 text-sm">
-        <div v-if="receipt.discount > 0" class="flex justify-between text-muted-foreground"><span>Chegirma</span><span>− {{ moneySum(receipt.discount) }}</span></div>
-        <div class="flex justify-between text-base font-bold"><span>JAMI</span><span class="tabular-nums">{{ moneySum(receipt.total) }}</span></div>
-        <div v-if="receipt.paid_cash > 0" class="flex justify-between"><span class="text-muted-foreground">Naqd</span><span class="tabular-nums">{{ moneySum(receipt.paid_cash) }}</span></div>
-        <div v-if="receipt.paid_card > 0" class="flex justify-between"><span class="text-muted-foreground">Karta</span><span class="tabular-nums">{{ moneySum(receipt.paid_card) }}</span></div>
-        <div v-if="receipt.change > 0" class="flex justify-between"><span class="text-muted-foreground">Qaytim</span><span class="tabular-nums">{{ moneySum(receipt.change) }}</span></div>
-        <div v-if="receipt.debt > 0" class="flex justify-between font-semibold text-rose-600"><span>Qarz</span><span class="tabular-nums">{{ moneySum(receipt.debt) }}</span></div>
+        <div v-if="receipt.discount > 0" class="flex justify-between text-muted-foreground"><span>{{ $t('pos.discount') }}</span><span>− {{ moneySum(receipt.discount) }}</span></div>
+        <div class="flex justify-between text-base font-bold"><span>{{ $t('pos.totalUpper') }}</span><span class="tabular-nums">{{ moneySum(receipt.total) }}</span></div>
+        <div v-if="receipt.paid_cash > 0" class="flex justify-between"><span class="text-muted-foreground">{{ $t('pos.cash') }}</span><span class="tabular-nums">{{ moneySum(receipt.paid_cash) }}</span></div>
+        <div v-if="receipt.paid_card > 0" class="flex justify-between"><span class="text-muted-foreground">{{ $t('pos.card') }}</span><span class="tabular-nums">{{ moneySum(receipt.paid_card) }}</span></div>
+        <div v-if="receipt.change > 0" class="flex justify-between"><span class="text-muted-foreground">{{ $t('pos.change') }}</span><span class="tabular-nums">{{ moneySum(receipt.change) }}</span></div>
+        <div v-if="receipt.debt > 0" class="flex justify-between font-semibold text-rose-600"><span>{{ $t('pos.debt') }}</span><span class="tabular-nums">{{ moneySum(receipt.debt) }}</span></div>
       </div>
-      <div class="mt-3 text-center text-xs text-muted-foreground print:mt-4">Xaridingiz uchun rahmat!</div>
+      <div class="mt-3 text-center text-xs text-muted-foreground print:mt-4">{{ $t('pos.thankYou') }}</div>
       <div class="mt-4 flex gap-2 print:hidden">
-        <button @click="doPrint" class="h-10 flex-1 rounded-md bg-primary text-sm font-medium text-primary-foreground hover:bg-primary/90">Chop etish</button>
-        <button @click="receipt = null" class="h-10 rounded-md border px-4 text-sm hover:bg-muted">Yopish</button>
+        <button @click="doPrint" class="h-10 flex-1 rounded-md bg-primary text-sm font-medium text-primary-foreground hover:bg-primary/90">{{ $t('pos.print') }}</button>
+        <button @click="receipt = null" class="h-10 rounded-md border px-4 text-sm hover:bg-muted">{{ $t('common.close') }}</button>
       </div>
     </div>
   </div>
@@ -582,21 +594,21 @@ async function doCloseShift() {
     <div class="flex max-h-[85vh] w-full max-w-md flex-col rounded-xl border bg-card">
       <div class="flex shrink-0 items-start justify-between border-b p-4">
         <div class="min-w-0">
-          <div class="flex items-center gap-2 text-sm font-semibold"><History class="h-4 w-4 shrink-0" /> Sotuv tarixi</div>
-          <div class="mt-0.5 truncate text-xs text-muted-foreground">{{ histModal.name }} · {{ selectedCustomer?.name ?? '—' }}</div>
+          <div class="flex items-center gap-2 text-sm font-semibold"><History class="h-4 w-4 shrink-0" /> {{ $t('pos.saleHistory') }}</div>
+          <div class="mt-0.5 truncate text-xs text-muted-foreground">{{ histModal.name }} · {{ customerLabel(selectedCustomer) }}</div>
         </div>
         <button @click="histModal = null" class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted"><X class="h-4 w-4" /></button>
       </div>
 
       <div class="min-h-0 flex-1 overflow-auto">
-        <div v-if="histRows.length === 0" class="px-4 py-12 text-center text-sm text-muted-foreground">Bu mijozga avval sotilmagan</div>
+        <div v-if="histRows.length === 0" class="px-4 py-12 text-center text-sm text-muted-foreground">{{ $t('pos.noPriorSaleToCustomer') }}</div>
         <table v-else class="w-full text-sm">
           <thead class="sticky top-0 bg-muted">
             <tr class="text-left text-xs text-muted-foreground">
-              <th class="px-4 py-2 font-medium">Sana</th>
-              <th class="px-2 py-2 text-right font-medium">Soni</th>
-              <th class="px-2 py-2 text-right font-medium">Narx</th>
-              <th class="px-4 py-2 text-right font-medium">Summa</th>
+              <th class="px-4 py-2 font-medium">{{ $t('pos.date') }}</th>
+              <th class="px-2 py-2 text-right font-medium">{{ $t('pos.qty') }}</th>
+              <th class="px-2 py-2 text-right font-medium">{{ $t('pos.price') }}</th>
+              <th class="px-4 py-2 text-right font-medium">{{ $t('pos.sum') }}</th>
             </tr>
           </thead>
           <tbody>
@@ -609,7 +621,7 @@ async function doCloseShift() {
           </tbody>
           <tfoot class="sticky bottom-0 bg-muted">
             <tr class="font-semibold">
-              <td class="px-4 py-2">Jami</td>
+              <td class="px-4 py-2">{{ $t('common.total') }}</td>
               <td class="px-2 py-2 text-right tabular-nums">{{ histTotalQty }}</td>
               <td class="px-2 py-2"></td>
               <td class="px-4 py-2 text-right tabular-nums">{{ moneySum(histTotalSum) }}</td>

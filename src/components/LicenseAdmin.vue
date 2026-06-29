@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, nextTick } from 'vue'
+import { useI18n } from 'vue-i18n'
 import QRCode from 'qrcode'
 import { X, KeyRound, Copy, Check, Eye, EyeOff, QrCode as QrCodeIcon } from 'lucide-vue-next'
 import { isOwnerMaster, generateKey, deactivate } from '../lib/license'
@@ -9,6 +10,8 @@ import QrScanButton from './QrScanButton.vue'
 
 const props = defineProps<{ deviceId: string }>()
 const emit = defineEmits<{ close: [] }>()
+
+const { t } = useI18n()
 
 const unlocked = ref(false)
 const master = ref('')
@@ -31,14 +34,14 @@ async function toggleQr() {
     await nextTick()
     if (qrCanvas.value) {
       try { await QRCode.toCanvas(qrCanvas.value, result.value, { width: 256, margin: 1, errorCorrectionLevel: 'L' }) }
-      catch (e: any) { notify(e?.message ?? 'QR yaratib bo\'lmadi', 'error'); showQr.value = false }
+      catch (e: any) { notify(e?.message ?? t('licenseAdmin.qrFailed'), 'error'); showQr.value = false }
     }
   }
 }
 
 function unlock() {
   if (isOwnerMaster(master.value)) { unlocked.value = true; masterErr.value = '' }
-  else masterErr.value = 'Master kalit noto\'g\'ri'
+  else masterErr.value = t('licenseAdmin.masterWrong')
 }
 
 function expFromDuration(): string | null {
@@ -52,15 +55,15 @@ function expFromDuration(): string | null {
 function generate() {
   result.value = ''
   showQr.value = false
-  if (!targetDevice.value.trim()) { notify('Qurilma ID kiriting', 'error'); return }
-  if (duration.value === 'custom' && !customDate.value) { notify('Sanani tanlang', 'error'); return }
-  if (!seed.value.trim()) { notify('Maxfiy kalit (seed) kiriting', 'error'); return }
+  if (!targetDevice.value.trim()) { notify(t('licenseAdmin.enterDeviceId'), 'error'); return }
+  if (duration.value === 'custom' && !customDate.value) { notify(t('licenseAdmin.selectDate'), 'error'); return }
+  if (!seed.value.trim()) { notify(t('licenseAdmin.enterSeed'), 'error'); return }
   try {
     result.value = generateKey(targetDevice.value, expFromDuration(), seed.value)
     if (rememberSeed.value) localStorage.setItem('owner_seed', seed.value.trim())
     else localStorage.removeItem('owner_seed')
-    notify('Kalit yaratildi', 'success')
-  } catch (e: any) { notify(e?.message ?? 'Xato', 'error') }
+    notify(t('licenseAdmin.keyGenerated'), 'success')
+  } catch (e: any) { notify(e?.message ?? t('licenseAdmin.error'), 'error') }
 }
 
 async function copyKey() {
@@ -68,9 +71,9 @@ async function copyKey() {
 }
 
 async function revoke() {
-  if (!(await confirmDialog('Bu qurilmada litsenziya bekor qilinsinmi? Dastur aktivatsiyani kutadi va ishlamaydi.', { danger: true, title: 'Litsenziyani bekor qilish' }))) return
+  if (!(await confirmDialog(t('licenseAdmin.revokeConfirm'), { danger: true, title: t('licenseAdmin.revokeTitle') }))) return
   await deactivate()
-  notify('Litsenziya bekor qilindi', 'success')
+  notify(t('licenseAdmin.revoked'), 'success')
   window.location.reload()
 }
 </script>
@@ -79,46 +82,46 @@ async function revoke() {
   <div class="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4">
     <div class="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl border bg-card p-5 shadow-xl">
       <div class="mb-4 flex items-center justify-between">
-        <div class="flex items-center gap-2 text-lg font-semibold"><KeyRound class="h-5 w-5 text-primary" /> Litsenziya boshqaruvi</div>
+        <div class="flex items-center gap-2 text-lg font-semibold"><KeyRound class="h-5 w-5 text-primary" /> {{ $t('licenseAdmin.title') }}</div>
         <button @click="emit('close')" class="rounded-lg p-1.5 hover:bg-muted"><X class="h-5 w-5" /></button>
       </div>
 
       <!-- Master gate -->
       <div v-if="!unlocked" class="space-y-3">
-        <p class="text-sm text-muted-foreground">Bu bo'lim faqat dastur egasi uchun. Master kalitni kiriting.</p>
+        <p class="text-sm text-muted-foreground">{{ $t('licenseAdmin.ownerOnly') }}</p>
         <div class="flex gap-2">
-          <input v-model="master" type="password" placeholder="Master kalit" autofocus
+          <input v-model="master" type="password" :placeholder="$t('licenseAdmin.masterKey')" autofocus
             class="h-11 w-full rounded-lg border bg-background px-3 text-sm focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none" @keyup.enter="unlock" />
           <QrScanButton @decoded="master = $event" />
         </div>
         <p v-if="masterErr" class="text-sm text-rose-500">{{ masterErr }}</p>
-        <button @click="unlock" class="h-10 w-full rounded-lg bg-primary text-sm font-medium text-primary-foreground hover:bg-primary/90">Kirish</button>
+        <button @click="unlock" class="h-10 w-full rounded-lg bg-primary text-sm font-medium text-primary-foreground hover:bg-primary/90">{{ $t('licenseAdmin.enter') }}</button>
       </div>
 
       <!-- Generator -->
       <div v-else class="space-y-3">
         <div>
-          <label class="mb-1 block text-sm font-medium">Mijoz qurilma ID</label>
-          <input v-model="targetDevice" placeholder="Masalan: A1B2C3D4E5F6G7H8" class="h-10 w-full rounded-md border bg-background px-3 text-sm tabular-nums uppercase" />
+          <label class="mb-1 block text-sm font-medium">{{ $t('licenseAdmin.customerDeviceId') }}</label>
+          <input v-model="targetDevice" :placeholder="$t('licenseAdmin.deviceIdPlaceholder')" class="h-10 w-full rounded-md border bg-background px-3 text-sm tabular-nums uppercase" />
         </div>
         <div>
-          <label class="mb-1 block text-sm font-medium">Muddat</label>
+          <label class="mb-1 block text-sm font-medium">{{ $t('licenseAdmin.duration') }}</label>
           <select v-model="duration" class="h-10 w-full rounded-md border bg-background px-3 text-sm">
-            <option value="15">15 kun</option>
-            <option value="30">1 oy (30 kun)</option>
-            <option value="90">3 oy (90 kun)</option>
-            <option value="180">6 oy (180 kun)</option>
-            <option value="365">1 yil (365 kun)</option>
-            <option value="custom">Aniq sanagacha…</option>
-            <option value="forever">Cheksiz (butunlayga)</option>
+            <option value="15">{{ $t('licenseAdmin.duration15') }}</option>
+            <option value="30">{{ $t('licenseAdmin.duration30') }}</option>
+            <option value="90">{{ $t('licenseAdmin.duration90') }}</option>
+            <option value="180">{{ $t('licenseAdmin.duration180') }}</option>
+            <option value="365">{{ $t('licenseAdmin.duration365') }}</option>
+            <option value="custom">{{ $t('licenseAdmin.durationCustom') }}</option>
+            <option value="forever">{{ $t('licenseAdmin.durationForever') }}</option>
           </select>
           <input v-if="duration === 'custom'" v-model="customDate" type="date" class="mt-2 h-10 w-full rounded-md border bg-background px-3 text-sm" />
         </div>
         <div>
-          <label class="mb-1 block text-sm font-medium">Maxfiy kalit (seed) — base64 secretKey</label>
+          <label class="mb-1 block text-sm font-medium">{{ $t('licenseAdmin.seedLabel') }}</label>
           <div class="flex gap-2">
             <div class="relative w-full">
-              <input v-model="seed" :type="showSeed ? 'text' : 'password'" placeholder="Faqat sizda. Dasturga joylanmaydi."
+              <input v-model="seed" :type="showSeed ? 'text' : 'password'" :placeholder="$t('licenseAdmin.seedPlaceholder')"
                 class="h-10 w-full rounded-md border bg-background px-3 pr-10 font-mono text-xs focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none" />
               <button type="button" @click="showSeed = !showSeed" class="absolute top-1/2 right-2 -translate-y-1/2 rounded p-1 text-muted-foreground hover:text-foreground">
                 <component :is="showSeed ? EyeOff : Eye" class="h-4 w-4" />
@@ -126,19 +129,19 @@ async function revoke() {
             </div>
             <QrScanButton @decoded="seed = $event" />
           </div>
-          <label class="mt-1.5 flex items-center gap-2 text-xs text-muted-foreground"><input v-model="rememberSeed" type="checkbox" class="rounded" /> Shu kompyuterda eslab qol</label>
+          <label class="mt-1.5 flex items-center gap-2 text-xs text-muted-foreground"><input v-model="rememberSeed" type="checkbox" class="rounded" /> {{ $t('licenseAdmin.rememberSeed') }}</label>
         </div>
-        <button @click="generate" class="h-10 w-full rounded-lg bg-primary text-sm font-medium text-primary-foreground hover:bg-primary/90">Kalit yaratish</button>
+        <button @click="generate" class="h-10 w-full rounded-lg bg-primary text-sm font-medium text-primary-foreground hover:bg-primary/90">{{ $t('licenseAdmin.generateKey') }}</button>
 
         <div v-if="result" class="space-y-2 rounded-lg border bg-muted/40 p-3">
-          <div class="text-xs font-medium text-muted-foreground">Aktivatsiya kaliti (mijozga yuboring):</div>
+          <div class="text-xs font-medium text-muted-foreground">{{ $t('licenseAdmin.activationKeyLabel') }}</div>
           <div class="rounded-md border bg-background p-2 font-mono text-xs break-all">{{ result }}</div>
           <div class="flex gap-2">
             <button @click="copyKey" class="flex h-8 items-center gap-1.5 rounded-md border px-3 text-xs font-medium hover:bg-muted">
-              <component :is="copied ? Check : Copy" class="h-3.5 w-3.5" /> {{ copied ? 'Nusxalandi' : 'Nusxalash' }}
+              <component :is="copied ? Check : Copy" class="h-3.5 w-3.5" /> {{ copied ? $t('licenseAdmin.copied') : $t('licenseAdmin.copy') }}
             </button>
             <button @click="toggleQr" class="flex h-8 items-center gap-1.5 rounded-md border px-3 text-xs font-medium hover:bg-muted">
-              <QrCodeIcon class="h-3.5 w-3.5" /> {{ showQr ? 'QR yashirish' : 'QR ko\'rsatish' }}
+              <QrCodeIcon class="h-3.5 w-3.5" /> {{ showQr ? $t('licenseAdmin.hideQr') : $t('licenseAdmin.showQr') }}
             </button>
           </div>
           <div v-if="showQr" class="flex justify-center pt-1">
@@ -150,7 +153,7 @@ async function revoke() {
 
         <div class="mt-2 border-t pt-3">
           <button @click="revoke" class="flex h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-rose-500/40 text-sm font-medium text-rose-600 hover:bg-rose-500/10">
-            Bu qurilmada litsenziyani bekor qilish
+            {{ $t('licenseAdmin.revokeOnDevice') }}
           </button>
         </div>
       </div>

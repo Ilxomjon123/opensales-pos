@@ -1,4 +1,5 @@
 import Database from '@tauri-apps/plugin-sql'
+import { t } from './i18n'
 
 // Yagona SQLite ulanish. Rust migration sxemani yaratadi (lib.rs).
 // Promise singleton — parallel chaqiruvlar bitta init/seed ishlatadi (race yo'q).
@@ -148,7 +149,7 @@ export async function saveCategory(name: string, id?: number): Promise<void> {
 export async function deleteCategory(id: number): Promise<void> {
   const d = await db()
   const r = await d.select<{ c: number }[]>('SELECT COUNT(*) c FROM products WHERE category_id = ? AND is_active = 1', [id])
-  if ((r[0]?.c ?? 0) > 0) throw new Error("Bu kategoriyada mahsulotlar bor — avval ularni o'chiring yoki boshqa kategoriyaga o'tkazing")
+  if ((r[0]?.c ?? 0) > 0) throw new Error(t('categories.hasProducts'))
   await d.execute('DELETE FROM categories WHERE id = ?', [id])
 }
 
@@ -161,14 +162,14 @@ export async function listProducts(activeOnly = true): Promise<Product[]> {
 export async function saveProduct(p: Partial<Product> & { name: string; price: number }): Promise<void> {
   const d = await db()
   const barcode = p.barcode?.trim() || null
-  if (barcode && barcode.length > 512) throw new Error('Shtrix/QR kod juda uzun')
+  if (barcode && barcode.length > 512) throw new Error(t('products.barcodeTooLong'))
   // Bitta shtrix/QR kod ikki mahsulotга qo'yilmasin (tahrirда o'zini hisobламaymiz).
   if (barcode) {
     const dup = await d.select<{ id: number; name: string }[]>(
       'SELECT id, name FROM products WHERE barcode = ? AND id != ? LIMIT 1',
       [barcode, p.id ?? 0],
     )
-    if (dup[0]) throw new Error(`Bu kod allaqachon "${dup[0].name}" mahsulotiда ishlatilgan`)
+    if (dup[0]) throw new Error(t('products.barcodeInUse', { name: dup[0].name }))
   }
   const barcodeType = barcode ? (p.barcode_type || null) : null
   if (p.id) {
@@ -199,7 +200,7 @@ export async function setProductActive(id: number, active: boolean): Promise<voi
 export async function deleteProduct(id: number): Promise<void> {
   const d = await db()
   const sales = await d.select<{ c: number }[]>('SELECT COUNT(*) c FROM sale_items WHERE product_id = ?', [id])
-  if ((sales[0]?.c ?? 0) > 0) throw new Error("Bu mahsulot sotuvlarda bor — o'chirib bo'lmaydi, deaktiv qiling")
+  if ((sales[0]?.c ?? 0) > 0) throw new Error(t('products.hasSales'))
   await d.execute('DELETE FROM products WHERE id = ?', [id])
 }
 
@@ -267,9 +268,9 @@ export async function deleteCustomer(id: number): Promise<void> {
   const d = await db()
   const c = (await d.select<Customer[]>('SELECT * FROM customers WHERE id = ?', [id]))[0]
   if (!c) return
-  if (c.is_walk_in) throw new Error("Anonim mijozni o'chirib bo'lmaydi")
+  if (c.is_walk_in) throw new Error(t('customers.cannotDeleteWalkIn'))
   const sales = await d.select<{ c: number }[]>('SELECT COUNT(*) c FROM sales WHERE customer_id = ?', [id])
-  if ((sales[0]?.c ?? 0) > 0) throw new Error("Sotuvlari bor — deaktiv qiling")
+  if ((sales[0]?.c ?? 0) > 0) throw new Error(t('customers.hasSales'))
   await d.execute('DELETE FROM customers WHERE id = ?', [id])
 }
 export async function getCustomer(id: number): Promise<Customer | null> {
@@ -391,7 +392,7 @@ export type CreateSaleInput = {
 export async function createSale(input: CreateSaleInput): Promise<Sale> {
   const d = await db()
   const cust = (await d.select<Customer[]>('SELECT * FROM customers WHERE id = ?', [input.customerId]))[0]
-  if (!cust) throw new Error('Mijoz topilmadi')
+  if (!cust) throw new Error(t('sales.customerNotFound'))
 
   const subtotal = input.items.reduce((s, it) => s + Math.round(it.qty * it.price), 0)
   const discount = Math.min(Math.max(0, input.discount), subtotal)
@@ -401,7 +402,7 @@ export async function createSale(input: CreateSaleInput): Promise<Sale> {
   const paid = paidCash + paidCard
   const debt = Math.max(0, total - paid)
 
-  if (debt > 0 && cust.is_walk_in) throw new Error("Yo'l-yo'lakay xaridorga qarzga bo'lmaydi")
+  if (debt > 0 && cust.is_walk_in) throw new Error(t('sales.noDebtForWalkIn'))
 
   const paymentStatus = debt <= 0 ? 'paid' : paid <= 0 ? 'debt' : 'partial'
   const receipt = await nextReceiptNumber(input.shiftId)
@@ -442,7 +443,7 @@ async function nextReceiptNumber(shiftId: number): Promise<string> {
 
 // ---- Sotuvlar tarixi ----
 export type SalesFilter = { search?: string; paymentStatus?: string; productId?: number; customerId?: number; dateFrom?: string; dateTo?: string }
-export async function listSales(f: SalesFilter = {}): Promise<(Sale & { items: SaleItem[]; customer_name: string | null })[]> {
+export async function listSales(f: SalesFilter = {}): Promise<(Sale & { items: SaleItem[]; customer_name: string | null; is_walk_in: number | null })[]> {
   const d = await db()
   const where: string[] = []
   const args: any[] = []
@@ -453,8 +454,8 @@ export async function listSales(f: SalesFilter = {}): Promise<(Sale & { items: S
   if (f.productId) { where.push('s.id IN (SELECT sale_id FROM sale_items WHERE product_id = ?)'); args.push(f.productId) }
   if (f.customerId) { where.push('s.customer_id = ?'); args.push(f.customerId) }
   const w = where.length ? 'WHERE ' + where.join(' AND ') : ''
-  const sales = await d.select<(Sale & { customer_name: string | null })[]>(
-    `SELECT s.*, c.name customer_name FROM sales s LEFT JOIN customers c ON c.id = s.customer_id ${w} ORDER BY s.id DESC LIMIT 200`,
+  const sales = await d.select<(Sale & { customer_name: string | null; is_walk_in: number | null })[]>(
+    `SELECT s.*, c.name customer_name, c.is_walk_in is_walk_in FROM sales s LEFT JOIN customers c ON c.id = s.customer_id ${w} ORDER BY s.id DESC LIMIT 200`,
     args,
   )
   const out = []
@@ -513,7 +514,7 @@ function expenseIso(date?: string): string {
 export async function saveExpense(e: { id?: number; amount: number; category: string; note?: string | null; date?: string }): Promise<void> {
   const d = await db()
   const amount = Math.max(0, Math.round(e.amount || 0))
-  if (amount === 0) throw new Error('Summa 0 dan katta bo\'lsin')
+  if (amount === 0) throw new Error(t('expenses.amountMustBePositive'))
   const category = e.category?.trim() || 'Boshqa'
   const note = e.note?.trim() || null
   const createdAt = expenseIso(e.date)

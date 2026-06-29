@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue'
 import SearchableSelect from '../components/SearchableSelect.vue'
-import { Check, Store, Coins, ShoppingCart, ShieldCheck, KeyRound, Copy, FileText, DatabaseBackup, RotateCcw, RefreshCw, Download, CloudUpload, Lock, LockOpen, Printer } from 'lucide-vue-next'
+import { Check, Store, Coins, ShoppingCart, ShieldCheck, KeyRound, Copy, FileText, DatabaseBackup, RotateCcw, RefreshCw, Download, CloudUpload, Lock, LockOpen, Printer, Languages } from 'lucide-vue-next'
 import { getSetting, setSetting } from '../lib/db'
+import { useI18n } from 'vue-i18n'
+import { setLocale, availableLocales, type Locale } from '../lib/i18n'
 import { listPrinters } from '../lib/silentprint'
 import { setCurrency, formatDateTime } from '../lib/format'
 import { license, refreshLicense, activate, isOwnerMaster } from '../lib/license'
@@ -15,6 +17,9 @@ import PinPad from '../components/PinPad.vue'
 import QrScanButton from '../components/QrScanButton.vue'
 import { confirmDialog } from '../lib/confirm'
 import { notify } from '../lib/notify'
+
+const { locale, t } = useI18n()
+function changeLocale(l: Locale) { setLocale(l) }
 
 const currency = ref("so'm")
 const allowNegative = ref(false)
@@ -41,10 +46,10 @@ const masterInput = ref('')
 const masterErr = ref('')
 function tapTitle() { if (++titleTaps.value >= 5) { titleTaps.value = 0; askMaster.value = true; masterInput.value = ''; masterErr.value = '' } }
 async function confirmMaster() {
-  if (!isOwnerMaster(masterInput.value)) { masterErr.value = 'Master kalit noto\'g\'ri'; return }
+  if (!isOwnerMaster(masterInput.value)) { masterErr.value = t('settings.masterKeyWrong'); return }
   askMaster.value = false
   showBackup.value = true
-  notify('Zaxira bo\'limi ochildi', 'success')
+  notify(t('settings.backupSectionOpened'), 'success')
   await loadGhDevices()
 }
 const backups = ref<BackupFile[]>([])
@@ -61,13 +66,13 @@ async function loadGhList() { ghList.value = ghDev.value ? await githubBackups(g
 const ghItems = computed(() => ghDevs.value.map((d) => ({ value: d.id, label: d.label })))
 watch(ghDev, loadGhList)
 async function ghRestore(name: string) {
-  if (!(await confirmDialog(`Cloud'dagi "${name}" nusxasidan tiklansinmi? Joriy ma'lumotlar almashtiriladi va dastur qayta ishga tushadi.`, { danger: true, title: 'Cloud\'dan tiklash' }))) return
-  restoring.value = 'Cloud\'dan yuklab olinmoqda…'
+  if (!(await confirmDialog(t('settings.cloudRestoreConfirm', { name }), { danger: true, title: t('settings.cloudRestoreTitle') }))) return
+  restoring.value = t('settings.downloadingFromCloud')
   try { await githubDownload(ghDev.value, name); restoring.value = ''; await askRestorePin(name) }
   catch (e: any) {
     restoring.value = ''
     if (e?.message === NEED_PASS) { rpName.value = name; rpKey.value = ''; rpErr.value = ''; showRp.value = true }
-    else notify('Yuklab bo\'lmadi: ' + (e?.message ?? e), 'error')
+    else notify(t('settings.downloadFailed', { error: (e?.message ?? e) }), 'error')
   }
 }
 
@@ -79,16 +84,16 @@ const encKey = ref('')
 const encErr = ref('')
 function normPass(s: string) { return s.trim().toUpperCase() }
 async function enableEnc() {
-  if (!isOwnerMaster(encKey.value)) { encErr.value = 'Master kalit noto\'g\'ri'; return }
+  if (!isOwnerMaster(encKey.value)) { encErr.value = t('settings.masterKeyWrong'); return }
   await setSetting('backup_pass', normPass(encKey.value)) // owner master = shifrlash paroli
   encOn.value = true; showEncSet.value = false; encKey.value = ''; encErr.value = ''
-  notify('Cloud shifrlash yoqildi', 'success')
+  notify(t('settings.cloudEncEnabled'), 'success')
 }
 async function disableEnc() {
-  if (!(await confirmDialog('Cloud shifrlash o\'chirilsinmi? Yangi nusxalar OCHIQ yuklanadi.', { danger: true, title: 'Shifrlashni o\'chirish' }))) return
+  if (!(await confirmDialog(t('settings.cloudEncDisableConfirm'), { danger: true, title: t('settings.cloudEncDisableTitle') }))) return
   await setSetting('backup_pass', '')
   encOn.value = false
-  notify('Shifrlash o\'chirildi', 'success')
+  notify(t('settings.cloudEncDisabled'), 'success')
 }
 
 // Boshqa kompda shifrlangan nusxani tiklash — owner master parol so'raladi.
@@ -97,27 +102,27 @@ const rpName = ref('')
 const rpKey = ref('')
 const rpErr = ref('')
 async function submitRp() {
-  restoring.value = 'Ochilmoqda…'
+  restoring.value = t('settings.opening')
   try {
     await githubDownload(ghDev.value, rpName.value, normPass(rpKey.value))
     showRp.value = false; restoring.value = ''
     await askRestorePin(rpName.value)
   } catch (e: any) {
     restoring.value = ''
-    rpErr.value = e?.message === NEED_PASS ? 'Parol kerak' : (e?.message ?? 'Xato')
+    rpErr.value = e?.message === NEED_PASS ? t('settings.passwordRequired') : (e?.message ?? t('settings.error'))
   }
 }
 const busyBackup = ref(false)
 async function loadBackups() { backups.value = await listBackups() }
 async function backupNow() {
   busyBackup.value = true
-  try { const n = await makeBackup(); await loadBackups(); notify('Nusxa olindi: ' + n, 'success') }
-  catch (e: any) { notify('Xato: ' + (e?.message ?? e), 'error') }
+  try { const n = await makeBackup(); await loadBackups(); notify(t('settings.backupCreated', { name: n }), 'success') }
+  catch (e: any) { notify(t('settings.errorWith', { error: (e?.message ?? e) }), 'error') }
   finally { busyBackup.value = false }
 }
 const restoring = ref('')
 async function doRestore(f: BackupFile) {
-  if (!(await confirmDialog(`"${f.name}" nusxasidan tiklansinmi? Joriy ma'lumotlar shu nusxa bilan almashtiriladi va dastur qayta ishga tushadi.`, { danger: true, title: 'Bazani tiklash' }))) return
+  if (!(await confirmDialog(t('settings.localRestoreConfirm', { name: f.name }), { danger: true, title: t('settings.localRestoreTitle') }))) return
   await askRestorePin(f.name)
 }
 
@@ -148,32 +153,32 @@ async function onVerifyPin(p: string) {
 }
 function unlockOwner() {
   if (isOwnerMaster(ownerKey.value)) applyRestore()
-  else ownerErr.value = 'Master kalit noto\'g\'ri'
+  else ownerErr.value = t('settings.masterKeyWrong')
 }
 async function applyRestore() {
   verifyOpen.value = false
-  restoring.value = 'Tiklanmoqda…'
-  try { await restoreBackup(pendingRestore.value) } catch (e: any) { restoring.value = ''; notify('Tiklashda xato: ' + (e?.message ?? e), 'error') }
+  restoring.value = t('settings.restoring')
+  try { await restoreBackup(pendingRestore.value) } catch (e: any) { restoring.value = ''; notify(t('settings.restoreError', { error: (e?.message ?? e) }), 'error') }
 }
 // Bazadan yangi nusxa olib GitHub'ga yuboradi (header + zaxira bo'limi tugmasi).
 async function syncNow() {
   if (syncing.value) return
   const ok = await libSyncNow()
-  notify(ok ? 'Baza Cloud\'ga yuklandi' : 'Sync bo\'lmadi (internet yoki litsenziya yo\'q)', ok ? 'success' : 'error')
+  notify(ok ? t('settings.syncedToCloud') : t('settings.syncFailed'), ok ? 'success' : 'error')
   if (ok) { await loadBackups(); if (showBackup.value) await loadGhDevices() }
 }
 async function checkUpdate() {
   const r = await checkForUpdate()
   if (r === 'available') return // burchakdagi banner ko'rsatadi
-  if (r === 'latest') notify(`Eng so'nggi versiya o'rnatilgan (v${appVersion.value})`, 'success')
-  else if (r === 'offline') notify('Internet aloqasi yo\'q', 'error')
-  else notify('Tekshirib bo\'lmadi (server yoki tarmoq xatosi)', 'error')
+  if (r === 'latest') notify(t('settings.upToDate', { version: appVersion.value }), 'success')
+  else if (r === 'offline') notify(t('settings.noInternet'), 'error')
+  else notify(t('settings.updateCheckFailed'), 'error')
 }
 const licText = computed(() => {
   const l = license.value
-  if (l.mode === 'licensed') return l.forever ? 'Faol · cheksiz' : `Faol · ${l.until} gacha (${l.daysLeft} kun)`
-  if (l.mode === 'trial') return `Sinov muddati · ${l.daysLeft} kun qoldi`
-  return 'Muddati tugagan'
+  if (l.mode === 'licensed') return l.forever ? t('settings.licActiveForever') : t('settings.licActiveUntil', { until: l.until, days: l.daysLeft })
+  if (l.mode === 'trial') return t('settings.licTrial', { days: l.daysLeft })
+  return t('settings.licExpired')
 })
 
 onMounted(async () => {
@@ -195,12 +200,12 @@ async function applyKey() {
   notify(r.msg, r.ok ? 'success' : 'error')
   if (r.ok) licKey.value = ''
 }
-async function copyDevice() { try { await navigator.clipboard.writeText(license.value.deviceId); notify('Nusxalandi', 'success') } catch {} }
+async function copyDevice() { try { await navigator.clipboard.writeText(license.value.deviceId); notify(t('settings.copied'), 'success') } catch {} }
 
 async function save() {
   pinError.value = ''
   if (newPin.value.trim()) {
-    if (!/^\d{4}$/.test(newPin.value.trim())) { pinError.value = "4 ta raqam bo'lishi kerak"; return }
+    if (!/^\d{4}$/.test(newPin.value.trim())) { pinError.value = t('settings.pinFourDigits'); return }
     await setSetting('auth_pin', newPin.value.trim())
     newPin.value = ''
   }
@@ -220,16 +225,16 @@ async function save() {
   <div class="flex h-full flex-col overflow-hidden">
     <header class="page-header flex items-center justify-between gap-2">
       <div class="min-w-0">
-        <h1 class="cursor-default truncate text-lg font-semibold select-none" @click="tapTitle">Sozlamalar</h1>
-        <p class="hidden text-sm text-muted-foreground sm:block">Oxirgi sync: {{ lastSync ? formatDateTime(lastSync) : 'hali yo\'q' }}</p>
+        <h1 class="cursor-default truncate text-lg font-semibold select-none" @click="tapTitle">{{ $t('settings.title') }}</h1>
+        <p class="hidden text-sm text-muted-foreground sm:block">{{ $t('settings.lastSync') }}: {{ lastSync ? formatDateTime(lastSync) : $t('settings.notYet') }}</p>
       </div>
       <div class="flex items-center gap-2 sm:gap-3">
-        <span v-if="saved" class="flex items-center gap-1 text-sm text-emerald-600"><Check class="h-4 w-4" /> <span class="hidden sm:inline">Saqlandi</span></span>
+        <span v-if="saved" class="flex items-center gap-1 text-sm text-emerald-600"><Check class="h-4 w-4" /> <span class="hidden sm:inline">{{ $t('settings.saved') }}</span></span>
         <button @click="syncNow" :disabled="syncing" class="flex h-9 items-center gap-1.5 rounded-lg border px-3 text-sm hover:bg-muted disabled:opacity-60">
-          <component :is="syncing ? RefreshCw : CloudUpload" class="h-4 w-4" :class="syncing ? 'animate-spin' : ''" /> <span class="hidden sm:inline">{{ syncing ? 'Yuklanmoqda…' : 'Sync' }}</span>
+          <component :is="syncing ? RefreshCw : CloudUpload" class="h-4 w-4" :class="syncing ? 'animate-spin' : ''" /> <span class="hidden sm:inline">{{ syncing ? $t('settings.uploading') : $t('settings.sync') }}</span>
         </button>
-        <button @click="showLogs = true" class="flex h-9 items-center gap-1.5 rounded-lg border px-3 text-sm hover:bg-muted"><FileText class="h-4 w-4" /> <span class="hidden sm:inline">Loglar</span></button>
-        <button @click="save" class="h-9 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground transition hover:bg-primary/90 sm:px-5">Saqlash</button>
+        <button @click="showLogs = true" class="flex h-9 items-center gap-1.5 rounded-lg border px-3 text-sm hover:bg-muted"><FileText class="h-4 w-4" /> <span class="hidden sm:inline">{{ $t('settings.logs') }}</span></button>
+        <button @click="save" class="h-9 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground transition hover:bg-primary/90 sm:px-5">{{ $t('common.save') }}</button>
       </div>
     </header>
 
@@ -237,34 +242,42 @@ async function save() {
       <div class="mx-auto grid max-w-4xl gap-4 sm:gap-5 lg:grid-cols-2">
         <!-- Do'kon -->
         <section class="rounded-xl border bg-card p-4 sm:p-5">
-          <div class="mb-4 flex items-center gap-2 text-sm font-semibold"><Store class="h-4 w-4 text-primary" /> Do'kon</div>
+          <div class="mb-4 flex items-center gap-2 text-sm font-semibold"><Store class="h-4 w-4 text-primary" /> {{ $t('settings.shop') }}</div>
           <div class="space-y-4">
             <div>
-              <label class="mb-1.5 block text-sm font-medium">Do'kon nomi</label>
+              <label class="mb-1.5 block text-sm font-medium">{{ $t('settings.shopName') }}</label>
               <input v-model="shopName" class="h-10 w-full rounded-lg border bg-background px-3 text-sm focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none" />
-              <p class="mt-1 text-xs text-muted-foreground">Chek va dastur sarlavhasida ko'rinadi</p>
+              <p class="mt-1 text-xs text-muted-foreground">{{ $t('settings.shopNameHint') }}</p>
             </div>
           </div>
         </section>
 
         <!-- Valyuta -->
         <section class="rounded-xl border bg-card p-4 sm:p-5">
-          <div class="mb-4 flex items-center gap-2 text-sm font-semibold"><Coins class="h-4 w-4 text-primary" /> Valyuta</div>
-          <label class="mb-1.5 block text-sm font-medium">Belgisi</label>
+          <div class="mb-4 flex items-center gap-2 text-sm font-semibold"><Coins class="h-4 w-4 text-primary" /> {{ $t('settings.currency') }}</div>
+          <label class="mb-1.5 block text-sm font-medium">{{ $t('settings.currencySymbol') }}</label>
           <input v-model="currency" placeholder="so'm" class="h-10 w-full rounded-lg border bg-background px-3 text-sm focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none" />
           <div class="mt-3 flex gap-1.5">
             <button v-for="c in [`so'm`, '₽', '$', '€']" :key="c" @click="currency = c" class="rounded-md border px-3 py-1 text-sm hover:bg-muted" :class="currency === c ? 'border-primary bg-primary/10 text-primary' : ''">{{ c }}</button>
           </div>
         </section>
 
+        <!-- Til / Язык -->
+        <section class="rounded-xl border bg-card p-4 sm:p-5">
+          <div class="mb-4 flex items-center gap-2 text-sm font-semibold"><Languages class="h-4 w-4 text-primary" /> {{ $t('settings.language') }}</div>
+          <div class="flex gap-1.5">
+            <button v-for="l in availableLocales" :key="l.code" @click="changeLocale(l.code)" class="rounded-md border px-3 py-1 text-sm hover:bg-muted" :class="locale === l.code ? 'border-primary bg-primary/10 text-primary' : ''">{{ l.label }}</button>
+          </div>
+        </section>
+
         <!-- Sotuv -->
         <section class="rounded-xl border bg-card p-4 sm:p-5">
-          <div class="mb-4 flex items-center gap-2 text-sm font-semibold"><ShoppingCart class="h-4 w-4 text-primary" /> Sotuv</div>
+          <div class="mb-4 flex items-center gap-2 text-sm font-semibold"><ShoppingCart class="h-4 w-4 text-primary" /> {{ $t('settings.sale') }}</div>
           <div class="space-y-4">
             <label class="flex items-center justify-between gap-4">
               <div>
-                <div class="text-sm font-medium">Ostatkasiz sotish</div>
-                <div class="text-xs text-muted-foreground">Qoldiq 0 bo'lsa ham sotishga ruxsat</div>
+                <div class="text-sm font-medium">{{ $t('settings.allowNegative') }}</div>
+                <div class="text-xs text-muted-foreground">{{ $t('settings.allowNegativeHint') }}</div>
               </div>
               <button type="button" @click="allowNegative = !allowNegative" class="relative h-6 w-11 shrink-0 rounded-full transition-colors" :class="allowNegative ? 'bg-primary' : 'bg-muted'">
                 <span class="absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform" :class="allowNegative ? 'translate-x-5' : ''"></span>
@@ -272,8 +285,8 @@ async function save() {
             </label>
             <label class="flex items-center justify-between gap-4">
               <div>
-                <div class="text-sm font-medium">Savatni eslab qolish</div>
-                <div class="text-xs text-muted-foreground">Boshqa bo'limga o'tib qaytganda savat va mijoz saqlanadi</div>
+                <div class="text-sm font-medium">{{ $t('settings.keepCart') }}</div>
+                <div class="text-xs text-muted-foreground">{{ $t('settings.keepCartHint') }}</div>
               </div>
               <button type="button" @click="keepCart = !keepCart" class="relative h-6 w-11 shrink-0 rounded-full transition-colors" :class="keepCart ? 'bg-primary' : 'bg-muted'">
                 <span class="absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform" :class="keepCart ? 'translate-x-5' : ''"></span>
@@ -284,63 +297,63 @@ async function save() {
 
         <!-- Xavfsizlik -->
         <section class="rounded-xl border bg-card p-4 sm:p-5">
-          <div class="mb-4 flex items-center gap-2 text-sm font-semibold"><ShieldCheck class="h-4 w-4 text-primary" /> Xavfsizlik</div>
-          <label class="mb-1.5 block text-sm font-medium">Yangi PIN-kod</label>
+          <div class="mb-4 flex items-center gap-2 text-sm font-semibold"><ShieldCheck class="h-4 w-4 text-primary" /> {{ $t('settings.security') }}</div>
+          <label class="mb-1.5 block text-sm font-medium">{{ $t('settings.newPin') }}</label>
           <input v-model="newPin" inputmode="numeric" maxlength="4" placeholder="• • • •" class="h-10 w-32 rounded-lg border bg-background px-3 text-center text-sm tracking-[0.4em] focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none" />
-          <p class="mt-1 text-xs text-muted-foreground">O'zgartirmaslik uchun bo'sh qoldiring</p>
+          <p class="mt-1 text-xs text-muted-foreground">{{ $t('settings.newPinHint') }}</p>
           <div v-if="pinError" class="mt-1 text-xs text-rose-600">{{ pinError }}</div>
         </section>
 
         <!-- Printer (browsersiz pechat) -->
         <section class="rounded-xl border bg-card p-4 sm:p-5 lg:col-span-2">
           <div class="mb-4 flex items-center justify-between gap-2">
-            <div class="flex items-center gap-2 text-sm font-semibold"><Printer class="h-4 w-4 text-primary" /> Printer</div>
-            <button @click="loadPrinters" class="flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-xs hover:bg-muted"><RefreshCw class="h-3.5 w-3.5" /> Yangilash</button>
+            <div class="flex items-center gap-2 text-sm font-semibold"><Printer class="h-4 w-4 text-primary" /> {{ $t('settings.printer') }}</div>
+            <button @click="loadPrinters" class="flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-xs hover:bg-muted"><RefreshCw class="h-3.5 w-3.5" /> {{ $t('settings.refresh') }}</button>
           </div>
           <div class="grid gap-4 sm:grid-cols-2">
             <div>
-              <label class="mb-1.5 block text-sm font-medium">Chek printeri</label>
+              <label class="mb-1.5 block text-sm font-medium">{{ $t('settings.receiptPrinter') }}</label>
               <select v-model="receiptPrinter" class="h-10 w-full rounded-lg border bg-background px-3 text-sm">
-                <option value="">Brauzer orqali (standart)</option>
+                <option value="">{{ $t('settings.viaBrowser') }}</option>
                 <option v-for="p in printers" :key="p" :value="p">{{ p }}</option>
               </select>
             </div>
             <div>
-              <label class="mb-1.5 block text-sm font-medium">Yorliq (nakleyka) printeri</label>
+              <label class="mb-1.5 block text-sm font-medium">{{ $t('settings.labelPrinter') }}</label>
               <select v-model="labelPrinter" class="h-10 w-full rounded-lg border bg-background px-3 text-sm">
-                <option value="">Brauzer orqali (standart)</option>
+                <option value="">{{ $t('settings.viaBrowser') }}</option>
                 <option v-for="p in printers" :key="p" :value="p">{{ p }}</option>
               </select>
             </div>
           </div>
           <p class="mt-2 text-xs text-muted-foreground">
-            Printer tanlansa — brauzer ochilmasdan to'g'ridan-to'g'ri chop etiladi. Bo'sh qolsa eski usul (brauzerда auto-print).
-            <template v-if="printers.length === 0"><br>Printer topilmadi — O'rnatilganini tekshiring, so'ng «Yangilash».</template>
+            {{ $t('settings.printerHint') }}
+            <template v-if="printers.length === 0"><br>{{ $t('settings.noPrinterFound') }}</template>
           </p>
         </section>
 
         <!-- Litsenziya -->
         <section class="rounded-xl border bg-card p-4 sm:p-5 lg:col-span-2">
           <div class="mb-4 flex flex-wrap items-center justify-between gap-2">
-            <div class="flex items-center gap-2 text-sm font-semibold"><button @click="tapKey" class="rounded p-0.5"><KeyRound class="h-4 w-4 text-primary" /></button> Litsenziya</div>
+            <div class="flex items-center gap-2 text-sm font-semibold"><button @click="tapKey" class="rounded p-0.5"><KeyRound class="h-4 w-4 text-primary" /></button> {{ $t('settings.license') }}</div>
             <span class="rounded-full px-2.5 py-0.5 text-xs font-medium"
               :class="license.mode === 'licensed' ? 'bg-emerald-500/15 text-emerald-600' : license.mode === 'trial' ? 'bg-amber-500/15 text-amber-600' : 'bg-rose-500/15 text-rose-600'">{{ licText }}</span>
           </div>
           <div class="grid gap-4 sm:grid-cols-2">
             <div>
-              <label class="mb-1.5 block text-sm font-medium">Qurilma ID</label>
+              <label class="mb-1.5 block text-sm font-medium">{{ $t('settings.deviceId') }}</label>
               <div class="flex items-center gap-2">
                 <div class="flex h-10 flex-1 items-center rounded-lg border bg-muted/40 px-3 font-mono text-sm tabular-nums">{{ license.deviceId }}</div>
                 <button @click="copyDevice" class="flex h-10 items-center gap-1.5 rounded-lg border px-3 text-sm hover:bg-muted"><Copy class="h-4 w-4" /></button>
               </div>
-              <p class="mt-1 text-xs text-muted-foreground">Yangi kalit olish uchun sotuvchiga shu ID ni yuboring</p>
+              <p class="mt-1 text-xs text-muted-foreground">{{ $t('settings.deviceIdHint') }}</p>
             </div>
             <div>
-              <label class="mb-1.5 block text-sm font-medium">Aktivatsiya kaliti</label>
+              <label class="mb-1.5 block text-sm font-medium">{{ $t('settings.activationKey') }}</label>
               <div class="flex items-center gap-2">
-                <input v-model="licKey" placeholder="Kalitni joylang" class="h-10 min-w-0 flex-1 rounded-lg border bg-background px-3 font-mono text-xs focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none" />
+                <input v-model="licKey" :placeholder="$t('settings.pasteKey')" class="h-10 min-w-0 flex-1 rounded-lg border bg-background px-3 font-mono text-xs focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none" />
                 <QrScanButton @decoded="licKey = $event" />
-                <button @click="applyKey" :disabled="!licKey.trim()" class="h-10 shrink-0 rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 sm:px-4">Faollashtirish</button>
+                <button @click="applyKey" :disabled="!licKey.trim()" class="h-10 shrink-0 rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 sm:px-4">{{ $t('settings.activate') }}</button>
               </div>
             </div>
           </div>
@@ -349,48 +362,48 @@ async function save() {
         <!-- Zaxira nusxa (maxfiy — sarlavhani 5 marta bosish) -->
         <section v-if="showBackup" class="rounded-xl border bg-card p-4 sm:p-5 lg:col-span-2">
           <div class="mb-4 flex flex-wrap items-center justify-between gap-2">
-            <div class="flex items-center gap-2 text-sm font-semibold"><DatabaseBackup class="h-4 w-4 text-primary" /> Zaxira nusxa (backup)</div>
+            <div class="flex items-center gap-2 text-sm font-semibold"><DatabaseBackup class="h-4 w-4 text-primary" /> {{ $t('settings.backup') }}</div>
             <div class="flex flex-1 items-center gap-2 sm:flex-none">
               <button @click="syncNow" :disabled="syncing" class="flex h-9 flex-1 items-center justify-center gap-1.5 rounded-lg border px-3 text-sm hover:bg-muted disabled:opacity-60 sm:flex-none">
-                <component :is="syncing ? RefreshCw : CloudUpload" class="h-4 w-4" :class="syncing ? 'animate-spin' : ''" /> {{ syncing ? 'Yuklanmoqda…' : 'Sync' }}
+                <component :is="syncing ? RefreshCw : CloudUpload" class="h-4 w-4" :class="syncing ? 'animate-spin' : ''" /> {{ syncing ? $t('settings.uploading') : $t('settings.sync') }}
               </button>
-              <button @click="backupNow" :disabled="busyBackup" class="flex h-9 flex-1 items-center justify-center gap-1.5 rounded-lg bg-primary px-3.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 sm:flex-none"><DatabaseBackup class="h-4 w-4" /> <span class="whitespace-nowrap">Hozir nusxa olish</span></button>
+              <button @click="backupNow" :disabled="busyBackup" class="flex h-9 flex-1 items-center justify-center gap-1.5 rounded-lg bg-primary px-3.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 sm:flex-none"><DatabaseBackup class="h-4 w-4" /> <span class="whitespace-nowrap">{{ $t('settings.backupNow') }}</span></button>
             </div>
           </div>
-          <p class="mb-3 text-xs text-muted-foreground">Har kuni avtomatik nusxa olinadi (oxirgi 14 ta saqlanadi). Internet bo'lsa Cloud'ga sync qilinadi. Tiklash uchun nusxani tanlang.</p>
+          <p class="mb-3 text-xs text-muted-foreground">{{ $t('settings.backupHint') }}</p>
 
           <!-- Cloud shifrlash (lokal ochiq, cloud nusxa parol bilan) -->
           <div class="mb-3 flex items-center justify-between rounded-lg border bg-muted/30 px-3 py-2">
             <div class="flex items-center gap-2 text-sm">
               <component :is="encOn ? Lock : LockOpen" class="h-4 w-4" :class="encOn ? 'text-emerald-600' : 'text-muted-foreground'" />
-              <span>Cloud shifrlash: <b :class="encOn ? 'text-emerald-600' : 'text-muted-foreground'">{{ encOn ? 'Yoqilgan' : "O'chiq" }}</b></span>
+              <span>{{ $t('settings.cloudEnc') }}: <b :class="encOn ? 'text-emerald-600' : 'text-muted-foreground'">{{ encOn ? $t('settings.enabled') : $t('settings.disabledState') }}</b></span>
             </div>
-            <button @click="encOn ? disableEnc() : (showEncSet = true)" class="h-8 rounded-md border px-3 text-xs font-medium hover:bg-muted">{{ encOn ? "O'chirish" : 'Yoqish' }}</button>
+            <button @click="encOn ? disableEnc() : (showEncSet = true)" class="h-8 rounded-md border px-3 text-xs font-medium hover:bg-muted">{{ encOn ? $t('settings.turnOff') : $t('settings.turnOn') }}</button>
           </div>
           <div class="grid gap-4 lg:grid-cols-2">
             <div>
-              <div class="mb-1.5 text-xs font-medium text-muted-foreground">Bu kompdagi nusxalar</div>
+              <div class="mb-1.5 text-xs font-medium text-muted-foreground">{{ $t('settings.localBackups') }}</div>
               <div class="max-h-56 divide-y overflow-auto rounded-lg border">
                 <div v-for="f in backups" :key="f.name" class="flex items-center justify-between px-3 py-2.5 text-sm hover:bg-muted/40">
                   <span class="font-mono text-xs">{{ f.name }}</span>
-                  <button @click="doRestore(f)" class="flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-xs hover:bg-muted"><RotateCcw class="h-3.5 w-3.5" /> Tiklash</button>
+                  <button @click="doRestore(f)" class="flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-xs hover:bg-muted"><RotateCcw class="h-3.5 w-3.5" /> {{ $t('settings.restore') }}</button>
                 </div>
-                <div v-if="backups.length === 0" class="px-3 py-6 text-center text-sm text-muted-foreground">Hali nusxa yo'q</div>
+                <div v-if="backups.length === 0" class="px-3 py-6 text-center text-sm text-muted-foreground">{{ $t('settings.noBackupYet') }}</div>
               </div>
             </div>
             <div>
-              <div class="mb-1.5 text-xs font-medium text-muted-foreground">Cloud'dan tiklash (yangi komp)</div>
+              <div class="mb-1.5 text-xs font-medium text-muted-foreground">{{ $t('settings.cloudRestoreLabel') }}</div>
               <div v-if="ghDevs.length" class="mb-2">
-                <SearchableSelect v-model="ghDev" :items="ghItems" placeholder="Qurilmani tanlang" search-placeholder="Do'kon yoki kompyuter nomi…" />
+                <SearchableSelect v-model="ghDev" :items="ghItems" :placeholder="$t('settings.selectDevice')" :search-placeholder="$t('settings.deviceSearchPlaceholder')" />
               </div>
               <div class="max-h-56 divide-y overflow-auto rounded-lg border">
-                <div v-if="ghBusy" class="px-3 py-6 text-center text-sm text-muted-foreground">Yuklanmoqda…</div>
+                <div v-if="ghBusy" class="px-3 py-6 text-center text-sm text-muted-foreground">{{ $t('settings.uploading') }}</div>
                 <template v-else>
                   <div v-for="f in ghList" :key="f.name" class="flex items-center justify-between px-3 py-2.5 text-sm hover:bg-muted/40">
                     <span class="font-mono text-xs">{{ f.name }}</span>
-                    <button @click="ghRestore(f.name)" class="flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-xs hover:bg-muted"><RotateCcw class="h-3.5 w-3.5" /> Tiklash</button>
+                    <button @click="ghRestore(f.name)" class="flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-xs hover:bg-muted"><RotateCcw class="h-3.5 w-3.5" /> {{ $t('settings.restore') }}</button>
                   </div>
-                  <div v-if="ghList.length === 0" class="px-3 py-6 text-center text-sm text-muted-foreground">Cloud'da nusxa yo'q (yoki litsenziya yo'q)</div>
+                  <div v-if="ghList.length === 0" class="px-3 py-6 text-center text-sm text-muted-foreground">{{ $t('settings.noCloudBackup') }}</div>
                 </template>
               </div>
             </div>
@@ -401,11 +414,11 @@ async function save() {
         <section class="rounded-xl border bg-card p-4 sm:p-5 lg:col-span-2">
           <div class="flex items-center justify-between">
             <div>
-              <div class="flex items-center gap-2 text-sm font-semibold"><Download class="h-4 w-4 text-primary" /> Yangilanish</div>
-              <p class="mt-1 text-xs text-muted-foreground">Joriy versiya: v{{ appVersion }} · internet bo'lganda avtomatik tekshiriladi</p>
+              <div class="flex items-center gap-2 text-sm font-semibold"><Download class="h-4 w-4 text-primary" /> {{ $t('settings.update') }}</div>
+              <p class="mt-1 text-xs text-muted-foreground">{{ $t('settings.updateHint', { version: appVersion }) }}</p>
             </div>
             <button @click="checkUpdate" :disabled="checking" class="flex h-9 items-center gap-1.5 rounded-lg border px-3.5 text-sm hover:bg-muted disabled:opacity-50">
-              <RefreshCw class="h-4 w-4" :class="checking ? 'animate-spin' : ''" /> Tekshirish
+              <RefreshCw class="h-4 w-4" :class="checking ? 'animate-spin' : ''" /> {{ $t('settings.check') }}
             </button>
           </div>
         </section>
@@ -416,7 +429,7 @@ async function save() {
     <div v-if="restoring" class="fixed inset-0 z-[80] flex flex-col items-center justify-center gap-4 bg-background/90 backdrop-blur">
       <RefreshCw class="h-10 w-10 animate-spin text-primary" />
       <div class="text-sm font-medium">{{ restoring }}</div>
-      <div class="text-xs text-muted-foreground">Dastur tez orada qayta ishga tushadi…</div>
+      <div class="text-xs text-muted-foreground">{{ $t('settings.restartingSoon') }}</div>
     </div>
 
     <LicenseAdmin v-if="showAdmin" :device-id="license.deviceId" @close="showAdmin = false" />
@@ -425,16 +438,16 @@ async function save() {
     <!-- Zaxira bo'limi uchun master so'rovi -->
     <div v-if="askMaster" class="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
       <div class="max-h-[90vh] w-full max-w-sm overflow-y-auto rounded-xl border bg-card p-4 sm:p-5 shadow-xl">
-        <div class="mb-1 flex items-center gap-2 text-lg font-semibold"><DatabaseBackup class="h-5 w-5 text-primary" /> Zaxira bo'limi</div>
-        <p class="mb-4 text-sm text-muted-foreground">Faqat dastur egasi uchun. Master kalitni kiriting.</p>
+        <div class="mb-1 flex items-center gap-2 text-lg font-semibold"><DatabaseBackup class="h-5 w-5 text-primary" /> {{ $t('settings.backupSection') }}</div>
+        <p class="mb-4 text-sm text-muted-foreground">{{ $t('settings.ownerOnly') }}</p>
         <div class="flex gap-2">
-          <input v-model="masterInput" type="password" autofocus placeholder="Master kalit" class="h-11 w-full rounded-lg border bg-background px-3 text-sm focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none" @keyup.enter="confirmMaster" />
+          <input v-model="masterInput" type="password" autofocus :placeholder="$t('settings.masterKey')" class="h-11 w-full rounded-lg border bg-background px-3 text-sm focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none" @keyup.enter="confirmMaster" />
           <QrScanButton @decoded="masterInput = $event" />
         </div>
         <p v-if="masterErr" class="mt-1.5 text-sm text-rose-500">{{ masterErr }}</p>
         <div class="mt-4 flex gap-2">
-          <button @click="confirmMaster" class="h-10 flex-1 rounded-lg bg-primary text-sm font-medium text-primary-foreground hover:bg-primary/90">Kirish</button>
-          <button @click="askMaster = false" class="h-10 rounded-lg border px-4 text-sm hover:bg-muted">Bekor</button>
+          <button @click="confirmMaster" class="h-10 flex-1 rounded-lg bg-primary text-sm font-medium text-primary-foreground hover:bg-primary/90">{{ $t('settings.enter') }}</button>
+          <button @click="askMaster = false" class="h-10 rounded-lg border px-4 text-sm hover:bg-muted">{{ $t('common.cancel') }}</button>
         </div>
       </div>
     </div>
@@ -443,42 +456,42 @@ async function save() {
     <div v-if="verifyOpen" class="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 p-4">
       <div class="max-h-[90vh] w-full max-w-xs overflow-y-auto rounded-xl border bg-card p-4 sm:p-5 shadow-xl">
         <div class="mb-1 flex items-center gap-2 text-lg font-semibold">
-          <button @click="tapVerifyIcon" class="rounded p-0.5" title="Tiklashni tasdiqlang"><ShieldCheck class="h-5 w-5 text-primary" /></button> Tiklashni tasdiqlang
+          <button @click="tapVerifyIcon" class="rounded p-0.5" :title="$t('settings.confirmRestore')"><ShieldCheck class="h-5 w-5 text-primary" /></button> {{ $t('settings.confirmRestore') }}
         </div>
 
         <template v-if="!ownerMode">
-          <p class="mb-4 text-sm text-muted-foreground">Shu nusxadagi PIN-kodni kiriting.</p>
+          <p class="mb-4 text-sm text-muted-foreground">{{ $t('settings.enterBackupPin') }}</p>
           <PinPad ref="verifyPad" :error="verifyErr" @complete="onVerifyPin" />
         </template>
 
         <template v-else>
-          <p class="mb-4 text-sm text-muted-foreground">{{ expectedPin === null ? 'Bu nusxada PIN topilmadi. Faqat egasi tiklay oladi.' : 'Master kalit bilan ixtiyoriy nusxani tiklash.' }}</p>
+          <p class="mb-4 text-sm text-muted-foreground">{{ expectedPin === null ? $t('settings.noPinInBackup') : $t('settings.restoreWithMaster') }}</p>
           <div class="flex gap-2">
-            <input v-model="ownerKey" type="password" autofocus placeholder="Master kalit" class="h-11 w-full rounded-lg border bg-background px-3 text-sm focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none" @keyup.enter="unlockOwner" />
+            <input v-model="ownerKey" type="password" autofocus :placeholder="$t('settings.masterKey')" class="h-11 w-full rounded-lg border bg-background px-3 text-sm focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none" @keyup.enter="unlockOwner" />
             <QrScanButton @decoded="ownerKey = $event" />
           </div>
           <p v-if="ownerErr" class="mt-1.5 text-sm text-rose-500">{{ ownerErr }}</p>
-          <button @click="unlockOwner" class="mt-3 h-10 w-full rounded-lg bg-primary text-sm font-medium text-primary-foreground hover:bg-primary/90">Tiklash</button>
-          <button v-if="expectedPin !== null" @click="ownerMode = false; ownerErr = ''" class="mt-2 w-full text-xs text-muted-foreground hover:text-foreground">← PIN bilan</button>
+          <button @click="unlockOwner" class="mt-3 h-10 w-full rounded-lg bg-primary text-sm font-medium text-primary-foreground hover:bg-primary/90">{{ $t('settings.restore') }}</button>
+          <button v-if="expectedPin !== null" @click="ownerMode = false; ownerErr = ''" class="mt-2 w-full text-xs text-muted-foreground hover:text-foreground">{{ $t('settings.backToPin') }}</button>
         </template>
 
-        <button @click="verifyOpen = false" class="mt-3 h-9 w-full rounded-lg border text-sm hover:bg-muted">Bekor</button>
+        <button @click="verifyOpen = false" class="mt-3 h-9 w-full rounded-lg border text-sm hover:bg-muted">{{ $t('common.cancel') }}</button>
       </div>
     </div>
 
     <!-- Cloud shifrlashni yoqish: owner master = parol -->
     <div v-if="showEncSet" class="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 p-4">
       <div class="max-h-[90vh] w-full max-w-sm overflow-y-auto rounded-xl border bg-card p-4 sm:p-5 shadow-xl">
-        <div class="mb-1 flex items-center gap-2 text-lg font-semibold"><Lock class="h-5 w-5 text-primary" /> Cloud shifrlash</div>
-        <p class="mb-4 text-sm text-muted-foreground">Owner master kalit shifrlash paroli bo'ladi. Cloud nusxa shu bilan shifrlanadi — serverda parol YO'Q. Boshqa kompda tiklashda shu kalit so'raladi. <b>Kalitni yo'qotmang</b> — aks holda cloud nusxa ochilmaydi.</p>
+        <div class="mb-1 flex items-center gap-2 text-lg font-semibold"><Lock class="h-5 w-5 text-primary" /> {{ $t('settings.cloudEnc') }}</div>
+        <p class="mb-4 text-sm text-muted-foreground">{{ $t('settings.cloudEncDesc') }}</p>
         <div class="flex gap-2">
-          <input v-model="encKey" type="password" autofocus placeholder="Owner master kalit" class="h-11 w-full rounded-lg border bg-background px-3 text-sm focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none" @keyup.enter="enableEnc" />
+          <input v-model="encKey" type="password" autofocus :placeholder="$t('settings.ownerMasterKey')" class="h-11 w-full rounded-lg border bg-background px-3 text-sm focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none" @keyup.enter="enableEnc" />
           <QrScanButton @decoded="encKey = $event" />
         </div>
         <p v-if="encErr" class="mt-1.5 text-sm text-rose-500">{{ encErr }}</p>
         <div class="mt-4 flex gap-2">
-          <button @click="enableEnc" class="h-10 flex-1 rounded-lg bg-primary text-sm font-medium text-primary-foreground hover:bg-primary/90">Yoqish</button>
-          <button @click="showEncSet = false" class="h-10 rounded-lg border px-4 text-sm hover:bg-muted">Bekor</button>
+          <button @click="enableEnc" class="h-10 flex-1 rounded-lg bg-primary text-sm font-medium text-primary-foreground hover:bg-primary/90">{{ $t('settings.turnOn') }}</button>
+          <button @click="showEncSet = false" class="h-10 rounded-lg border px-4 text-sm hover:bg-muted">{{ $t('common.cancel') }}</button>
         </div>
       </div>
     </div>
@@ -486,16 +499,16 @@ async function save() {
     <!-- Boshqa kompda shifrlangan nusxani ochish — parol -->
     <div v-if="showRp" class="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 p-4">
       <div class="max-h-[90vh] w-full max-w-sm overflow-y-auto rounded-xl border bg-card p-4 sm:p-5 shadow-xl">
-        <div class="mb-1 flex items-center gap-2 text-lg font-semibold"><Lock class="h-5 w-5 text-primary" /> Shifrlangan nusxa</div>
-        <p class="mb-4 text-sm text-muted-foreground">Bu nusxa shifrlangan. Ochish uchun owner master kalitni kiriting.</p>
+        <div class="mb-1 flex items-center gap-2 text-lg font-semibold"><Lock class="h-5 w-5 text-primary" /> {{ $t('settings.encryptedBackup') }}</div>
+        <p class="mb-4 text-sm text-muted-foreground">{{ $t('settings.encryptedBackupDesc') }}</p>
         <div class="flex gap-2">
-          <input v-model="rpKey" type="password" autofocus placeholder="Owner master kalit" class="h-11 w-full rounded-lg border bg-background px-3 text-sm focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none" @keyup.enter="submitRp" />
+          <input v-model="rpKey" type="password" autofocus :placeholder="$t('settings.ownerMasterKey')" class="h-11 w-full rounded-lg border bg-background px-3 text-sm focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none" @keyup.enter="submitRp" />
           <QrScanButton @decoded="rpKey = $event" />
         </div>
         <p v-if="rpErr" class="mt-1.5 text-sm text-rose-500">{{ rpErr }}</p>
         <div class="mt-4 flex gap-2">
-          <button @click="submitRp" class="h-10 flex-1 rounded-lg bg-primary text-sm font-medium text-primary-foreground hover:bg-primary/90">Ochish</button>
-          <button @click="showRp = false" class="h-10 rounded-lg border px-4 text-sm hover:bg-muted">Bekor</button>
+          <button @click="submitRp" class="h-10 flex-1 rounded-lg bg-primary text-sm font-medium text-primary-foreground hover:bg-primary/90">{{ $t('settings.open') }}</button>
+          <button @click="showRp = false" class="h-10 rounded-lg border px-4 text-sm hover:bg-muted">{{ $t('common.cancel') }}</button>
         </div>
       </div>
     </div>

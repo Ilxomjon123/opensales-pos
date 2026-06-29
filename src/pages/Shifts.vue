@@ -37,36 +37,36 @@ function pickStatus(v: 'open' | 'closed') { statusFilter.value = statusFilter.va
 <template>
   <div class="flex h-full flex-col overflow-hidden">
     <header class="page-header">
-      <h1 class="text-lg font-semibold">Smenalar</h1>
-      <p class="truncate text-sm text-muted-foreground">{{ stats.count }} ta · {{ stats.open }} ochiq</p>
+      <h1 class="text-lg font-semibold">{{ $t('shifts.title') }}</h1>
+      <p class="truncate text-sm text-muted-foreground">{{ $t('shifts.headerSummary', { count: stats.count, open: stats.open }) }}</p>
     </header>
 
     <!-- Stat kartalar -->
     <div class="grid grid-cols-2 gap-2.5 border-b px-4 py-3 sm:gap-3 sm:px-6 sm:py-4 lg:grid-cols-4">
       <div class="flex items-center gap-3 rounded-xl border bg-card p-3">
         <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary"><Clock class="h-4.5 w-4.5" /></div>
-        <div><div class="text-xs text-muted-foreground">Smenalar</div><div class="text-lg font-bold tabular-nums">{{ stats.count }}</div></div>
+        <div><div class="text-xs text-muted-foreground">{{ $t('shifts.title') }}</div><div class="text-lg font-bold tabular-nums">{{ stats.count }}</div></div>
       </div>
       <button @click="pickStatus('open')" class="flex items-center gap-3 rounded-xl border bg-card p-3 text-left transition hover:shadow-sm" :class="statusFilter === 'open' ? 'border-emerald-500 ring-1 ring-emerald-500' : ''">
         <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600"><DoorOpen class="h-4.5 w-4.5" /></div>
-        <div><div class="text-xs text-muted-foreground">Ochiq</div><div class="text-lg font-bold tabular-nums">{{ stats.open }}</div></div>
+        <div><div class="text-xs text-muted-foreground">{{ $t('shifts.statusOpen') }}</div><div class="text-lg font-bold tabular-nums">{{ stats.open }}</div></div>
       </button>
       <div class="flex items-center gap-3 rounded-xl border bg-card p-3">
         <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-sky-500/10 text-sky-600"><Receipt class="h-4.5 w-4.5" /></div>
-        <div><div class="text-xs text-muted-foreground">Sotuvlar</div><div class="text-lg font-bold tabular-nums">{{ stats.sales }}</div></div>
+        <div><div class="text-xs text-muted-foreground">{{ $t('shifts.salesColumn') }}</div><div class="text-lg font-bold tabular-nums">{{ stats.sales }}</div></div>
       </div>
       <div class="flex items-center gap-3 rounded-xl border bg-card p-3">
         <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600"><Coins class="h-4.5 w-4.5" /></div>
-        <div><div class="text-xs text-muted-foreground">Jami summa</div><div class="text-lg font-bold tabular-nums">{{ moneySum(stats.total) }}</div></div>
+        <div><div class="text-xs text-muted-foreground">{{ $t('shifts.totalAmount') }}</div><div class="text-lg font-bold tabular-nums">{{ moneySum(stats.total) }}</div></div>
       </div>
     </div>
 
     <!-- Filtrlar -->
     <div class="flex flex-wrap items-center gap-2 border-b px-4 py-3 sm:px-6">
       <select v-model="statusFilter" class="h-9 w-full rounded-lg border bg-card px-3 text-sm sm:w-auto">
-        <option value="all">Barcha smenalar</option>
-        <option value="open">Ochiq</option>
-        <option value="closed">Yopiq</option>
+        <option value="all">{{ $t('shifts.allShifts') }}</option>
+        <option value="open">{{ $t('shifts.statusOpen') }}</option>
+        <option value="closed">{{ $t('shifts.statusClosed') }}</option>
       </select>
     </div>
 
@@ -77,20 +77,20 @@ function pickStatus(v: 'open' | 'closed') { statusFilter.value = statusFilter.va
           <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary font-semibold tabular-nums">#{{ s.id }}</div>
           <div class="min-w-0 flex-1">
             <div class="flex items-center gap-2">
-              <span class="text-sm font-medium">{{ s.sales_count }} sotuv</span>
-              <span class="shrink-0 rounded-full px-2 py-0.5 text-[11px]" :class="s.status === 'open' ? 'bg-emerald-500/15 text-emerald-600' : 'bg-slate-500/15 text-slate-600'">{{ s.status === 'open' ? 'Ochiq' : 'Yopiq' }}</span>
+              <span class="text-sm font-medium">{{ $t('shifts.salesCount', { count: s.sales_count }) }}</span>
+              <span class="shrink-0 rounded-full px-2 py-0.5 text-[11px]" :class="s.status === 'open' ? 'bg-emerald-500/15 text-emerald-600' : 'bg-slate-500/15 text-slate-600'">{{ s.status === 'open' ? $t('shifts.statusOpen') : $t('shifts.statusClosed') }}</span>
             </div>
             <div class="mt-0.5 truncate text-xs text-muted-foreground">{{ formatDateTime(s.opened_at) }} → {{ formatDateTime(s.closed_at) }}</div>
           </div>
           <div class="shrink-0 text-right font-semibold tabular-nums">{{ moneySum(s.total_sales) }}</div>
         </li>
-        <li v-if="visible.length === 0" class="px-4 py-16 text-center text-muted-foreground"><Clock class="mx-auto mb-2 h-8 w-8 opacity-40" /> Smena topilmadi</li>
-        <li v-if="visible.length" class="flex justify-between bg-muted/40 px-4 py-3 text-sm font-semibold"><span>Jami: {{ visible.length }} ta</span><span class="tabular-nums">{{ moneySum(visTotal) }}</span></li>
+        <li v-if="visible.length === 0" class="px-4 py-16 text-center text-muted-foreground"><Clock class="mx-auto mb-2 h-8 w-8 opacity-40" /> {{ $t('shifts.empty') }}</li>
+        <li v-if="visible.length" class="flex justify-between bg-muted/40 px-4 py-3 text-sm font-semibold"><span>{{ $t('shifts.totalCount', { count: visible.length }) }}</span><span class="tabular-nums">{{ moneySum(visTotal) }}</span></li>
       </ul>
 
       <table class="hidden w-full text-sm lg:table">
         <thead class="sticky top-0 z-10 border-b bg-muted text-left text-xs tracking-wide text-muted-foreground uppercase">
-          <tr><th class="px-4 py-3">#</th><th class="px-4 py-3">Ochilgan</th><th class="px-4 py-3">Yopilgan</th><th class="px-4 py-3 text-right">Sotuvlar</th><th class="px-4 py-3 text-right">Summa</th><th class="px-4 py-3">Holat</th></tr>
+          <tr><th class="px-4 py-3">#</th><th class="px-4 py-3">{{ $t('shifts.openedColumn') }}</th><th class="px-4 py-3">{{ $t('shifts.closedColumn') }}</th><th class="px-4 py-3 text-right">{{ $t('shifts.salesColumn') }}</th><th class="px-4 py-3 text-right">{{ $t('shifts.amountColumn') }}</th><th class="px-4 py-3">{{ $t('shifts.statusColumn') }}</th></tr>
         </thead>
         <tbody class="divide-y">
           <tr v-for="s in visible" :key="s.id" class="hover:bg-muted/40">
@@ -99,13 +99,13 @@ function pickStatus(v: 'open' | 'closed') { statusFilter.value = statusFilter.va
             <td class="px-4 py-3 text-xs">{{ formatDateTime(s.closed_at) }}</td>
             <td class="px-4 py-3 text-right tabular-nums">{{ s.sales_count }}</td>
             <td class="px-4 py-3 text-right font-semibold tabular-nums">{{ moneySum(s.total_sales) }}</td>
-            <td class="px-4 py-3"><span class="rounded-full px-2 py-0.5 text-xs" :class="s.status === 'open' ? 'bg-emerald-500/15 text-emerald-600' : 'bg-slate-500/15 text-slate-600'">{{ s.status === 'open' ? 'Ochiq' : 'Yopiq' }}</span></td>
+            <td class="px-4 py-3"><span class="rounded-full px-2 py-0.5 text-xs" :class="s.status === 'open' ? 'bg-emerald-500/15 text-emerald-600' : 'bg-slate-500/15 text-slate-600'">{{ s.status === 'open' ? $t('shifts.statusOpen') : $t('shifts.statusClosed') }}</span></td>
           </tr>
-          <tr v-if="visible.length === 0"><td colspan="6" class="px-4 py-16 text-center text-muted-foreground"><Clock class="mx-auto mb-2 h-8 w-8 opacity-40" /> Smena topilmadi</td></tr>
+          <tr v-if="visible.length === 0"><td colspan="6" class="px-4 py-16 text-center text-muted-foreground"><Clock class="mx-auto mb-2 h-8 w-8 opacity-40" /> {{ $t('shifts.empty') }}</td></tr>
         </tbody>
         <tfoot v-if="visible.length" class="sticky bottom-0 border-t-2 bg-card text-sm font-semibold">
           <tr>
-            <td class="px-4 py-3" colspan="4">Jami: {{ visible.length }} ta</td>
+            <td class="px-4 py-3" colspan="4">{{ $t('shifts.totalCount', { count: visible.length }) }}</td>
             <td class="px-4 py-3 text-right tabular-nums">{{ moneySum(visTotal) }}</td>
             <td></td>
           </tr>

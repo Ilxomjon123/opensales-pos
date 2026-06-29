@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { Plus, Pencil, Trash2, Search, Package, ImagePlus, X, Eye, EyeOff, Boxes, Coins, AlertTriangle, PackageX, Percent, ArrowUp, ArrowDown, Sparkles, Printer, ScanLine } from 'lucide-vue-next'
 import {
   listProducts, listCategories, saveProduct, deleteProduct, setProductActive,
@@ -13,6 +14,8 @@ import { confirmDialog } from '../lib/confirm'
 import { notify } from '../lib/notify'
 import { generateUniqueBarcode, barcodeDataUrl } from '../lib/barcode'
 import { printLabel } from '../lib/print'
+
+const { t } = useI18n()
 
 const products = ref<Product[]>([])
 const categories = ref<Category[]>([])
@@ -84,7 +87,7 @@ async function onImage(e: Event) {
   const file = (e.target as HTMLInputElement).files?.[0]
   if (!file) return
   try { form.value.image = await compressImage(file) }
-  catch { notify('Rasmni o\'qib bo\'lmadi', 'error') }
+  catch { notify(t('products.imageReadFailed'), 'error') }
 }
 function openNew() { form.value = { name: '', price: 0, cost_price: 0, stock: 0, unit: 'dona', category_id: categories.value[0]?.id ?? null, image: null, barcode: null, barcode_type: null }; showForm.value = true }
 function openEdit(p: Product) { form.value = { ...p }; showForm.value = true }
@@ -152,7 +155,7 @@ async function genBarcode() {
 }
 async function printProductLabel() {
   const code = form.value.barcode?.trim()
-  if (!code) { notify('Avval kod kiriting, skanерланг yoki generatsiya qiling', 'error'); return }
+  if (!code) { notify(t('products.enterCodeFirst'), 'error'); return }
   await printLabel({ name: form.value.name || '—', price: form.value.price || 0, barcode: code, type: form.value.barcode_type, copies: labelCopies.value, size: labelSize.value })
 }
 
@@ -162,20 +165,20 @@ async function save() {
     await saveProduct(form.value as any)
     showForm.value = false
     await load()
-    notify('Saqlandi', 'success')
+    notify(t('products.saved'), 'success')
   } catch (e: any) {
-    notify(e?.message ?? 'Xato', 'error')
+    notify(e?.message ?? t('products.error'), 'error')
   }
 }
 async function toggle(p: Product) {
   await setProductActive(p.id, !p.is_active)
   await load()
-  notify(p.is_active ? 'Deaktiv qilindi' : 'Aktiv qilindi', 'success')
+  notify(p.is_active ? t('products.deactivated') : t('products.activated'), 'success')
 }
 async function remove(p: Product) {
-  if (!(await confirmDialog(`"${p.name}" mahsuloti o'chirilsinmi?`, { danger: true }))) return
-  try { await deleteProduct(p.id); await load(); notify("Mahsulot o'chirildi", 'success') }
-  catch (e: any) { notify(e?.message ?? 'Xato', 'error') }
+  if (!(await confirmDialog(t('products.confirmDelete', { name: p.name }), { danger: true }))) return
+  try { await deleteProduct(p.id); await load(); notify(t('products.deleted'), 'success') }
+  catch (e: any) { notify(e?.message ?? t('products.error'), 'error') }
 }
 
 // --- Narxlarni ommaviy o'zgartirish ---
@@ -195,19 +198,19 @@ async function refreshBulkPreview() {
 }
 watch(bulk, refreshBulkPreview, { deep: true })
 async function applyBulk() {
-  if (!bulk.value.value || bulk.value.value <= 0) { notify('Qiymat kiriting', 'error'); return }
-  if (bulk.value.scope === 'category' && !bulk.value.categoryId) { notify('Kategoriya tanlang', 'error'); return }
-  const scopeTxt = bulk.value.scope === 'all' ? 'barcha mahsulotlar' : `"${catName(bulk.value.categoryId ?? null)}" kategoriyasi`
-  const dirTxt = bulk.value.direction === 'up' ? 'oshiriladi' : 'kamaytiriladi'
+  if (!bulk.value.value || bulk.value.value <= 0) { notify(t('products.enterValue'), 'error'); return }
+  if (bulk.value.scope === 'category' && !bulk.value.categoryId) { notify(t('products.pickCategory'), 'error'); return }
+  const scopeTxt = bulk.value.scope === 'all' ? t('products.bulkScopeAll') : t('products.bulkScopeCategory', { name: catName(bulk.value.categoryId ?? null) })
+  const dirTxt = bulk.value.direction === 'up' ? t('products.bulkDirUp') : t('products.bulkDirDown')
   const valTxt = bulk.value.mode === 'percent' ? `${bulk.value.value}%` : moneySum(bulk.value.value)
-  if (!(await confirmDialog(`${scopeTxt} narxi ${valTxt} ga ${dirTxt} (${bulkPrev.value.count} ta). Davom etilsinmi?`, { title: 'Narxlarni o\'zgartirish' }))) return
+  if (!(await confirmDialog(t('products.bulkConfirm', { scope: scopeTxt, value: valTxt, dir: dirTxt, count: bulkPrev.value.count }), { title: t('products.bulkTitle') }))) return
   bulkBusy.value = true
   try {
     const n = await bulkAdjustPrices(bulk.value)
     await load()
     showBulk.value = false
-    notify(`Narx yangilandi: ${n} ta mahsulot`, 'success')
-  } catch (e: any) { notify(e?.message ?? 'Xato', 'error') }
+    notify(t('products.bulkDone', { count: n }), 'success')
+  } catch (e: any) { notify(e?.message ?? t('products.error'), 'error') }
   finally { bulkBusy.value = false }
 }
 </script>
@@ -216,13 +219,13 @@ async function applyBulk() {
   <div class="flex h-full flex-col overflow-hidden">
     <header class="page-header flex items-center justify-between gap-2">
       <div class="min-w-0">
-        <h1 class="text-lg font-semibold">Mahsulotlar</h1>
-        <p class="truncate text-sm text-muted-foreground">{{ stats.count }} ta · ombor qiymati {{ moneySum(stats.value) }}</p>
+        <h1 class="text-lg font-semibold">{{ $t('products.title') }}</h1>
+        <p class="truncate text-sm text-muted-foreground">{{ $t('products.headerSummary', { count: stats.count, value: moneySum(stats.value) }) }}</p>
       </div>
       <div class="flex shrink-0 items-center gap-2">
-        <button @click="showScanner = true" title="Kod skanerlash" class="flex h-9 items-center gap-1.5 rounded-lg border px-3 text-sm font-medium transition hover:bg-muted"><ScanLine class="h-4 w-4" /> <span class="hidden sm:inline">Skaner</span></button>
-        <button @click="openBulk" class="flex h-9 items-center gap-1.5 rounded-lg border px-3 text-sm font-medium transition hover:bg-muted"><Percent class="h-4 w-4" /> <span class="hidden sm:inline">Narxlar</span></button>
-        <button @click="openNew" class="flex h-9 items-center gap-1.5 rounded-lg bg-primary px-3.5 text-sm font-medium text-primary-foreground transition hover:bg-primary/90"><Plus class="h-4 w-4" /> Yangi</button>
+        <button @click="showScanner = true" :title="$t('products.scanCode')" class="flex h-9 items-center gap-1.5 rounded-lg border px-3 text-sm font-medium transition hover:bg-muted"><ScanLine class="h-4 w-4" /> <span class="hidden sm:inline">{{ $t('products.scanner') }}</span></button>
+        <button @click="openBulk" class="flex h-9 items-center gap-1.5 rounded-lg border px-3 text-sm font-medium transition hover:bg-muted"><Percent class="h-4 w-4" /> <span class="hidden sm:inline">{{ $t('products.prices') }}</span></button>
+        <button @click="openNew" class="flex h-9 items-center gap-1.5 rounded-lg bg-primary px-3.5 text-sm font-medium text-primary-foreground transition hover:bg-primary/90"><Plus class="h-4 w-4" /> {{ $t('products.new') }}</button>
       </div>
     </header>
 
@@ -230,19 +233,19 @@ async function applyBulk() {
     <div class="grid grid-cols-2 gap-2.5 border-b px-4 py-3 sm:gap-3 sm:px-6 sm:py-4 lg:grid-cols-4">
       <div class="flex items-center gap-3 rounded-xl border bg-card p-3">
         <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary"><Boxes class="h-4.5 w-4.5" /></div>
-        <div><div class="text-xs text-muted-foreground">Mahsulotlar</div><div class="text-lg font-bold tabular-nums">{{ stats.count }}</div></div>
+        <div><div class="text-xs text-muted-foreground">{{ $t('products.title') }}</div><div class="text-lg font-bold tabular-nums">{{ stats.count }}</div></div>
       </div>
       <div class="flex items-center gap-3 rounded-xl border bg-card p-3">
         <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600"><Coins class="h-4.5 w-4.5" /></div>
-        <div><div class="text-xs text-muted-foreground">Ombor qiymati</div><div class="text-lg font-bold tabular-nums">{{ moneySum(stats.value) }}</div></div>
+        <div><div class="text-xs text-muted-foreground">{{ $t('products.stockValue') }}</div><div class="text-lg font-bold tabular-nums">{{ moneySum(stats.value) }}</div></div>
       </div>
       <button @click="pickStock('low')" class="flex items-center gap-3 rounded-xl border bg-card p-3 text-left transition hover:shadow-sm" :class="stockFilter === 'low' ? 'border-amber-500 ring-1 ring-amber-500' : ''">
         <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-amber-500/10 text-amber-600"><AlertTriangle class="h-4.5 w-4.5" /></div>
-        <div><div class="text-xs text-muted-foreground">Kam qolgan</div><div class="text-lg font-bold tabular-nums">{{ stats.low }}</div></div>
+        <div><div class="text-xs text-muted-foreground">{{ $t('products.lowStock') }}</div><div class="text-lg font-bold tabular-nums">{{ stats.low }}</div></div>
       </button>
       <button @click="pickStock('out')" class="flex items-center gap-3 rounded-xl border bg-card p-3 text-left transition hover:shadow-sm" :class="stockFilter === 'out' ? 'border-rose-500 ring-1 ring-rose-500' : ''">
         <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-rose-500/10 text-rose-600"><PackageX class="h-4.5 w-4.5" /></div>
-        <div><div class="text-xs text-muted-foreground">Tugagan</div><div class="text-lg font-bold tabular-nums">{{ stats.out }}</div></div>
+        <div><div class="text-xs text-muted-foreground">{{ $t('products.outOfStock') }}</div><div class="text-lg font-bold tabular-nums">{{ stats.out }}</div></div>
       </button>
     </div>
 
@@ -250,19 +253,19 @@ async function applyBulk() {
     <div class="flex flex-wrap items-center gap-2 border-b px-4 py-3 sm:px-6">
       <div class="relative w-full sm:min-w-48 sm:flex-1">
         <Search class="absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-        <input v-model="search" @keyup.enter="onSearchEnter" placeholder="Mahsulot qidirish yoki kod skanerlash…" class="h-9 w-full rounded-lg border bg-background pl-9 pr-3 text-sm focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none" />
+        <input v-model="search" @keyup.enter="onSearchEnter" :placeholder="$t('products.searchPlaceholder')" class="h-9 w-full rounded-lg border bg-background pl-9 pr-3 text-sm focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none" />
       </div>
-      <div class="w-full sm:w-52"><SearchableSelect v-model="catFilter" :items="catItems" placeholder="Barcha kategoriyalar" search-placeholder="Kategoriya…" clearable /></div>
+      <div class="w-full sm:w-52"><SearchableSelect v-model="catFilter" :items="catItems" :placeholder="$t('products.allCategories')" :search-placeholder="$t('products.categorySearch')" clearable /></div>
       <select v-model="stockFilter" class="h-9 flex-1 rounded-lg border bg-card px-3 text-sm sm:flex-none">
-        <option value="all">Barcha qoldiq</option>
-        <option value="in">Yetarli</option>
-        <option value="low">Kam ({{ '≤' + LOW }})</option>
-        <option value="out">Tugagan</option>
+        <option value="all">{{ $t('products.allStock') }}</option>
+        <option value="in">{{ $t('products.enough') }}</option>
+        <option value="low">{{ $t('products.lowFilter', { n: '≤' + LOW }) }}</option>
+        <option value="out">{{ $t('products.outOfStock') }}</option>
       </select>
       <select v-model="statusFilter" class="h-9 flex-1 rounded-lg border bg-card px-3 text-sm sm:flex-none">
-        <option value="all">Hammasi</option>
-        <option value="active">Aktiv</option>
-        <option value="inactive">Deaktiv</option>
+        <option value="all">{{ $t('common.all') }}</option>
+        <option value="active">{{ $t('products.statusActive') }}</option>
+        <option value="inactive">{{ $t('products.statusInactive') }}</option>
       </select>
     </div>
 
@@ -275,7 +278,7 @@ async function applyBulk() {
           <div class="min-w-0 flex-1">
             <div class="flex items-center gap-1.5">
               <span class="truncate font-medium">{{ p.name }}</span>
-              <span v-if="!p.is_active" class="shrink-0 rounded bg-rose-500/15 px-1.5 py-0.5 text-[10px] font-medium tracking-wide text-rose-600 uppercase">Deaktiv</span>
+              <span v-if="!p.is_active" class="shrink-0 rounded bg-rose-500/15 px-1.5 py-0.5 text-[10px] font-medium tracking-wide text-rose-600 uppercase">{{ $t('products.inactive') }}</span>
             </div>
             <div class="mt-0.5 truncate text-xs text-muted-foreground">{{ catName(p.category_id) }}</div>
             <div class="mt-1 flex items-center gap-2 text-sm">
@@ -292,13 +295,13 @@ async function applyBulk() {
             <span class="text-xs text-muted-foreground tabular-nums">{{ moneySum(p.price * p.stock) }}</span>
           </div>
         </li>
-        <li v-if="visible.length === 0" class="px-4 py-16 text-center text-muted-foreground"><Package class="mx-auto mb-2 h-8 w-8 opacity-40" /> Mahsulot topilmadi</li>
-        <li v-if="visible.length" class="flex justify-between bg-muted/40 px-4 py-3 text-sm font-semibold"><span>Jami: {{ visible.length }} ta</span><span class="tabular-nums">{{ moneySum(totalValue) }}</span></li>
+        <li v-if="visible.length === 0" class="px-4 py-16 text-center text-muted-foreground"><Package class="mx-auto mb-2 h-8 w-8 opacity-40" /> {{ $t('products.notFound') }}</li>
+        <li v-if="visible.length" class="flex justify-between bg-muted/40 px-4 py-3 text-sm font-semibold"><span>{{ $t('products.totalCount', { count: visible.length }) }}</span><span class="tabular-nums">{{ moneySum(totalValue) }}</span></li>
       </ul>
 
       <table class="hidden w-full text-sm lg:table">
         <thead class="sticky top-0 z-10 border-b bg-muted text-left text-xs tracking-wide text-muted-foreground uppercase">
-          <tr><th class="px-4 py-3">Nom</th><th class="px-4 py-3">Kategoriya</th><th class="px-4 py-3 text-right">Narx</th><th class="px-4 py-3 text-right">Qoldiq</th><th class="px-4 py-3 text-right">Qiymat</th><th class="px-4 py-3"></th></tr>
+          <tr><th class="px-4 py-3">{{ $t('products.colName') }}</th><th class="px-4 py-3">{{ $t('products.category') }}</th><th class="px-4 py-3 text-right">{{ $t('products.price') }}</th><th class="px-4 py-3 text-right">{{ $t('products.stock') }}</th><th class="px-4 py-3 text-right">{{ $t('products.value') }}</th><th class="px-4 py-3"></th></tr>
         </thead>
         <tbody class="divide-y">
           <tr v-for="p in visible" :key="p.id" class="hover:bg-muted/40" :class="p.is_active ? '' : 'opacity-50'">
@@ -306,7 +309,7 @@ async function applyBulk() {
               <div class="flex items-center gap-2.5">
                 <img v-if="p.image" :src="p.image" class="h-9 w-9 rounded-md border object-cover" />
                 <div v-else class="flex h-9 w-9 items-center justify-center rounded-md border bg-muted text-muted-foreground"><Package class="h-4 w-4" /></div>
-                <span class="flex items-center gap-2">{{ p.name }}<span v-if="!p.is_active" class="rounded bg-rose-500/15 px-1.5 py-0.5 text-[10px] font-medium tracking-wide text-rose-600 uppercase">Deaktiv</span></span>
+                <span class="flex items-center gap-2">{{ p.name }}<span v-if="!p.is_active" class="rounded bg-rose-500/15 px-1.5 py-0.5 text-[10px] font-medium tracking-wide text-rose-600 uppercase">{{ $t('products.inactive') }}</span></span>
               </div>
             </td>
             <td class="px-4 py-3 text-muted-foreground">{{ catName(p.category_id) }}</td>
@@ -315,17 +318,17 @@ async function applyBulk() {
             <td class="px-4 py-3 text-right tabular-nums text-muted-foreground">{{ moneySum(p.price * p.stock) }}</td>
             <td class="px-4 py-3">
               <div class="flex items-center justify-end gap-0.5">
-                <button @click="openEdit(p)" title="Tahrirlash" class="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"><Pencil class="h-4 w-4" /></button>
-                <button @click="toggle(p)" :title="p.is_active ? 'Deaktiv qilish' : 'Aktiv qilish'" class="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"><component :is="p.is_active ? EyeOff : Eye" class="h-4 w-4" /></button>
-                <button @click="remove(p)" title="O'chirish" class="rounded p-1.5 text-muted-foreground hover:bg-rose-500/10 hover:text-rose-600"><Trash2 class="h-4 w-4" /></button>
+                <button @click="openEdit(p)" :title="$t('common.edit')" class="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"><Pencil class="h-4 w-4" /></button>
+                <button @click="toggle(p)" :title="p.is_active ? $t('products.deactivate') : $t('products.activate')" class="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"><component :is="p.is_active ? EyeOff : Eye" class="h-4 w-4" /></button>
+                <button @click="remove(p)" :title="$t('common.delete')" class="rounded p-1.5 text-muted-foreground hover:bg-rose-500/10 hover:text-rose-600"><Trash2 class="h-4 w-4" /></button>
               </div>
             </td>
           </tr>
-          <tr v-if="visible.length === 0"><td colspan="6" class="px-4 py-16 text-center text-muted-foreground"><Package class="mx-auto mb-2 h-8 w-8 opacity-40" /> Mahsulot topilmadi</td></tr>
+          <tr v-if="visible.length === 0"><td colspan="6" class="px-4 py-16 text-center text-muted-foreground"><Package class="mx-auto mb-2 h-8 w-8 opacity-40" /> {{ $t('products.notFound') }}</td></tr>
         </tbody>
         <tfoot v-if="visible.length" class="sticky bottom-0 border-t-2 bg-card text-sm font-semibold">
           <tr>
-            <td class="px-4 py-3" colspan="4">Jami: {{ visible.length }} ta</td>
+            <td class="px-4 py-3" colspan="4">{{ $t('products.totalCount', { count: visible.length }) }}</td>
             <td class="px-4 py-3 text-right tabular-nums">{{ moneySum(totalValue) }}</td>
             <td></td>
           </tr>
@@ -335,7 +338,7 @@ async function applyBulk() {
 
     <div v-if="showForm" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
       <div class="max-h-[90vh] w-full max-w-md overflow-auto rounded-xl border bg-card p-5 shadow-xl">
-        <div class="mb-4 text-lg font-semibold">{{ form.id ? 'Tahrirlash' : 'Yangi mahsulot' }}</div>
+        <div class="mb-4 text-lg font-semibold">{{ form.id ? $t('common.edit') : $t('products.newProduct') }}</div>
         <div class="space-y-3">
           <div class="flex items-center gap-3">
             <div class="relative h-16 w-16 shrink-0">
@@ -344,16 +347,16 @@ async function applyBulk() {
               <button v-if="form.image" @click="form.image = null" class="absolute -top-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-rose-500 text-white"><X class="h-3 w-3" /></button>
             </div>
             <label class="flex h-9 cursor-pointer items-center gap-1.5 rounded-md border px-3 text-sm hover:bg-muted">
-              <ImagePlus class="h-4 w-4" /> Rasm tanlash
+              <ImagePlus class="h-4 w-4" /> {{ $t('products.pickImage') }}
               <input type="file" accept="image/*" class="hidden" @change="onImage" />
             </label>
           </div>
-          <div><label class="mb-1 block text-sm font-medium">Nomi</label><input v-model="form.name" class="h-10 w-full rounded-md border bg-background px-3 text-sm" /></div>
+          <div><label class="mb-1 block text-sm font-medium">{{ $t('products.name') }}</label><input v-model="form.name" class="h-10 w-full rounded-md border bg-background px-3 text-sm" /></div>
           <div>
-            <label class="mb-1 block text-sm font-medium">Shtrix / QR kod</label>
+            <label class="mb-1 block text-sm font-medium">{{ $t('products.barcodeLabel') }}</label>
             <div class="flex gap-2">
-              <input v-model="form.barcode" @input="onBarcodeInput" placeholder="Skanerlang, kiriting yoki generatsiya qiling" class="h-10 w-full rounded-md border bg-background px-3 text-sm tabular-nums" />
-              <button type="button" @click="genBarcode" :disabled="genBusy" title="Yangi kod generatsiya qilish"
+              <input v-model="form.barcode" @input="onBarcodeInput" :placeholder="$t('products.barcodePlaceholder')" class="h-10 w-full rounded-md border bg-background px-3 text-sm tabular-nums" />
+              <button type="button" @click="genBarcode" :disabled="genBusy" :title="$t('products.generateCode')"
                 class="flex w-10 shrink-0 items-center justify-center self-stretch rounded-md border bg-background text-muted-foreground transition hover:bg-muted hover:text-primary disabled:opacity-50">
                 <Sparkles class="h-4 w-4" />
               </button>
@@ -364,11 +367,11 @@ async function applyBulk() {
               <div class="flex justify-center"><img :src="barcodePreview" class="max-h-28" /></div>
               <div class="mt-2 flex flex-wrap items-end gap-2 border-t pt-2">
                 <div>
-                  <label class="mb-0.5 block text-[11px] text-muted-foreground">Nusxa</label>
+                  <label class="mb-0.5 block text-[11px] text-muted-foreground">{{ $t('products.copies') }}</label>
                   <input v-model.number="labelCopies" type="number" min="1" max="100" class="h-8 w-16 rounded-md border bg-background px-2 text-sm tabular-nums" />
                 </div>
                 <div>
-                  <label class="mb-0.5 block text-[11px] text-muted-foreground">Yorliq o'lchami</label>
+                  <label class="mb-0.5 block text-[11px] text-muted-foreground">{{ $t('products.labelSize') }}</label>
                   <select v-model="labelSize" class="h-8 rounded-md border bg-background px-2 text-sm">
                     <option value="40mm 30mm">40×30 mm</option>
                     <option value="58mm 40mm">58×40 mm</option>
@@ -378,24 +381,24 @@ async function applyBulk() {
                 </div>
                 <button type="button" @click="printProductLabel"
                   class="ml-auto flex h-8 items-center gap-1.5 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90">
-                  <Printer class="h-4 w-4" /> Yorliq chop etish
+                  <Printer class="h-4 w-4" /> {{ $t('products.printLabel') }}
                 </button>
               </div>
             </div>
           </div>
-          <div><label class="mb-1 block text-sm font-medium">Kategoriya</label>
-            <SearchableSelect v-model="form.category_id" :items="catItems" placeholder="Kategoriya tanlang" />
+          <div><label class="mb-1 block text-sm font-medium">{{ $t('products.category') }}</label>
+            <SearchableSelect v-model="form.category_id" :items="catItems" :placeholder="$t('products.pickCategoryPlaceholder')" />
           </div>
           <div class="grid grid-cols-2 gap-3">
-            <div><label class="mb-1 block text-sm font-medium">Narx</label><input v-model.number="form.price" type="number" min="0" class="h-10 w-full rounded-md border bg-background px-3 text-sm tabular-nums" /></div>
-            <div><label class="mb-1 block text-sm font-medium">Tannarx</label><input v-model.number="form.cost_price" type="number" min="0" class="h-10 w-full rounded-md border bg-background px-3 text-sm tabular-nums" /></div>
-            <div><label class="mb-1 block text-sm font-medium">Qoldiq</label><input v-model.number="form.stock" type="number" min="0" class="h-10 w-full rounded-md border bg-background px-3 text-sm tabular-nums" /></div>
-            <div><label class="mb-1 block text-sm font-medium">Birlik</label><select v-model="form.unit" class="h-10 w-full rounded-md border bg-background px-3 text-sm"><option value="dona">dona</option><option value="kg">kg</option><option value="litr">litr</option></select></div>
+            <div><label class="mb-1 block text-sm font-medium">{{ $t('products.price') }}</label><input v-model.number="form.price" type="number" min="0" class="h-10 w-full rounded-md border bg-background px-3 text-sm tabular-nums" /></div>
+            <div><label class="mb-1 block text-sm font-medium">{{ $t('products.costPrice') }}</label><input v-model.number="form.cost_price" type="number" min="0" class="h-10 w-full rounded-md border bg-background px-3 text-sm tabular-nums" /></div>
+            <div><label class="mb-1 block text-sm font-medium">{{ $t('products.stock') }}</label><input v-model.number="form.stock" type="number" min="0" class="h-10 w-full rounded-md border bg-background px-3 text-sm tabular-nums" /></div>
+            <div><label class="mb-1 block text-sm font-medium">{{ $t('products.unit') }}</label><select v-model="form.unit" class="h-10 w-full rounded-md border bg-background px-3 text-sm"><option value="dona">{{ $t('products.unitPiece') }}</option><option value="kg">{{ $t('products.unitKg') }}</option><option value="litr">{{ $t('products.unitLiter') }}</option></select></div>
           </div>
         </div>
         <div class="mt-5 flex gap-2">
-          <button @click="save" class="h-10 flex-1 rounded-md bg-primary text-sm font-medium text-primary-foreground hover:bg-primary/90">Saqlash</button>
-          <button @click="showForm = false" class="h-10 rounded-md border px-4 text-sm hover:bg-muted">Bekor</button>
+          <button @click="save" class="h-10 flex-1 rounded-md bg-primary text-sm font-medium text-primary-foreground hover:bg-primary/90">{{ $t('common.save') }}</button>
+          <button @click="showForm = false" class="h-10 rounded-md border px-4 text-sm hover:bg-muted">{{ $t('common.cancel') }}</button>
         </div>
       </div>
     </div>
@@ -403,36 +406,36 @@ async function applyBulk() {
     <!-- Narxlarni ommaviy o'zgartirish -->
     <div v-if="showBulk" class="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/50 p-4">
       <div class="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-xl border bg-card p-5 shadow-xl">
-        <div class="mb-4 flex items-center gap-2 text-lg font-semibold"><Percent class="h-5 w-5 text-primary" /> Narxlarni o'zgartirish</div>
+        <div class="mb-4 flex items-center gap-2 text-lg font-semibold"><Percent class="h-5 w-5 text-primary" /> {{ $t('products.bulkTitle') }}</div>
         <div class="space-y-4">
           <!-- Doira -->
           <div>
-            <label class="mb-1.5 block text-sm font-medium">Qaysi mahsulotlar</label>
+            <label class="mb-1.5 block text-sm font-medium">{{ $t('products.bulkWhichProducts') }}</label>
             <div class="grid grid-cols-2 gap-2">
-              <button @click="bulk.scope = 'all'" class="h-9 rounded-md border text-sm font-medium" :class="bulk.scope === 'all' ? 'border-primary bg-primary/10 text-primary' : 'hover:bg-muted'">Hammasi</button>
-              <button @click="bulk.scope = 'category'" class="h-9 rounded-md border text-sm font-medium" :class="bulk.scope === 'category' ? 'border-primary bg-primary/10 text-primary' : 'hover:bg-muted'">Kategoriya</button>
+              <button @click="bulk.scope = 'all'" class="h-9 rounded-md border text-sm font-medium" :class="bulk.scope === 'all' ? 'border-primary bg-primary/10 text-primary' : 'hover:bg-muted'">{{ $t('common.all') }}</button>
+              <button @click="bulk.scope = 'category'" class="h-9 rounded-md border text-sm font-medium" :class="bulk.scope === 'category' ? 'border-primary bg-primary/10 text-primary' : 'hover:bg-muted'">{{ $t('products.category') }}</button>
             </div>
             <div v-if="bulk.scope === 'category'" class="mt-2">
-              <SearchableSelect v-model="bulk.categoryId" :items="catItems" placeholder="Kategoriya tanlang" search-placeholder="Kategoriya…" />
+              <SearchableSelect v-model="bulk.categoryId" :items="catItems" :placeholder="$t('products.pickCategoryPlaceholder')" :search-placeholder="$t('products.categorySearch')" />
             </div>
           </div>
 
           <!-- Yo'nalish -->
           <div>
-            <label class="mb-1.5 block text-sm font-medium">Amal</label>
+            <label class="mb-1.5 block text-sm font-medium">{{ $t('products.bulkAction') }}</label>
             <div class="grid grid-cols-2 gap-2">
-              <button @click="bulk.direction = 'up'" class="flex h-9 items-center justify-center gap-1.5 rounded-md border text-sm font-medium" :class="bulk.direction === 'up' ? 'border-emerald-500 bg-emerald-500/10 text-emerald-600' : 'hover:bg-muted'"><ArrowUp class="h-4 w-4" /> Oshirish</button>
-              <button @click="bulk.direction = 'down'" class="flex h-9 items-center justify-center gap-1.5 rounded-md border text-sm font-medium" :class="bulk.direction === 'down' ? 'border-rose-500 bg-rose-500/10 text-rose-600' : 'hover:bg-muted'"><ArrowDown class="h-4 w-4" /> Kamaytirish</button>
+              <button @click="bulk.direction = 'up'" class="flex h-9 items-center justify-center gap-1.5 rounded-md border text-sm font-medium" :class="bulk.direction === 'up' ? 'border-emerald-500 bg-emerald-500/10 text-emerald-600' : 'hover:bg-muted'"><ArrowUp class="h-4 w-4" /> {{ $t('products.increase') }}</button>
+              <button @click="bulk.direction = 'down'" class="flex h-9 items-center justify-center gap-1.5 rounded-md border text-sm font-medium" :class="bulk.direction === 'down' ? 'border-rose-500 bg-rose-500/10 text-rose-600' : 'hover:bg-muted'"><ArrowDown class="h-4 w-4" /> {{ $t('products.decrease') }}</button>
             </div>
           </div>
 
           <!-- Usul + qiymat -->
           <div>
-            <label class="mb-1.5 block text-sm font-medium">Qancha</label>
+            <label class="mb-1.5 block text-sm font-medium">{{ $t('products.howMuch') }}</label>
             <div class="flex gap-2">
               <div class="inline-flex shrink-0 rounded-md border p-0.5">
-                <button @click="bulk.mode = 'percent'" class="h-8 rounded px-3 text-sm font-medium" :class="bulk.mode === 'percent' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'">Foiz %</button>
-                <button @click="bulk.mode = 'amount'" class="h-8 rounded px-3 text-sm font-medium" :class="bulk.mode === 'amount' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'">Summa</button>
+                <button @click="bulk.mode = 'percent'" class="h-8 rounded px-3 text-sm font-medium" :class="bulk.mode === 'percent' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'">{{ $t('products.percent') }}</button>
+                <button @click="bulk.mode = 'amount'" class="h-8 rounded px-3 text-sm font-medium" :class="bulk.mode === 'amount' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'">{{ $t('products.amount') }}</button>
               </div>
               <input v-model.number="bulk.value" type="number" min="0" :placeholder="bulk.mode === 'percent' ? '10' : '1000'" class="h-9 w-full rounded-md border bg-background px-3 text-sm tabular-nums" />
             </div>
@@ -440,8 +443,8 @@ async function applyBulk() {
 
           <!-- Oldindan ko'rish -->
           <div v-if="bulk.value > 0" class="rounded-lg border bg-muted/30">
-            <div class="border-b px-3 py-2 text-xs font-medium text-muted-foreground">{{ bulkPrev.count }} ta mahsulot o'zgaradi · misol:</div>
-            <div v-if="bulkPrev.preview.length === 0" class="px-3 py-4 text-center text-sm text-muted-foreground">Mos mahsulot yo'q</div>
+            <div class="border-b px-3 py-2 text-xs font-medium text-muted-foreground">{{ $t('products.bulkPreviewHeader', { count: bulkPrev.count }) }}</div>
+            <div v-if="bulkPrev.preview.length === 0" class="px-3 py-4 text-center text-sm text-muted-foreground">{{ $t('products.noMatchingProduct') }}</div>
             <ul v-else class="max-h-44 divide-y overflow-auto">
               <li v-for="r in bulkPrev.preview" :key="r.id" class="flex items-center justify-between gap-2 px-3 py-1.5 text-sm">
                 <span class="min-w-0 flex-1 truncate">{{ r.name }}</span>
@@ -453,8 +456,8 @@ async function applyBulk() {
         </div>
 
         <div class="mt-5 flex gap-2">
-          <button @click="applyBulk" :disabled="bulkBusy || !bulk.value || bulkPrev.count === 0" class="h-10 flex-1 rounded-md bg-primary text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50">Qo'llash</button>
-          <button @click="showBulk = false" class="h-10 rounded-md border px-4 text-sm hover:bg-muted">Bekor</button>
+          <button @click="applyBulk" :disabled="bulkBusy || !bulk.value || bulkPrev.count === 0" class="h-10 flex-1 rounded-md bg-primary text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50">{{ $t('products.apply') }}</button>
+          <button @click="showBulk = false" class="h-10 rounded-md border px-4 text-sm hover:bg-muted">{{ $t('common.cancel') }}</button>
         </div>
       </div>
     </div>

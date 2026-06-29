@@ -6,6 +6,7 @@ import { writeTextFile, mkdir, BaseDirectory } from '@tauri-apps/plugin-fs'
 import { openPath } from '@tauri-apps/plugin-opener'
 import { appCacheDir, join } from '@tauri-apps/api/path'
 import { notify } from './notify'
+import { t } from './i18n'
 
 export type PrintReceipt = {
   receipt_number: string
@@ -31,7 +32,7 @@ export async function printReceipt(r: PrintReceipt) {
       await printPng(png, { printer, name: `chek-${r.receipt_number}` })
       return
     } catch (e: any) {
-      notify('Toʻgʻridan pechat boʻlmadi, brauzer ochildi: ' + (e?.message ?? e), 'error')
+      notify(t('print.directPrintFailed') + ' ' + (e?.message ?? e), 'error')
       // pastdagi brauzer usuliga tushadi
     }
   }
@@ -42,7 +43,7 @@ export async function printReceipt(r: PrintReceipt) {
     )
     .join('')
   const html = `<!doctype html><html><head><meta charset="utf-8">
-  <title>Chek ${esc(r.receipt_number)}</title>
+  <title>${esc(t('print.receipt'))} ${esc(r.receipt_number)}</title>
   <script>window.onload=function(){setTimeout(function(){window.print()},250)}</script>
   <style>
     @media print{@page{margin:4mm}}
@@ -58,15 +59,15 @@ export async function printReceipt(r: PrintReceipt) {
     .foot{text-align:center;font-size:11px;color:#444;margin-top:8px}
   </style></head><body>
     <h2>${esc(shop)}</h2>
-    <div class="sub">Chek #${esc(r.receipt_number)}<br>${formatDateTime(r.created_at)} · ${esc(r.customer)}</div>
+    <div class="sub">${esc(t('print.receipt'))} #${esc(r.receipt_number)}<br>${formatDateTime(r.created_at)} · ${esc(r.customer)}</div>
     <table>${rows}</table>
-    ${r.discount > 0 ? line('Chegirma', '− ' + moneySum(r.discount)) : ''}
-    <div class="tot"><span>JAMI</span><span>${moneySum(r.total)}</span></div>
-    ${r.paid_cash > 0 ? line('Naqd', moneySum(r.paid_cash)) : ''}
-    ${r.paid_card > 0 ? line('Karta', moneySum(r.paid_card)) : ''}
-    ${r.change > 0 ? line('Qaytim', moneySum(r.change)) : ''}
-    ${r.debt > 0 ? line('Qarz', moneySum(r.debt)) : ''}
-    <div class="foot">Xaridingiz uchun rahmat!</div>
+    ${r.discount > 0 ? line(esc(t('print.discount')), '− ' + moneySum(r.discount)) : ''}
+    <div class="tot"><span>${esc(t('print.total'))}</span><span>${moneySum(r.total)}</span></div>
+    ${r.paid_cash > 0 ? line(esc(t('print.cash')), moneySum(r.paid_cash)) : ''}
+    ${r.paid_card > 0 ? line(esc(t('print.card')), moneySum(r.paid_card)) : ''}
+    ${r.change > 0 ? line(esc(t('print.change')), moneySum(r.change)) : ''}
+    ${r.debt > 0 ? line(esc(t('print.debt')), moneySum(r.debt)) : ''}
+    <div class="foot">${esc(t('print.thankYou'))}</div>
   </body></html>`
 
   // Tauri WKWebView window.print() macOS'da ishlamaydi — chekni HTML'ga yozib,
@@ -78,7 +79,7 @@ export async function printReceipt(r: PrintReceipt) {
     const full = await join(await appCacheDir(), rel)
     await openPath(full)
   } catch (e: any) {
-    notify('Chop etishda xato: ' + (e?.message ?? e), 'error')
+    notify(t('print.printError') + ' ' + (e?.message ?? e), 'error')
   }
 }
 
@@ -90,7 +91,7 @@ export type PrintLabel = { name: string; price: number; barcode: string; type?: 
 
 export async function printLabel(l: PrintLabel) {
   const dataUrl = barcodeDataUrl(l.barcode, l.type, { scale: 4 })
-  if (!dataUrl) { notify('Kod yaroqsiz', 'error'); return }
+  if (!dataUrl) { notify(t('print.invalidCode'), 'error'); return }
   const size = l.size ?? '40mm 30mm'
   const copies = Math.max(1, Math.min(100, l.copies || 1))
   const showPrice = l.showPrice !== false
@@ -103,7 +104,7 @@ export async function printLabel(l: PrintLabel) {
       await printPng(png, { printer, copies, name: `yorliq-${l.barcode}` })
       return
     } catch (e: any) {
-      notify('Toʻgʻridan pechat boʻlmadi, brauzer ochildi: ' + (e?.message ?? e), 'error')
+      notify(t('print.directPrintFailed') + ' ' + (e?.message ?? e), 'error')
     }
   }
   const one = `<div class="lbl">
@@ -113,7 +114,7 @@ export async function printLabel(l: PrintLabel) {
   </div>`
   const labels = Array.from({ length: copies }, () => one).join('')
   const html = `<!doctype html><html><head><meta charset="utf-8">
-  <title>Yorliq</title>
+  <title>${esc(t('print.label'))}</title>
   <script>window.onload=function(){setTimeout(function(){window.print()},250)}</script>
   <style>
     @page{size:${size};margin:0}
@@ -135,7 +136,7 @@ export async function printLabel(l: PrintLabel) {
     const full = await join(await appCacheDir(), rel)
     await openPath(full)
   } catch (e: any) {
-    notify('Chop etishda xato: ' + (e?.message ?? e), 'error')
+    notify(t('print.printError') + ' ' + (e?.message ?? e), 'error')
   }
 }
 
@@ -209,7 +210,7 @@ async function receiptPng(r: PrintReceipt, shop: string): Promise<Uint8Array> {
   }
 
   center(shop, 30, true)
-  center(`Chek #${r.receipt_number}`, 20)
+  center(`${t('print.receipt')} #${r.receipt_number}`, 20)
   center(`${formatDateTime(r.created_at)} · ${r.customer}`, 18)
   hr()
   for (const it of r.items) {
@@ -219,14 +220,14 @@ async function receiptPng(r: PrintReceipt, shop: string): Promise<Uint8Array> {
     y += 2
   }
   hr()
-  if (r.discount > 0) lr('Chegirma', '− ' + moneySum(r.discount), 20)
-  lr('JAMI', moneySum(r.total), 28, true)
-  if (r.paid_cash > 0) lr('Naqd', moneySum(r.paid_cash), 20)
-  if (r.paid_card > 0) lr('Karta', moneySum(r.paid_card), 20)
-  if (r.change > 0) lr('Qaytim', moneySum(r.change), 20)
-  if (r.debt > 0) lr('Qarz', moneySum(r.debt), 22, true)
+  if (r.discount > 0) lr(t('print.discount'), '− ' + moneySum(r.discount), 20)
+  lr(t('print.total'), moneySum(r.total), 28, true)
+  if (r.paid_cash > 0) lr(t('print.cash'), moneySum(r.paid_cash), 20)
+  if (r.paid_card > 0) lr(t('print.card'), moneySum(r.paid_card), 20)
+  if (r.change > 0) lr(t('print.change'), moneySum(r.change), 20)
+  if (r.debt > 0) lr(t('print.debt'), moneySum(r.debt), 22, true)
   hr(false)
-  center('Xaridingiz uchun rahmat!', 18)
+  center(t('print.thankYou'), 18)
   y += pad
 
   const out = document.createElement('canvas')

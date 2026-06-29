@@ -6,6 +6,7 @@ import { relaunch } from '@tauri-apps/plugin-process'
 import { hostname } from '@tauri-apps/plugin-os'
 import { db, getSetting, setSetting } from './db'
 import { getDeviceId } from './license'
+import { t } from './i18n'
 
 const KEEP = 14 // oxirgi 14 kunlik nusxa saqlanadi
 const DIR = 'backups'
@@ -194,20 +195,20 @@ export async function githubBackups(device: string): Promise<BackupFile[]> {
 // passOverride: boshqa kompda tiklashda owner master parol bilan ochish uchun.
 export async function githubDownload(device: string, name: string, passOverride?: string): Promise<void> {
   const base = proxyBase(); const h = await proxyAuth()
-  if (!base || !h) throw new Error('Cloud sozlanmagan yoki litsenziya yo\'q')
+  if (!base || !h) throw new Error(t('backup.cloudNotConfigured'))
   const res = await fetch(`${base}/raw?path=${encodeURIComponent(`backups/${device}/${name}`)}`, { headers: h })
-  if (!res.ok) throw new Error('Yuklab bo\'lmadi (' + res.status + ')')
+  if (!res.ok) throw new Error(t('backup.downloadFailed', { status: res.status }))
   let buf = new Uint8Array(await res.arrayBuffer())
   // Shifrlangan bo'lsa — parol bilan ochamiz (parol device'ga bog'liq emas → boshqa kompda ham ishlaydi).
   if (isEncrypted(buf)) {
     const pass = (passOverride ?? '').trim() || await backupPass()
     if (!pass) throw new Error(NEED_PASS) // yangi komp — Settings parol so'raydi
-    try { buf = await decryptBytes(buf, pass) } catch { throw new Error('Backup paroli noto\'g\'ri') }
+    try { buf = await decryptBytes(buf, pass) } catch { throw new Error(t('backup.wrongPassword')) }
   }
   // Yuklangan fayl haqiqiy SQLite ekanini tekshir (buzuq/qisqargan/HTML download swap qilinmasin → brick yo'q).
   const MAGIC = 'SQLite format 3\0'
   const okHdr = buf.length > 100 && Array.from(MAGIC).every((c, i) => buf[i] === c.charCodeAt(0))
-  if (!okHdr) throw new Error("Yuklangan nusxa buzuq (SQLite emas). Qayta urinib ko'ring.")
+  if (!okHdr) throw new Error(t('backup.corruptDownload'))
   await mkdir(DIR, { baseDir: BaseDirectory.AppData, recursive: true }).catch(() => {})
   await writeFile(`${DIR}/${name}`, buf, { baseDir: BaseDirectory.AppData })
 }

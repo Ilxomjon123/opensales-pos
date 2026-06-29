@@ -1,14 +1,19 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { lastRoute } from '../router'
 import { KeyRound, ArrowLeft, Check, QrCode, Wifi, ShieldCheck, Printer, Globe } from 'lucide-vue-next'
 import { openUrl } from '@tauri-apps/plugin-opener'
-import { loginPin, verifyRecoveryKey, setPin } from '../lib/auth'
+import { loginPin, verifyRecoveryKey, setPin, isDefaultPin, defaultPin } from '../lib/auth'
 import { appVersion } from '../lib/version'
 import PinPad from '../components/PinPad.vue'
 import QrScanner from '../components/QrScanner.vue'
 import logoDark from '../assets/logo-dark.svg'
+import { useI18n } from 'vue-i18n'
+import { setLocale, availableLocales, type Locale } from '../lib/i18n'
+
+const { locale, t } = useI18n()
+function changeLocale(l: Locale) { setLocale(l) }
 
 const router = useRouter()
 type Mode = 'login' | 'key' | 'newpin' | 'confirm' | 'done'
@@ -23,6 +28,10 @@ const firstPin = ref('')
 const confirmError = ref(false)
 const showScanner = ref(false)
 
+// PIN hali boshlang'ich bo'lsa — login PIN-padi yonida maslahat ko'rsatamiz.
+const showPinHint = ref(false)
+onMounted(async () => { showPinHint.value = await isDefaultPin() })
+
 const phone = import.meta.env.VITE_SUPPORT_PHONE ?? ''
 const supportName = import.meta.env.VITE_SUPPORT_NAME ?? ''
 const site = (import.meta.env.VITE_SITE_URL ?? 'https://opensales.uz') as string
@@ -32,7 +41,7 @@ function openSite() { openUrl(site).catch(() => {}) }
 async function onQrDecoded(text: string) {
   showScanner.value = false
   if (await verifyRecoveryKey(text)) { keyError.value = ''; mode.value = 'newpin' }
-  else keyError.value = 'QR-kod mos kelmadi'
+  else keyError.value = t('login.qrMismatch')
 }
 async function onLogin(p: string) {
   if (await loginPin(p)) router.push(lastRoute())
@@ -41,7 +50,7 @@ async function onLogin(p: string) {
 async function checkKey() {
   keyError.value = ''
   if (await verifyRecoveryKey(recoveryKey.value)) { mode.value = 'newpin' }
-  else keyError.value = "Kalit so'z noto'g'ri"
+  else keyError.value = t('login.keyWrong')
 }
 function onNewPin(p: string) { firstPin.value = p; mode.value = 'confirm' }
 async function onConfirm(p: string) {
@@ -63,26 +72,26 @@ function backToLogin() {
           <div class="h-11 w-11 overflow-hidden rounded-xl ring-1 ring-black/10"><img :src="logoDark" class="h-full w-full" /></div>
           <div>
             <div class="text-base font-semibold leading-none tracking-tight">OpenSales POS</div>
-            <div class="mt-1 text-xs text-muted-foreground">Offline kassa tizimi</div>
+            <div class="mt-1 text-xs text-muted-foreground">{{ $t('login.tagline') }}</div>
           </div>
         </div>
 
         <h1 class="mt-9 text-[2.1rem] leading-[1.12] font-semibold tracking-tight">
-          Do'koningiz uchun zamonaviy kassa
+          {{ $t('login.heroTitle') }}
         </h1>
         <p class="mt-3.5 text-sm leading-relaxed text-muted-foreground">
-          Sotuv, ombor, mijozlar va qarzlar — bir joyda. Internetsiz, tez va ishonchli ishlaydi.
+          {{ $t('login.heroSubtitle') }}
         </p>
 
         <div class="mt-8 space-y-2.5">
           <div class="flex items-center gap-3 rounded-xl border bg-card px-3.5 py-3 text-sm shadow-sm">
-            <span class="flex h-8 w-8 items-center justify-center rounded-lg bg-muted text-foreground"><Wifi class="h-4 w-4" /></span> To'liq offline — internet shart emas
+            <span class="flex h-8 w-8 items-center justify-center rounded-lg bg-muted text-foreground"><Wifi class="h-4 w-4" /></span> {{ $t('login.featureOffline') }}
           </div>
           <div class="flex items-center gap-3 rounded-xl border bg-card px-3.5 py-3 text-sm shadow-sm">
-            <span class="flex h-8 w-8 items-center justify-center rounded-lg bg-muted text-foreground"><Printer class="h-4 w-4" /></span> Chek chop etish
+            <span class="flex h-8 w-8 items-center justify-center rounded-lg bg-muted text-foreground"><Printer class="h-4 w-4" /></span> {{ $t('login.featurePrint') }}
           </div>
           <div class="flex items-center gap-3 rounded-xl border bg-card px-3.5 py-3 text-sm shadow-sm">
-            <span class="flex h-8 w-8 items-center justify-center rounded-lg bg-muted text-foreground"><ShieldCheck class="h-4 w-4" /></span> PIN-kod bilan himoya
+            <span class="flex h-8 w-8 items-center justify-center rounded-lg bg-muted text-foreground"><ShieldCheck class="h-4 w-4" /></span> {{ $t('login.featurePin') }}
           </div>
         </div>
 
@@ -100,6 +109,11 @@ function backToLogin() {
 
     <!-- O'ng: PIN (minimal kenglik) -->
     <div class="relative flex w-full flex-col items-center justify-center px-6 lg:order-2 lg:w-[420px] lg:shrink-0">
+      <!-- Til toggle (burchak) -->
+      <div class="absolute top-5 right-6 flex items-center gap-1 text-xs">
+        <button v-for="l in availableLocales" :key="l.code" @click="changeLocale(l.code)" class="rounded-md px-2 py-1 font-medium transition-colors" :class="locale === l.code ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground'">{{ l.code.toUpperCase() }}</button>
+      </div>
+
       <div class="w-full max-w-xs">
         <!-- Kichik ekranda logo -->
         <div class="mb-8 flex flex-col items-center text-center lg:hidden">
@@ -109,28 +123,32 @@ function backToLogin() {
 
         <div class="mb-6 text-center">
           <h2 class="text-lg font-semibold">
-            {{ mode === 'login' ? 'Tizimga kirish' : mode === 'key' ? 'PINni tiklash' : mode === 'newpin' ? 'Yangi PIN' : mode === 'confirm' ? 'PINni tasdiqlang' : 'Tayyor!' }}
+            {{ mode === 'login' ? $t('login.title') : mode === 'key' ? $t('login.resetTitle') : mode === 'newpin' ? $t('login.newPinTitle') : mode === 'confirm' ? $t('login.confirmTitle') : $t('login.doneTitle') }}
           </h2>
           <p class="mt-0.5 text-sm text-muted-foreground">
-            {{ mode === 'login' ? 'PIN-kodni kiriting' : mode === 'key' ? 'Tiklash kalit so\'zi yoki QR' : mode === 'newpin' ? 'Yangi PIN o\'rnating' : mode === 'confirm' ? 'Qaytadan kiriting' : '' }}
+            {{ mode === 'login' ? $t('login.subtitle') : mode === 'key' ? $t('login.resetSubtitle') : mode === 'newpin' ? $t('login.newPinSubtitle') : mode === 'confirm' ? $t('login.confirmSubtitle') : '' }}
           </p>
         </div>
 
         <template v-if="mode === 'login'">
+          <div v-if="showPinHint" class="mb-4 flex items-start gap-2.5 rounded-lg border bg-muted px-3 py-2.5 text-xs leading-relaxed text-muted-foreground">
+            <KeyRound class="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <span>{{ $t('login.defaultPinHintBefore') }}<span class="font-semibold text-foreground">{{ defaultPin }}</span>{{ $t('login.defaultPinHintAfter') }}</span>
+          </div>
           <PinPad ref="loginPad" :error="pinError" @complete="onLogin" />
           <button @click="mode = 'key'" class="mx-auto mt-6 flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground">
-            <KeyRound class="h-3.5 w-3.5" /> PIN-kodni unutdingizmi?
+            <KeyRound class="h-3.5 w-3.5" /> {{ $t('login.forgotPin') }}
           </button>
         </template>
 
         <template v-else-if="mode === 'key'">
-          <input v-model="recoveryKey" autofocus placeholder="Kalit so'z" class="h-11 w-full rounded-lg border bg-background px-3 text-center text-sm" @keyup.enter="checkKey" />
+          <input v-model="recoveryKey" autofocus :placeholder="$t('login.keyPlaceholder')" class="h-11 w-full rounded-lg border bg-background px-3 text-center text-sm" @keyup.enter="checkKey" />
           <div v-if="keyError" class="mt-2 text-center text-sm text-rose-600">{{ keyError }}</div>
-          <button @click="checkKey" class="mt-4 h-11 w-full rounded-lg bg-primary text-sm font-semibold text-primary-foreground hover:bg-primary/90">Davom etish</button>
+          <button @click="checkKey" class="mt-4 h-11 w-full rounded-lg bg-primary text-sm font-semibold text-primary-foreground hover:bg-primary/90">{{ $t('login.continue') }}</button>
           <button @click="showScanner = true" class="mt-2 flex h-11 w-full items-center justify-center gap-2 rounded-lg border text-sm font-medium hover:bg-muted">
-            <QrCode class="h-4 w-4" /> QR-kodni skanerlash
+            <QrCode class="h-4 w-4" /> {{ $t('login.scanQr') }}
           </button>
-          <button @click="backToLogin" class="mx-auto mt-4 flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"><ArrowLeft class="h-3.5 w-3.5" /> Orqaga</button>
+          <button @click="backToLogin" class="mx-auto mt-4 flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"><ArrowLeft class="h-3.5 w-3.5" /> {{ $t('common.back') }}</button>
         </template>
 
         <PinPad v-else-if="mode === 'newpin'" @complete="onNewPin" />
@@ -138,7 +156,7 @@ function backToLogin() {
 
         <div v-else-if="mode === 'done'" class="flex flex-col items-center gap-2 py-8">
           <div class="flex h-14 w-14 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-600"><Check class="h-7 w-7" /></div>
-          <div class="text-sm font-medium">Yangi PIN o'rnatildi</div>
+          <div class="text-sm font-medium">{{ $t('login.pinSet') }}</div>
         </div>
       </div>
 

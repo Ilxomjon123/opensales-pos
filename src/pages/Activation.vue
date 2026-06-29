@@ -52,36 +52,36 @@ function tapLogo() { if (++logoTaps.value >= 5) { logoTaps.value = 0; showAdmin.
           <img :src="logoDark" class="h-full w-full" />
         </button>
         <h1 class="text-xl font-bold">OpenSales POS</h1>
-        <p class="mt-1 text-sm text-muted-foreground">Dasturni faollashtirish</p>
+        <p class="mt-1 text-sm text-muted-foreground">{{ $t('activation.subtitle') }}</p>
       </div>
 
       <div class="rounded-2xl border bg-card p-5 shadow-sm">
         <div class="mb-4 flex items-center gap-2 rounded-lg bg-rose-500/10 px-3 py-2.5 text-sm text-rose-600">
           <ShieldCheck class="h-4 w-4 shrink-0" />
-          <span>{{ license.mode === 'expired' ? 'Aktivlashtirish muddati tugadi. Davom etish uchun kalit kiriting.' : 'Dasturni faollashtiring.' }}</span>
+          <span>{{ license.mode === 'expired' ? $t('activation.expiredNotice') : $t('activation.activateNotice') }}</span>
         </div>
 
-        <label class="mb-1 block text-sm font-medium">Qurilma ID</label>
+        <label class="mb-1 block text-sm font-medium">{{ $t('activation.deviceId') }}</label>
         <div class="mb-4 flex items-center gap-2">
           <div class="flex h-10 flex-1 items-center rounded-lg border bg-muted/40 px-3 font-mono text-sm tabular-nums">{{ deviceId }}</div>
           <button @click="copyId" class="flex h-10 items-center gap-1.5 rounded-lg border px-3 text-sm hover:bg-muted">
-            <component :is="copied ? Check : Copy" class="h-4 w-4" /> {{ copied ? 'OK' : 'Nusxa' }}
+            <component :is="copied ? Check : Copy" class="h-4 w-4" /> {{ copied ? $t('activation.copied') : $t('activation.copy') }}
           </button>
         </div>
 
-        <label class="mb-1 block text-sm font-medium">Aktivatsiya kaliti</label>
-        <textarea v-model="keyInput" rows="3" placeholder="Sotuvchidan olingan kalitni shu yerga joylang"
+        <label class="mb-1 block text-sm font-medium">{{ $t('activation.keyLabel') }}</label>
+        <textarea v-model="keyInput" rows="3" :placeholder="$t('activation.keyPlaceholder')"
           class="w-full resize-none rounded-lg border bg-background px-3 py-2 font-mono text-xs focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none"></textarea>
         <div class="mt-2 flex justify-end"><QrScanButton @decoded="keyInput = $event" /></div>
         <p v-if="err" class="mt-1.5 text-sm text-rose-500">{{ err }}</p>
 
         <button @click="submit" :disabled="busy || !keyInput.trim()"
           class="mt-3 h-11 w-full rounded-lg bg-primary text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
-          {{ busy ? 'Tekshirilmoqda…' : 'Faollashtirish' }}
+          {{ busy ? $t('activation.checking') : $t('activation.activate') }}
         </button>
 
         <div v-if="phone" class="mt-4 flex items-center justify-center gap-1.5 border-t pt-4 text-sm text-muted-foreground">
-          <Phone class="h-4 w-4" /> Kalit olish uchun: <a :href="`tel:${phone}`" class="font-medium text-foreground">{{ phone }}</a>
+          <Phone class="h-4 w-4" /> {{ $t('activation.getKeyVia') }} <a :href="`tel:${phone}`" class="font-medium text-foreground">{{ phone }}</a>
           <span v-if="supportName" class="text-muted-foreground">· {{ supportName }}</span>
         </div>
       </div>

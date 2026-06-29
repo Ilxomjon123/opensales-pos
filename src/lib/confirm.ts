@@ -1,4 +1,5 @@
 import { ref } from 'vue'
+import { t } from './i18n'
 
 type State = {
   open: boolean
@@ -14,7 +15,7 @@ export function confirmDialog(message: string, opts?: { title?: string; danger?:
   return new Promise((resolve) => {
     confirmState.value = {
       open: true,
-      title: opts?.title ?? 'Tasdiqlang',
+      title: opts?.title ?? t('common.confirmTitle'),
       message,
       danger: opts?.danger ?? false,
       resolve,

@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { Plus, Pencil, Trash2, Calendar, Wallet, ReceiptText, Tag, X } from 'lucide-vue-next'
 import { listExpenses, saveExpense, deleteExpense, type Expense } from '../lib/db'
 import { moneySum, formatDateTime, translitMatch } from '../lib/format'
 import { confirmDialog } from '../lib/confirm'
 import { notify } from '../lib/notify'
+
+const { t } = useI18n()
 
 const CATEGORIES = ['Ijara', 'Oylik', 'Kommunal', 'Tovar', 'Transport', 'Soliq', 'Boshqa']
 
@@ -49,19 +52,19 @@ const form = ref<{ id?: number; amount: number; category: string; note: string; 
 function openNew() { form.value = { amount: 0, category: 'Boshqa', note: '', date: iso(new Date()) }; showForm.value = true }
 function openEdit(e: Expense) { form.value = { id: e.id, amount: e.amount, category: e.category, note: e.note ?? '', date: e.created_at.slice(0, 10) }; showForm.value = true }
 async function save() {
-  if (!form.value.amount || form.value.amount <= 0) { notify('Summa kiriting', 'error'); return }
+  if (!form.value.amount || form.value.amount <= 0) { notify(t('expenses.enterAmount'), 'error'); return }
   try {
     await saveExpense(form.value)
     showForm.value = false
     await load()
-    notify('Saqlandi', 'success')
-  } catch (e: any) { notify(e?.message ?? 'Xato', 'error') }
+    notify(t('expenses.saved'), 'success')
+  } catch (e: any) { notify(e?.message ?? t('expenses.error'), 'error') }
 }
 async function remove(e: Expense) {
-  if (!(await confirmDialog(`"${e.category}" — ${moneySum(e.amount)} xarajati o'chirilsinmi?`, { danger: true }))) return
+  if (!(await confirmDialog(t('expenses.confirmDelete', { category: e.category, amount: moneySum(e.amount) }), { danger: true }))) return
   await deleteExpense(e.id)
   await load()
-  notify("O'chirildi", 'success')
+  notify(t('expenses.deleted'), 'success')
 }
 </script>
 
@@ -69,25 +72,25 @@ async function remove(e: Expense) {
   <div class="flex h-full flex-col overflow-hidden">
     <header class="page-header flex items-center justify-between gap-2">
       <div class="min-w-0">
-        <h1 class="text-lg font-semibold">Xarajatlar</h1>
-        <p class="truncate text-sm text-muted-foreground">{{ visible.length }} ta · jami {{ moneySum(total) }}</p>
+        <h1 class="text-lg font-semibold">{{ $t('expenses.title') }}</h1>
+        <p class="truncate text-sm text-muted-foreground">{{ $t('expenses.countSummary', { count: visible.length, total: moneySum(total) }) }}</p>
       </div>
-      <button @click="openNew" class="flex h-9 shrink-0 items-center gap-1.5 rounded-lg bg-primary px-3.5 text-sm font-medium text-primary-foreground transition hover:bg-primary/90"><Plus class="h-4 w-4" /> Yangi</button>
+      <button @click="openNew" class="flex h-9 shrink-0 items-center gap-1.5 rounded-lg bg-primary px-3.5 text-sm font-medium text-primary-foreground transition hover:bg-primary/90"><Plus class="h-4 w-4" /> {{ $t('expenses.new') }}</button>
     </header>
 
     <!-- Stat kartalar -->
     <div class="grid grid-cols-2 gap-2.5 border-b px-4 py-3 sm:gap-3 sm:px-6 sm:py-4 lg:grid-cols-3">
       <div class="flex items-center gap-3 rounded-xl border bg-card p-3">
         <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-rose-500/10 text-rose-600"><Wallet class="h-4.5 w-4.5" /></div>
-        <div><div class="text-xs text-muted-foreground">Jami xarajat</div><div class="text-lg font-bold tabular-nums text-rose-600">{{ moneySum(total) }}</div></div>
+        <div><div class="text-xs text-muted-foreground">{{ $t('expenses.totalExpense') }}</div><div class="text-lg font-bold tabular-nums text-rose-600">{{ moneySum(total) }}</div></div>
       </div>
       <div class="flex items-center gap-3 rounded-xl border bg-card p-3">
         <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary"><ReceiptText class="h-4.5 w-4.5" /></div>
-        <div><div class="text-xs text-muted-foreground">Yozuvlar</div><div class="text-lg font-bold tabular-nums">{{ visible.length }}</div></div>
+        <div><div class="text-xs text-muted-foreground">{{ $t('expenses.records') }}</div><div class="text-lg font-bold tabular-nums">{{ visible.length }}</div></div>
       </div>
       <div class="col-span-2 flex items-center gap-3 rounded-xl border bg-card p-3 lg:col-span-1">
         <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-amber-500/10 text-amber-600"><Tag class="h-4.5 w-4.5" /></div>
-        <div class="min-w-0"><div class="text-xs text-muted-foreground">Eng katta toifa</div><div class="truncate text-lg font-bold tabular-nums">{{ topCat ? `${topCat.category} · ${moneySum(topCat.sum)}` : '—' }}</div></div>
+        <div class="min-w-0"><div class="text-xs text-muted-foreground">{{ $t('expenses.topCategory') }}</div><div class="truncate text-lg font-bold tabular-nums">{{ topCat ? `${topCat.category} · ${moneySum(topCat.sum)}` : '—' }}</div></div>
       </div>
     </div>
 
@@ -100,13 +103,13 @@ async function remove(e: Expense) {
         <input v-model="dateTo" type="date" class="h-9 min-w-0 flex-1 rounded-lg border bg-background px-2 text-sm sm:flex-none" />
       </div>
       <div class="grid grid-cols-4 gap-1.5 sm:flex">
-        <button @click="preset('today')" class="h-9 rounded-lg border bg-card px-3 text-sm hover:bg-muted">Bugun</button>
-        <button @click="preset('week')" class="h-9 rounded-lg border bg-card px-3 text-sm hover:bg-muted">7 kun</button>
-        <button @click="preset('month')" class="h-9 rounded-lg border bg-card px-3 text-sm hover:bg-muted">Oy</button>
-        <button @click="preset('all')" class="h-9 rounded-lg border bg-card px-3 text-sm hover:bg-muted">Hammasi</button>
+        <button @click="preset('today')" class="h-9 rounded-lg border bg-card px-3 text-sm hover:bg-muted">{{ $t('expenses.today') }}</button>
+        <button @click="preset('week')" class="h-9 rounded-lg border bg-card px-3 text-sm hover:bg-muted">{{ $t('expenses.last7Days') }}</button>
+        <button @click="preset('month')" class="h-9 rounded-lg border bg-card px-3 text-sm hover:bg-muted">{{ $t('expenses.month') }}</button>
+        <button @click="preset('all')" class="h-9 rounded-lg border bg-card px-3 text-sm hover:bg-muted">{{ $t('common.all') }}</button>
       </div>
       <select v-model="catFilter" class="h-9 w-full rounded-lg border bg-card px-3 text-sm sm:ml-auto sm:w-44">
-        <option value="">Barcha toifalar</option>
+        <option value="">{{ $t('expenses.allCategories') }}</option>
         <option v-for="c in CATEGORIES" :key="c" :value="c">{{ c }}</option>
       </select>
     </div>
@@ -128,13 +131,13 @@ async function remove(e: Expense) {
             <button @click="remove(e)" class="rounded p-2 text-muted-foreground hover:bg-rose-500/10 hover:text-rose-600"><Trash2 class="h-4 w-4" /></button>
           </div>
         </li>
-        <li v-if="visible.length === 0" class="px-4 py-16 text-center text-muted-foreground"><Wallet class="mx-auto mb-2 h-8 w-8 opacity-40" /> Xarajat yo'q</li>
-        <li v-if="visible.length" class="flex justify-between bg-muted/40 px-4 py-3 text-sm font-semibold"><span>Jami: {{ visible.length }} ta</span><span class="tabular-nums text-rose-600">{{ moneySum(total) }}</span></li>
+        <li v-if="visible.length === 0" class="px-4 py-16 text-center text-muted-foreground"><Wallet class="mx-auto mb-2 h-8 w-8 opacity-40" /> {{ $t('expenses.empty') }}</li>
+        <li v-if="visible.length" class="flex justify-between bg-muted/40 px-4 py-3 text-sm font-semibold"><span>{{ $t('expenses.totalCount', { count: visible.length }) }}</span><span class="tabular-nums text-rose-600">{{ moneySum(total) }}</span></li>
       </ul>
 
       <table class="hidden w-full text-sm lg:table">
         <thead class="sticky top-0 z-10 border-b bg-muted text-left text-xs tracking-wide text-muted-foreground uppercase">
-          <tr><th class="px-4 py-3">Sana</th><th class="px-4 py-3">Toifa</th><th class="px-4 py-3">Izoh</th><th class="px-4 py-3 text-right">Summa</th><th class="px-4 py-3"></th></tr>
+          <tr><th class="px-4 py-3">{{ $t('expenses.date') }}</th><th class="px-4 py-3">{{ $t('expenses.category') }}</th><th class="px-4 py-3">{{ $t('expenses.note') }}</th><th class="px-4 py-3 text-right">{{ $t('expenses.amount') }}</th><th class="px-4 py-3"></th></tr>
         </thead>
         <tbody class="divide-y">
           <tr v-for="e in visible" :key="e.id" class="hover:bg-muted/40">
@@ -144,15 +147,15 @@ async function remove(e: Expense) {
             <td class="px-4 py-3 text-right font-semibold tabular-nums text-rose-600">{{ moneySum(e.amount) }}</td>
             <td class="px-4 py-3">
               <div class="flex items-center justify-end gap-0.5">
-                <button @click="openEdit(e)" title="Tahrirlash" class="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"><Pencil class="h-4 w-4" /></button>
-                <button @click="remove(e)" title="O'chirish" class="rounded p-1.5 text-muted-foreground hover:bg-rose-500/10 hover:text-rose-600"><Trash2 class="h-4 w-4" /></button>
+                <button @click="openEdit(e)" :title="$t('common.edit')" class="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"><Pencil class="h-4 w-4" /></button>
+                <button @click="remove(e)" :title="$t('common.delete')" class="rounded p-1.5 text-muted-foreground hover:bg-rose-500/10 hover:text-rose-600"><Trash2 class="h-4 w-4" /></button>
               </div>
             </td>
           </tr>
-          <tr v-if="visible.length === 0"><td colspan="5" class="px-4 py-16 text-center text-muted-foreground"><Wallet class="mx-auto mb-2 h-8 w-8 opacity-40" /> Xarajat yo'q</td></tr>
+          <tr v-if="visible.length === 0"><td colspan="5" class="px-4 py-16 text-center text-muted-foreground"><Wallet class="mx-auto mb-2 h-8 w-8 opacity-40" /> {{ $t('expenses.empty') }}</td></tr>
         </tbody>
         <tfoot v-if="visible.length" class="sticky bottom-0 border-t-2 bg-card text-sm font-semibold">
-          <tr><td class="px-4 py-3" colspan="3">Jami: {{ visible.length }} ta</td><td class="px-4 py-3 text-right tabular-nums text-rose-600">{{ moneySum(total) }}</td><td></td></tr>
+          <tr><td class="px-4 py-3" colspan="3">{{ $t('expenses.totalCount', { count: visible.length }) }}</td><td class="px-4 py-3 text-right tabular-nums text-rose-600">{{ moneySum(total) }}</td><td></td></tr>
         </tfoot>
       </table>
     </div>
@@ -161,35 +164,35 @@ async function remove(e: Expense) {
     <div v-if="showForm" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
       <div class="max-h-[90vh] w-full max-w-md overflow-auto rounded-xl border bg-card p-5 shadow-xl">
         <div class="mb-4 flex items-center justify-between">
-          <div class="text-lg font-semibold">{{ form.id ? 'Tahrirlash' : 'Yangi xarajat' }}</div>
+          <div class="text-lg font-semibold">{{ form.id ? $t('common.edit') : $t('expenses.newExpense') }}</div>
           <button @click="showForm = false" class="rounded-md p-1.5 text-muted-foreground hover:bg-muted"><X class="h-4 w-4" /></button>
         </div>
         <div class="space-y-3">
           <div class="grid grid-cols-2 gap-3">
             <div>
-              <label class="mb-1 block text-sm font-medium">Summa</label>
+              <label class="mb-1 block text-sm font-medium">{{ $t('expenses.amount') }}</label>
               <input v-model.number="form.amount" type="number" min="0" class="h-11 w-full rounded-md border bg-background px-3 text-lg font-semibold tabular-nums" />
             </div>
             <div>
-              <label class="mb-1 block text-sm font-medium">Sana</label>
+              <label class="mb-1 block text-sm font-medium">{{ $t('expenses.date') }}</label>
               <input v-model="form.date" type="date" :max="iso(new Date())" class="h-11 w-full rounded-md border bg-background px-3 text-sm tabular-nums" />
             </div>
           </div>
           <div>
-            <label class="mb-1.5 block text-sm font-medium">Toifa</label>
+            <label class="mb-1.5 block text-sm font-medium">{{ $t('expenses.category') }}</label>
             <div class="flex flex-wrap gap-1.5">
               <button v-for="c in CATEGORIES" :key="c" type="button" @click="form.category = c"
                 class="rounded-md border px-3 py-1.5 text-sm" :class="form.category === c ? 'border-primary bg-primary/10 text-primary' : 'hover:bg-muted'">{{ c }}</button>
             </div>
           </div>
           <div>
-            <label class="mb-1 block text-sm font-medium">Izoh (ixtiyoriy)</label>
-            <input v-model="form.note" placeholder="Masalan: yanvar oyligi" class="h-10 w-full rounded-md border bg-background px-3 text-sm" />
+            <label class="mb-1 block text-sm font-medium">{{ $t('expenses.noteOptional') }}</label>
+            <input v-model="form.note" :placeholder="$t('expenses.notePlaceholder')" class="h-10 w-full rounded-md border bg-background px-3 text-sm" />
           </div>
         </div>
         <div class="mt-5 flex gap-2">
-          <button @click="save" class="h-10 flex-1 rounded-md bg-primary text-sm font-medium text-primary-foreground hover:bg-primary/90">Saqlash</button>
-          <button @click="showForm = false" class="h-10 rounded-md border px-4 text-sm hover:bg-muted">Bekor</button>
+          <button @click="save" class="h-10 flex-1 rounded-md bg-primary text-sm font-medium text-primary-foreground hover:bg-primary/90">{{ $t('common.save') }}</button>
+          <button @click="showForm = false" class="h-10 rounded-md border px-4 text-sm hover:bg-muted">{{ $t('common.cancel') }}</button>
         </div>
       </div>
     </div>

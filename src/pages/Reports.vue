@@ -69,8 +69,8 @@ watch([dateFrom, dateTo], load)
 <template>
   <div class="flex h-full flex-col overflow-hidden">
     <header class="page-header">
-      <h1 class="text-lg font-semibold">Hisobotlar</h1>
-      <p class="truncate text-sm text-muted-foreground">Savdo va inventar tahlili</p>
+      <h1 class="text-lg font-semibold">{{ $t('reports.title') }}</h1>
+      <p class="truncate text-sm text-muted-foreground">{{ $t('reports.subtitle') }}</p>
     </header>
 
     <!-- Sana filtri -->
@@ -82,32 +82,32 @@ watch([dateFrom, dateTo], load)
         <input v-model="dateTo" type="date" class="h-9 min-w-0 flex-1 rounded-lg border bg-background px-2 text-sm sm:flex-none" />
       </div>
       <div class="grid grid-cols-4 gap-1.5 sm:ml-1 sm:flex">
-        <button @click="preset('today')" class="h-9 rounded-lg border bg-card px-3 text-sm hover:bg-muted">Bugun</button>
-        <button @click="preset('week')" class="h-9 rounded-lg border bg-card px-3 text-sm hover:bg-muted">7 kun</button>
-        <button @click="preset('month')" class="h-9 rounded-lg border bg-card px-3 text-sm hover:bg-muted">Oy</button>
-        <button @click="preset('all')" class="h-9 rounded-lg border bg-card px-3 text-sm hover:bg-muted">Hammasi</button>
+        <button @click="preset('today')" class="h-9 rounded-lg border bg-card px-3 text-sm hover:bg-muted">{{ $t('reports.today') }}</button>
+        <button @click="preset('week')" class="h-9 rounded-lg border bg-card px-3 text-sm hover:bg-muted">{{ $t('reports.week7') }}</button>
+        <button @click="preset('month')" class="h-9 rounded-lg border bg-card px-3 text-sm hover:bg-muted">{{ $t('reports.month') }}</button>
+        <button @click="preset('all')" class="h-9 rounded-lg border bg-card px-3 text-sm hover:bg-muted">{{ $t('common.all') }}</button>
       </div>
     </div>
 
     <div class="flex-1 space-y-4 overflow-auto p-4 pb-[calc(env(safe-area-inset-bottom)+5.5rem)] sm:p-6 lg:pb-6">
       <div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <div class="rounded-xl border bg-card p-4">
-          <div class="flex items-center gap-2 text-xs text-muted-foreground"><Receipt class="h-4 w-4" /> Davr sotuvlari</div>
+          <div class="flex items-center gap-2 text-xs text-muted-foreground"><Receipt class="h-4 w-4" /> {{ $t('reports.periodSales') }}</div>
           <div class="mt-2 text-2xl font-bold">{{ period.count }}</div>
           <div class="text-sm text-muted-foreground">{{ moneySum(period.total) }}</div>
         </div>
         <div class="rounded-xl border bg-card p-4">
-          <div class="flex items-center gap-2 text-xs text-muted-foreground"><Coins class="h-4 w-4" /> Naqd / karta</div>
+          <div class="flex items-center gap-2 text-xs text-muted-foreground"><Coins class="h-4 w-4" /> {{ $t('reports.cashCard') }}</div>
           <div class="mt-2 text-lg font-bold tabular-nums">{{ moneySum(period.cash) }}</div>
-          <div class="text-sm text-muted-foreground">karta {{ moneySum(period.card) }}</div>
+          <div class="text-sm text-muted-foreground">{{ $t('reports.cardAmount', { amount: moneySum(period.card) }) }}</div>
         </div>
         <div class="rounded-xl border bg-card p-4">
-          <div class="flex items-center gap-2 text-xs text-muted-foreground"><TrendingUp class="h-4 w-4" /> Aylanma</div>
+          <div class="flex items-center gap-2 text-xs text-muted-foreground"><TrendingUp class="h-4 w-4" /> {{ $t('reports.turnover') }}</div>
           <div class="mt-2 text-lg font-bold tabular-nums">{{ moneySum(period.total) }}</div>
-          <div class="text-sm text-muted-foreground">{{ period.count }} ta sotuv</div>
+          <div class="text-sm text-muted-foreground">{{ $t('reports.salesCount', { count: period.count }) }}</div>
         </div>
         <div class="rounded-xl border bg-card p-4">
-          <div class="flex items-center gap-2 text-xs text-muted-foreground"><Boxes class="h-4 w-4" /> Qarz</div>
+          <div class="flex items-center gap-2 text-xs text-muted-foreground"><Boxes class="h-4 w-4" /> {{ $t('reports.debt') }}</div>
           <div class="mt-2 text-lg font-bold tabular-nums text-rose-600">{{ moneySum(period.debt) }}</div>
         </div>
       </div>
@@ -115,38 +115,38 @@ watch([dateFrom, dateTo], load)
       <!-- Foyda xulosasi: yalpi foyda − xarajat = sof foyda -->
       <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <div class="rounded-xl border bg-card p-4">
-          <div class="flex items-center gap-2 text-xs text-muted-foreground"><TrendingUp class="h-4 w-4" /> Yalpi foyda</div>
+          <div class="flex items-center gap-2 text-xs text-muted-foreground"><TrendingUp class="h-4 w-4" /> {{ $t('reports.grossProfit') }}</div>
           <div class="mt-2 text-xl font-bold tabular-nums text-emerald-600">{{ moneySum(period.profit) }}</div>
-          <div class="text-xs text-muted-foreground">savdo foydasi (tannarxdan keyin)</div>
+          <div class="text-xs text-muted-foreground">{{ $t('reports.grossProfitHint') }}</div>
         </div>
         <div class="rounded-xl border bg-card p-4">
-          <div class="flex items-center gap-2 text-xs text-muted-foreground"><Wallet class="h-4 w-4" /> Xarajatlar</div>
+          <div class="flex items-center gap-2 text-xs text-muted-foreground"><Wallet class="h-4 w-4" /> {{ $t('reports.expenses') }}</div>
           <div class="mt-2 text-xl font-bold tabular-nums text-rose-600">− {{ moneySum(period.expenses) }}</div>
-          <div class="text-xs text-muted-foreground">davr ichidagi jami xarajat</div>
+          <div class="text-xs text-muted-foreground">{{ $t('reports.expensesHint') }}</div>
         </div>
         <div class="rounded-xl border-2 p-4" :class="period.net >= 0 ? 'border-emerald-500/40 bg-emerald-500/5' : 'border-rose-500/40 bg-rose-500/5'">
-          <div class="flex items-center gap-2 text-xs text-muted-foreground"><PiggyBank class="h-4 w-4" /> Sof foyda</div>
+          <div class="flex items-center gap-2 text-xs text-muted-foreground"><PiggyBank class="h-4 w-4" /> {{ $t('reports.netProfit') }}</div>
           <div class="mt-2 text-2xl font-bold tabular-nums" :class="period.net >= 0 ? 'text-emerald-600' : 'text-rose-600'">{{ period.net < 0 ? '− ' + moneySum(-period.net) : moneySum(period.net) }}</div>
-          <div class="text-xs text-muted-foreground">yalpi foyda − xarajat</div>
+          <div class="text-xs text-muted-foreground">{{ $t('reports.netProfitHint') }}</div>
         </div>
       </div>
 
       <div class="grid gap-4 lg:grid-cols-2">
         <div class="rounded-xl border bg-card">
-          <div class="border-b px-4 py-3 text-sm font-semibold">Eng ko'p sotilgan (davr)</div>
+          <div class="border-b px-4 py-3 text-sm font-semibold">{{ $t('reports.topSelling') }}</div>
           <table class="w-full text-sm">
             <tbody class="divide-y">
               <tr v-for="p in topProducts" :key="p.name"><td class="px-4 py-2">{{ p.name }}</td><td class="px-4 py-2 text-right text-muted-foreground tabular-nums">{{ p.qty }}</td><td class="px-4 py-2 text-right font-medium tabular-nums">{{ moneySum(p.total) }}</td></tr>
-              <tr v-if="topProducts.length === 0"><td class="px-4 py-6 text-center text-muted-foreground">Ma'lumot yo'q</td></tr>
+              <tr v-if="topProducts.length === 0"><td class="px-4 py-6 text-center text-muted-foreground">{{ $t('reports.noData') }}</td></tr>
             </tbody>
           </table>
         </div>
         <div class="rounded-xl border bg-card">
-          <div class="border-b px-4 py-3 text-sm font-semibold">Kam qolgan mahsulotlar</div>
+          <div class="border-b px-4 py-3 text-sm font-semibold">{{ $t('reports.lowStock') }}</div>
           <table class="w-full text-sm">
             <tbody class="divide-y">
               <tr v-for="p in lowStock" :key="p.name"><td class="px-4 py-2">{{ p.name }}</td><td class="px-4 py-2 text-right tabular-nums" :class="p.stock <= 0 ? 'text-rose-500' : 'text-amber-600'">{{ p.stock }} {{ p.unit }}</td></tr>
-              <tr v-if="lowStock.length === 0"><td class="px-4 py-6 text-center text-muted-foreground">Hammasi yetarli</td></tr>
+              <tr v-if="lowStock.length === 0"><td class="px-4 py-6 text-center text-muted-foreground">{{ $t('reports.allSufficient') }}</td></tr>
             </tbody>
           </table>
         </div>

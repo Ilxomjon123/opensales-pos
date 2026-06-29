@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { ChevronDown, Search, Check, X } from 'lucide-vue-next'
 import { translitMatch } from '../lib/format'
+
+const { t } = useI18n()
 
 type Item = { value: number | string; label: string }
 const props = withDefaults(defineProps<{
@@ -12,12 +15,13 @@ const props = withDefaults(defineProps<{
   emptyText?: string
   clearable?: boolean
 }>(), {
-  placeholder: 'Tanlang…',
-  searchPlaceholder: 'Qidirish…',
-  emptyText: 'Topilmadi',
   clearable: false,
 })
 const emit = defineEmits<{ 'update:modelValue': [v: number | string | null] }>()
+
+const placeholderText = computed(() => props.placeholder ?? t('searchableSelect.placeholder'))
+const searchPlaceholderText = computed(() => props.searchPlaceholder ?? t('searchableSelect.searchPlaceholder'))
+const emptyTextText = computed(() => props.emptyText ?? t('searchableSelect.emptyText'))
 
 const open = ref(false)
 const search = ref('')
@@ -41,7 +45,7 @@ onBeforeUnmount(() => document.removeEventListener('click', onOutside))
   <div ref="root" class="relative">
     <button type="button" @click="toggle"
       class="flex h-10 w-full items-center justify-between gap-2 rounded-md border bg-background px-3 text-sm hover:bg-muted/30 focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none">
-      <span class="truncate" :class="selected ? '' : 'text-muted-foreground'">{{ selected?.label ?? placeholder }}</span>
+      <span class="truncate" :class="selected ? '' : 'text-muted-foreground'">{{ selected?.label ?? placeholderText }}</span>
       <span class="flex shrink-0 items-center gap-1">
         <X v-if="clearable && selected" class="h-4 w-4 text-muted-foreground hover:text-foreground" @click="clear" />
         <ChevronDown class="h-4 w-4 text-muted-foreground transition-transform" :class="open ? 'rotate-180' : ''" />
@@ -52,7 +56,7 @@ onBeforeUnmount(() => document.removeEventListener('click', onOutside))
       <div class="border-b p-2">
         <div class="relative">
           <Search class="pointer-events-none absolute top-1/2 left-2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-          <input v-model="search" :placeholder="searchPlaceholder" autofocus
+          <input v-model="search" :placeholder="searchPlaceholderText" autofocus
             class="h-8 w-full rounded border bg-background pr-2 pl-7 text-sm focus:ring-1 focus:ring-primary/30 focus:outline-none" @click.stop />
         </div>
       </div>
@@ -63,7 +67,7 @@ onBeforeUnmount(() => document.removeEventListener('click', onOutside))
           <span class="truncate">{{ i.label }}</span>
           <Check v-if="String(i.value) === String(modelValue)" class="h-3.5 w-3.5 shrink-0 text-primary" />
         </button>
-        <div v-if="filtered.length === 0" class="py-6 text-center text-xs text-muted-foreground">{{ emptyText }}</div>
+        <div v-if="filtered.length === 0" class="py-6 text-center text-xs text-muted-foreground">{{ emptyTextText }}</div>
       </div>
     </div>
   </div>
