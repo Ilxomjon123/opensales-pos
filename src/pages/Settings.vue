@@ -76,7 +76,7 @@ async function ghRestore(name: string) {
   }
 }
 
-// Cloud shifrlash (owner master = parol). Lokal nusxa ochiq, cloud nusxa shifrlanadi.
+// Cloud shifrlash (do'kon o'zi belgilagan parol). Lokal nusxa ochiq, cloud nusxa shifrlanadi.
 const encOn = ref(false)
 async function loadEnc() { encOn.value = (await getSetting('backup_pass', '')) !== '' }
 const showEncSet = ref(false)
@@ -84,8 +84,8 @@ const encKey = ref('')
 const encErr = ref('')
 function normPass(s: string) { return s.trim().toUpperCase() }
 async function enableEnc() {
-  if (!isOwnerMaster(encKey.value)) { encErr.value = t('settings.masterKeyWrong'); return }
-  await setSetting('backup_pass', normPass(encKey.value)) // owner master = shifrlash paroli
+  if (!normPass(encKey.value)) { encErr.value = t('settings.passwordRequired'); return }
+  await setSetting('backup_pass', normPass(encKey.value)) // do'kon o'zi belgilagan parol, master kalitga bog'liq emas
   encOn.value = true; showEncSet.value = false; encKey.value = ''; encErr.value = ''
   notify(t('settings.cloudEncEnabled'), 'success')
 }
@@ -479,13 +479,13 @@ async function save() {
       </div>
     </div>
 
-    <!-- Cloud shifrlashni yoqish: owner master = parol -->
+    <!-- Cloud shifrlashni yoqish: do'kon o'zi belgilagan parol -->
     <div v-if="showEncSet" class="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 p-4">
       <div class="max-h-[90vh] w-full max-w-sm overflow-y-auto rounded-xl border bg-card p-4 sm:p-5 shadow-xl">
         <div class="mb-1 flex items-center gap-2 text-lg font-semibold"><Lock class="h-5 w-5 text-primary" /> {{ $t('settings.cloudEnc') }}</div>
         <p class="mb-4 text-sm text-muted-foreground">{{ $t('settings.cloudEncDesc') }}</p>
         <div class="flex gap-2">
-          <input v-model="encKey" type="password" autofocus :placeholder="$t('settings.ownerMasterKey')" class="h-11 w-full rounded-lg border bg-background px-3 text-sm focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none" @keyup.enter="enableEnc" />
+          <input v-model="encKey" type="password" autofocus :placeholder="$t('settings.cloudEncPassword')" class="h-11 w-full rounded-lg border bg-background px-3 text-sm focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none" @keyup.enter="enableEnc" />
           <QrScanButton @decoded="encKey = $event" />
         </div>
         <p v-if="encErr" class="mt-1.5 text-sm text-rose-500">{{ encErr }}</p>

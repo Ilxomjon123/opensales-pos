@@ -20,8 +20,7 @@ const masterErr = ref('')
 const targetDevice = ref(props.deviceId)
 const duration = ref<'15' | '30' | '90' | '180' | '365' | 'custom' | 'forever'>('30')
 const customDate = ref('')
-const seed = ref(localStorage.getItem('owner_seed') ?? '')
-const rememberSeed = ref(!!localStorage.getItem('owner_seed'))
+const seed = ref('')
 const result = ref('')
 const copied = ref(false)
 const showSeed = ref(false)
@@ -60,8 +59,6 @@ function generate() {
   if (!seed.value.trim()) { notify(t('licenseAdmin.enterSeed'), 'error'); return }
   try {
     result.value = generateKey(targetDevice.value, expFromDuration(), seed.value)
-    if (rememberSeed.value) localStorage.setItem('owner_seed', seed.value.trim())
-    else localStorage.removeItem('owner_seed')
     notify(t('licenseAdmin.keyGenerated'), 'success')
   } catch (e: any) { notify(e?.message ?? t('licenseAdmin.error'), 'error') }
 }
@@ -129,7 +126,6 @@ async function revoke() {
             </div>
             <QrScanButton @decoded="seed = $event" />
           </div>
-          <label class="mt-1.5 flex items-center gap-2 text-xs text-muted-foreground"><input v-model="rememberSeed" type="checkbox" class="rounded" /> {{ $t('licenseAdmin.rememberSeed') }}</label>
         </div>
         <button @click="generate" class="h-10 w-full rounded-lg bg-primary text-sm font-medium text-primary-foreground hover:bg-primary/90">{{ $t('licenseAdmin.generateKey') }}</button>
 
