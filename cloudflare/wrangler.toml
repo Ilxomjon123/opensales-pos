@@ -1,6 +1,8 @@
 # OpenSales POS — backup proxy Worker deploy config.
 # Deploy: pos-tauri/cloudflare ichida `npx wrangler deploy`
-# Maxfiy token (faqat shu yerda EMAS, CF secret'da): `npx wrangler secret put GH_TOKEN`
+# Maxfiy qiymatlar (faqat shu yerda EMAS, CF secret'da):
+#   npx wrangler secret put GH_TOKEN
+#   npx wrangler secret put OWNER_MASTER_HASH   # POS'dagi VITE_OWNER_MASTER_HASH bilan bir xil qiymat
 name = "pos-backup"
 main = "backup-worker.js"
 compatibility_date = "2025-01-15"

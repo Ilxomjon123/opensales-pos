@@ -5,7 +5,7 @@ import { appDataDir, join } from '@tauri-apps/api/path'
 import { relaunch } from '@tauri-apps/plugin-process'
 import { hostname } from '@tauri-apps/plugin-os'
 import { db, getSetting, setSetting } from './db'
-import { getDeviceId } from './license'
+import { getDeviceId, ownerProof } from './license'
 import { t } from './i18n'
 
 const KEEP = 14 // oxirgi 14 kunlik nusxa saqlanadi
@@ -56,7 +56,7 @@ async function prune() {
 export async function runDueBackup(): Promise<void> {
   const last = await getSetting('last_backup_date', '')
   lastBackup.value = (await listBackups())[0]?.name ?? ''
-  if (last !== today()) await makeBackup().catch(() => {})
+  if (last !== today()) await makeBackup().catch((e) => console.error('runDueBackup:', e))
   else void syncToGithub(lastBackup.value) // kun ichida online bo'lsa ham sync urinish
 }
 
@@ -82,15 +82,35 @@ export async function backupPin(name: string): Promise<string | null> {
   } catch { return null }
 }
 
+// Tiklashdan oldin/keyin device_id'ni tekshirish uchun (og'ir db() ochmasdan, xom ulanish).
+async function readDeviceId(path: string): Promise<string | null> {
+  try {
+    const d = await Database.load(`sqlite:${path}`)
+    try {
+      const r = await d.select<{ value: string }[]>("SELECT value FROM settings WHERE key = 'device_id'")
+      return r[0]?.value ?? null
+    } finally { await d.close() }
+  } catch { return null }
+}
+
 // Boot'da chaqiriladi (main.ts) — DB ochilishidan oldin.
 export async function applyPendingRestore(): Promise<void> {
   try {
     if (!(await exists(PENDING, { baseDir: BaseDirectory.AppData }))) return
     const name = (await readTextFile(PENDING, { baseDir: BaseDirectory.AppData })).trim()
     if (name && (await exists(`${DIR}/${name}`, { baseDir: BaseDirectory.AppData }))) {
+      const prevId = await readDeviceId('pos.db')
       await copyFile(`${DIR}/${name}`, 'pos.db', { fromPathBaseDir: BaseDirectory.AppData, toPathBaseDir: BaseDirectory.AppData })
       await remove('pos.db-wal', { baseDir: BaseDirectory.AppData }).catch(() => {})
       await remove('pos.db-shm', { baseDir: BaseDirectory.AppData }).catch(() => {})
+      // Boshqa qurilmadan tiklangan bo'lsa (device_id boshqacha) — shu komp uchun yangi id
+      // majburlaymiz, aks holda ikkala jonli qurilma bitta GitHub papkasiga yozib, bir-birining
+      // zaxira tarixini bosib qo'yadi. getDeviceId() bo'sh qiymatda avtomatik yangisini yaratadi.
+      const newId = await readDeviceId('pos.db')
+      if (prevId && newId && prevId !== newId) {
+        const d = await Database.load('sqlite:pos.db')
+        try { await d.execute("DELETE FROM settings WHERE key = 'device_id'") } finally { await d.close() }
+      }
     }
     await remove(PENDING, { baseDir: BaseDirectory.AppData }).catch(() => {})
   } catch {}
@@ -148,11 +168,18 @@ function proxyBase(): string {
   return (import.meta.env.VITE_BACKUP_PROXY_URL ?? '').trim().replace(/\/+$/, '')
 }
 // Auth header: device_id + license_key. Kalit yo'q (trial) → null.
+// ownerProofNeeded=true — boshqa qurilma papkasini o'qishda (Settings'dagi owner-master
+// bilan tasdiqlangan cross-device browse). Worker faqat shu holatda proof talab qiladi
+// (o'z device'ini o'qishda kerak emas) — lekin yubormaslik zarar qilmaydi, shuning uchun
+// mavjud bo'lsa doim qo'shamiz.
 async function proxyAuth(): Promise<Record<string, string> | null> {
   const key = await getSetting('license_key', '')
   if (!key) return null
   const deviceId = await getDeviceId()
-  return { 'X-Device-Id': deviceId, 'X-License-Key': key }
+  const headers: Record<string, string> = { 'X-Device-Id': deviceId, 'X-License-Key': key }
+  const proof = ownerProof()
+  if (proof) headers['X-Owner-Proof'] = proof
+  return headers
 }
 async function ghJson(path: string): Promise<any[]> {
   const base = proxyBase(); const h = await proxyAuth()
@@ -171,7 +198,9 @@ async function ghRaw(path: string): Promise<string | null> {
   return res.ok ? await res.text() : null
 }
 
-// GitHub'dagi barcha qurilmalar — do'kon nomi bilan (qaysi uniki ekanini bilish uchun)
+// GitHub'dagi barcha qurilmalar — do'kon nomi bilan (qaysi uniki ekanini bilish uchun).
+// Boshqa har qanday do'konning papkasini ko'rsatadi → faqat owner-master tasdiqlangandan
+// keyin chaqiriladi (Settings.vue); Worker tomonida ham X-Owner-Proof talab qilinadi.
 export async function githubDevices(): Promise<GhDevice[]> {
   const dirs = (await ghJson('backups')).filter((i) => i.type === 'dir').map((i) => i.name as string)
   const out: GhDevice[] = []
@@ -183,7 +212,7 @@ export async function githubDevices(): Promise<GhDevice[]> {
   }
   return out
 }
-// Bitta qurilmaning nusxalari
+// Bitta qurilmaning nusxalari (boshqa device bo'lsa — owner-master proof kerak, yuqoriga qarang)
 export async function githubBackups(device: string): Promise<BackupFile[]> {
   return (await ghJson(`backups/${device}`))
     .filter((i) => i.name.endsWith('.db'))

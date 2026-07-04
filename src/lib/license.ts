@@ -143,11 +143,26 @@ export async function deactivate(): Promise<void> {
 
 // ---- Egasi uchun generator (seed dasturda saqlanmaydi, qo'lda kiritiladi) ----
 // SHA-512 hex (sync, nacl orqali) — master kalitni ochiq saqlamasdan tekshirish uchun.
+// Offline brute-force'ni sekinlashtirish uchun ko'p martalik hash zanjiri (oddiy KDF-stretch) —
+// bitta yalang'och SHA-512 o'rniga; hosh generatsiya qilinganda ham xuddi shu son marta takrorlansin.
+const MASTER_HASH_ROUNDS = 200_000
 function sha512hex(s: string): string {
-  return Array.from(nacl.hash(enc.encode(s))).map((b) => b.toString(16).padStart(2, '0')).join('')
+  let h = nacl.hash(enc.encode(s))
+  for (let i = 1; i < MASTER_HASH_ROUNDS; i++) h = nacl.hash(h)
+  return Array.from(h).map((b) => b.toString(16).padStart(2, '0')).join('')
 }
+// Tasdiqlangan master hash shu sessiyada eslab qolinadi — cross-device backup
+// so'rovlarida Worker'ga X-Owner-Proof sifatida yuboriladi (Worker o'z nusxasi
+// bilan solishtiradi). Xotirada, diskka yozilmaydi.
+let ownerProofCache: string | null = null
 export function isOwnerMaster(input: string): boolean {
-  return OWNER_MASTER_HASH !== '' && sha512hex(input.trim().toUpperCase()) === OWNER_MASTER_HASH
+  const hash = sha512hex(input.trim().toUpperCase())
+  const ok = OWNER_MASTER_HASH !== '' && hash === OWNER_MASTER_HASH
+  if (ok) ownerProofCache = hash
+  return ok
+}
+export function ownerProof(): string | null {
+  return ownerProofCache
 }
 export function generateKey(deviceId: string, exp: string | null, secretSeedB64: string): string {
   const sk = b64ToBytes(secretSeedB64)

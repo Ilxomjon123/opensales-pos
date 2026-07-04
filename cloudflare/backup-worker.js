@@ -17,8 +17,14 @@
  * Scoping:
  *   - YOZISH (PUT): faqat `backups/<X-Device-Id>/...` — boshqa do'kon backupiga
  *     yozib bo'lmaydi (vandalizm yo'q).
- *   - O'QISH (list/raw): har qanday `backups/...` — yangi kompga ko'chirish
- *     (eski device backupini tiklash) shu uchun ishlaydi.
+ *   - O'QISH (list/raw) — O'Z qurilmasi: erkin (X-Device-Id o'ziniki bo'lsa).
+ *   - O'QISH (list/raw) — BOSHQA qurilma yoki backups/ ildizi (ro'yxat — boshqa
+ *     do'konlarni fosh qiladi): qo'shimcha `X-Owner-Proof` header talab qilinadi —
+ *     POS Settings'da owner-master parol tasdiqlangach hisoblangan SHA-512 hash
+ *     (license.ts `ownerProof()`), shu Worker'dagi OWNER_MASTER_HASH bilan solishtiriladi.
+ *     Buning yo'q holida — ISTALGAN litsenziyali do'kon boshqa har qanday do'konning
+ *     to'liq DB backup'ini o'qiy olardi (faqat X-Device-Id/X-License-Key o'zinikini
+ *     isbotlaydi, boshqa hech kimning huquqini emas). Bu tuzatilgan.
  *
  * Endpointlar (POS backup.ts mos):
  *   GET  /list?path=backups            → GitHub contents (JSON massiv)
@@ -26,9 +32,12 @@
  *   PUT  /put?path=backups/<dev>/<f>   → body {content(b64), message} — create/update
  *
  * Cloudflare Worker → Settings → Variables (Secret):
- *   GH_TOKEN        — fine-grained PAT, faqat backup repo, contents:write
- *   GH_REPO         — "egasi/opensales-pos-backups"
- *   LICENSE_PUBKEY  — base64 Ed25519 public key (POS'dagi VITE_LICENSE_PUBKEY bilan bir xil)
+ *   GH_TOKEN          — fine-grained PAT, faqat backup repo, contents:write
+ *   GH_REPO           — "egasi/opensales-pos-backups"
+ *   LICENSE_PUBKEY    — base64 Ed25519 public key (POS'dagi VITE_LICENSE_PUBKEY bilan bir xil)
+ *   OWNER_MASTER_HASH — POS'dagi VITE_OWNER_MASTER_HASH bilan AYNAN bir xil qiymat
+ *                       (license.ts sha512hex, 200_000 round SHA-512 zanjiri, hex, kichik harf).
+ *                       `npx wrangler secret put OWNER_MASTER_HASH` — [vars]ga EMAS, secret'ga.
  */
 
 const GH = 'https://api.github.com';
@@ -38,7 +47,7 @@ export default {
     const cors = {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET,PUT,OPTIONS',
-      'Access-Control-Allow-Headers': 'X-Device-Id,X-License-Key,Content-Type',
+      'Access-Control-Allow-Headers': 'X-Device-Id,X-License-Key,X-Owner-Proof,Content-Type',
     };
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
 
@@ -66,9 +75,15 @@ export default {
       if (path.includes('..')) return json({ error: 'bad path' }, 400, cors);
 
       if (url.pathname === '/list' && request.method === 'GET') {
+        if (!isOwnPath(path, deviceId) && !hasOwnerProof(request, env)) {
+          return json({ error: 'owner proof required for cross-device read' }, 403, cors);
+        }
         return await ghList(path, env, cors);
       }
       if (url.pathname === '/raw' && request.method === 'GET') {
+        if (!isOwnPath(path, deviceId) && !hasOwnerProof(request, env)) {
+          return json({ error: 'owner proof required for cross-device read' }, 403, cors);
+        }
         return await ghRaw(path, env, cors);
       }
       if (url.pathname === '/put' && request.method === 'PUT') {
@@ -84,6 +99,26 @@ export default {
     }
   },
 };
+
+// `backups` (ildiz — ro'yxat boshqa do'konlarni fosh qiladi) yoki `backups/<boshqa-id>/...`
+// bo'lsa false — bunda owner-proof shart. Faqat `backups/<o'z-device-id>` yoki uning
+// ichidagi fayllar uchun true (o'z backup'ini har doim erkin o'qiy oladi).
+function isOwnPath(path, deviceId) {
+  return path === `backups/${deviceId}` || path.startsWith(`backups/${deviceId}/`);
+}
+function timingSafeEqualStr(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string' || a.length === 0 || a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+// Proof — POS'da owner-master parol tasdiqlangach hisoblangan sha512hex (client hisoblaydi,
+// Worker faqat solishtiradi — 200_000 roundni qayta hisoblash shart emas).
+function hasOwnerProof(request, env) {
+  if (!env.OWNER_MASTER_HASH) return false;
+  const proof = (request.headers.get('X-Owner-Proof') || '').trim().toLowerCase();
+  return timingSafeEqualStr(proof, env.OWNER_MASTER_HASH.trim().toLowerCase());
+}
 
 function json(obj, status, cors) {
   return new Response(JSON.stringify(obj), {
