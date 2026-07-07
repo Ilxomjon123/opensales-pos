@@ -46,17 +46,86 @@ export async function printReceipt(r: PrintReceipt) {
   <title>${esc(t('print.receipt'))} ${esc(r.receipt_number)}</title>
   <script>window.onload=function(){setTimeout(function(){window.print()},250)}</script>
   <style>
-    @media print{@page{margin:4mm}}
-    *{font-family:-apple-system,'Segoe UI',sans-serif;box-sizing:border-box}
-    body{width:72mm;margin:0 auto;padding:6px;color:#000}
-    h2{text-align:center;margin:0;font-size:15px}
-    .sub{text-align:center;font-size:11px;color:#444;margin-bottom:6px}
-    table{width:100%;border-collapse:collapse;font-size:12px}
-    td{padding:3px 0;border-bottom:1px dashed #bbb;vertical-align:top}
-    .r{text-align:right;white-space:nowrap}.b{font-weight:600}.m{font-size:10px;color:#666}
-    .tot{display:flex;justify-content:space-between;font-weight:700;font-size:14px;margin-top:6px;border-top:1px solid #000;padding-top:6px}
-    .line{display:flex;justify-content:space-between;font-size:12px}
-    .foot{text-align:center;font-size:11px;color:#444;margin-top:8px}
+    @media print {
+      @page { margin: 0; }
+      body { margin: 0; }
+    }
+    * {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+      box-sizing: border-box;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      text-rendering: optimizeSpeed;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+    body {
+      width: 72mm;
+      margin: 0 auto;
+      padding: 6px;
+      color: #000000;
+      background: #ffffff;
+      font-size: 12px;
+      font-weight: 400;
+    }
+    h2 {
+      text-align: center;
+      margin: 0;
+      font-size: 15px;
+      font-weight: 700;
+    }
+    .sub {
+      text-align: center;
+      font-size: 11px;
+      color: #000000;
+      margin-bottom: 6px;
+      font-weight: 400;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+    td {
+      padding: 3px 0;
+      border-bottom: 1px dashed #000000;
+      vertical-align: top;
+      color: #000000;
+    }
+    .r {
+      text-align: right;
+      white-space: nowrap;
+    }
+    .b {
+      font-weight: 700;
+    }
+    .m {
+      font-size: 10px;
+      color: #000000;
+    }
+    .tot {
+      display: flex;
+      justify-content: space-between;
+      font-weight: 700;
+      font-size: 14px;
+      margin-top: 6px;
+      border-top: 1px solid #000000;
+      padding-top: 6px;
+      color: #000000;
+    }
+    .line {
+      display: flex;
+      justify-content: space-between;
+      font-size: 12px;
+      color: #000000;
+    }
+    .foot {
+      text-align: center;
+      font-size: 11px;
+      color: #000000;
+      margin-top: 8px;
+      font-weight: 700;
+    }
   </style></head><body>
     <h2>${esc(shop)}</h2>
     <div class="sub">${esc(t('print.receipt'))} #${esc(r.receipt_number)}<br>${formatDateTime(r.created_at)} · ${esc(r.customer)}</div>
