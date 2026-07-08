@@ -1,5 +1,6 @@
 import { moneySum, formatDateTime } from './format'
 import { getSetting } from './db'
+import { invoke } from '@tauri-apps/api/core'
 import { renderBarcodeCanvas, barcodeDataUrl } from './barcode'
 import { printPng, canvasToPng } from './silentprint'
 import { writeTextFile, mkdir, BaseDirectory } from '@tauri-apps/plugin-fs'
@@ -24,8 +25,18 @@ export type PrintReceipt = {
 
 export async function printReceipt(r: PrintReceipt) {
   const shop = r.shop ?? (await getSetting('shop_name', 'OpenSales POS'))
-  // Browsersiz: chek printeri sozlangan bo'lsa to'g'ridan printerга PNG yuboriladi.
   const printer = (await getSetting('receipt_printer', '')) || (await getSetting('printer_name', ''))
+  if (printer && printer.startsWith('ble:')) {
+    const printerId = printer.slice(4).split('|')[0]
+    try {
+      await invoke('connect_bluetooth_printer', { id: printerId })
+      await printReceiptBluetooth(r, printerId)
+      return
+    } catch (e: any) {
+      notify(t('print.directPrintFailed') + ' ' + (e?.message ?? e), 'error')
+      return
+    }
+  }
   if (printer) {
     try {
       const png = await receiptPng(r, shop)
@@ -165,8 +176,18 @@ export async function printLabel(l: PrintLabel) {
   const copies = Math.max(1, Math.min(100, l.copies || 1))
   const showPrice = l.showPrice !== false
 
-  // Browsersiz: yorliq printeri sozlangan bo'lsa to'g'ridan printerга PNG yuboriladi.
   const printer = (await getSetting('label_printer', '')) || (await getSetting('printer_name', ''))
+  if (printer && printer.startsWith('ble:')) {
+    const printerId = printer.slice(4).split('|')[0]
+    try {
+      await invoke('connect_bluetooth_printer', { id: printerId })
+      await printLabelBluetooth(l)
+      return
+    } catch (e: any) {
+      notify(t('print.directPrintFailed') + ' ' + (e?.message ?? e), 'error')
+      return
+    }
+  }
   if (printer) {
     try {
       const png = await labelPng(l, size, showPrice)
@@ -342,4 +363,229 @@ async function labelPng(l: PrintLabel, size: string, showPrice: boolean): Promis
     ctx.drawImage(bc, (W - dw) / 2, topY + (availH - dh) / 2, dw, dh)
   }
   return canvasToPng(c)
+}
+
+// ---- Direct BLE print utilities and generator ----
+const cyrilToLatin: Record<string, string> = {
+    'А': 'A', 'а': 'a',
+    'Б': 'B', 'б': 'b',
+    'В': 'V', 'в': 'v',
+    'Г': 'G', 'г': 'g',
+    'Д': 'D', 'д': 'd',
+    'Е': 'E', 'е': 'e',
+    'Ё': 'Yo', 'ё': 'yo',
+    'Ж': 'J', 'ж': 'j',
+    'З': 'Z', 'з': 'z',
+    'И': 'I', 'и': 'i',
+    'Й': 'Y', 'й': 'y',
+    'К': 'K', 'к': 'k',
+    'Л': 'L', 'л': 'l',
+    'М': 'M', 'м': 'm',
+    'Н': 'N', 'н': 'n',
+    'О': 'O', 'о': 'o',
+    'П': 'P', 'п': 'p',
+    'Р': 'R', 'р': 'r',
+    'С': 'S', 'с': 's',
+    'Т': 'T', 'т': 't',
+    'У': 'U', 'у': 'u',
+    'Ф': 'F', 'ф': 'f',
+    'Х': 'X', 'х': 'x',
+    'Ц': 'Ts', 'ц': 'ts',
+    'Ч': 'Ch', 'ш': 'sh',
+    'Щ': 'Shy', 'щ': 'shy',
+    'Ъ': '', 'ъ': '',
+    'Ы': 'I', 'ы': 'i',
+    'Ь': '', 'ь': '',
+    'Э': 'E', 'э': 'e',
+    'Ю': 'Yu', 'ю': 'yu',
+    'Я': 'Ya', 'я': 'ya',
+    'ў': "o'", 'Ў': "O'",
+    'қ': 'q', 'Қ': 'Q',
+    'ҳ': 'h', 'Ҳ': 'H',
+    'ғ': "g'", 'Ғ': "G'"
+};
+
+function transliterate(str: string): string {
+    const text = str.split('').map(char => cyrilToLatin[char] ?? char).join('');
+    return text.replace(/₽/g, 'P.');
+}
+
+function safeText(str: string): Uint8Array {
+    let text = transliterate(str);
+    text = text
+        .replaceAll('ʻ', "'")
+        .replaceAll('’', "'")
+        .replaceAll('‘', "'")
+        .replaceAll('`', "'")
+        .replaceAll('´', "'");
+
+    const bytes: number[] = [];
+    for (let i = 0; i < text.length; i++) {
+        const code = text.charCodeAt(i);
+        if (code <= 127) {
+            bytes.push(code);
+        } else if (code >= 0x0410 && code <= 0x042f) { // Cyrillic А-Я (1040-1071)
+            bytes.push(code - 0x0410 + 128); // 128-159 in CP866
+        } else if (code >= 0x0430 && code <= 0x043f) { // Cyrillic а-п (1072-1087)
+            bytes.push(code - 0x0430 + 160); // 160-175 in CP866
+        } else if (code >= 0x0440 && code <= 0x044f) { // Cyrillic р-я (1088-1103)
+            bytes.push(code - 0x0440 + 224); // 224-239 in CP866
+        } else if (code === 0x0401) { // Ё
+            bytes.push(240);
+        } else if (code === 0x0451) { // ё
+            bytes.push(241);
+        } else if (code === 160 || code === 8239 || (code >= 8192 && code <= 8202)) {
+            bytes.push(32); // space
+        } else {
+            bytes.push(63); // '?'
+        }
+    }
+    return new Uint8Array(bytes);
+}
+
+function wrapTextWords(text: string, maxChars: number): string[] {
+    const words = text.split(' ');
+    const lines: string[] = [];
+    let currentLine = '';
+
+    for (const word of words) {
+        if ((currentLine + word).length > maxChars) {
+            if (currentLine) {
+                lines.push(currentLine.trim());
+            }
+            currentLine = word + ' ';
+        } else {
+            currentLine += word + ' ';
+        }
+    }
+    if (currentLine) {
+        lines.push(currentLine.trim());
+    }
+    return lines;
+}
+
+export class EscPosGenerator {
+    private buffer: number[] = [];
+    private maxChars: number;
+
+    constructor(paperSize: 'mm58' | 'mm80') {
+        this.maxChars = paperSize === 'mm80' ? 48 : 32;
+        this.buffer.push(27, 64); // ESC @ (Initialize printer)
+        this.buffer.push(28, 46); // FS . (Cancel Chinese character mode)
+        this.buffer.push(27, 116, 17); // ESC t 17 (PC866 Cyrillic - clean default font)
+        this.buffer.push(27, 33, 0); // ESC ! 0 (Select Font A, normal size)
+        this.buffer.push(27, 77, 0); // ESC M 0 (Explicitly select Font A)
+        this.buffer.push(27, 32, 0); // ESC SP 0 (Default character spacing for crisp rendering)
+        this.buffer.push(27, 51, 30); // ESC 3 30 (Standard line spacing of 30 dots)
+    }
+
+    alignCenter() {
+        this.buffer.push(27, 97, 1);
+    }
+
+    alignLeft() {
+        this.buffer.push(27, 97, 0);
+    }
+
+    alignRight() {
+        this.buffer.push(27, 97, 2);
+    }
+
+    doubleSize() {
+        this.buffer.push(29, 33, 17);
+    }
+
+    normalSize() {
+        this.buffer.push(29, 33, 0);
+    }
+
+    hr() {
+        const line = '-'.repeat(this.maxChars) + '\n';
+        this.text(line);
+    }
+
+    text(str: string) {
+        const bytes = safeText(str);
+        for (let i = 0; i < bytes.length; i++) {
+            this.buffer.push(bytes[i]);
+        }
+    }
+
+    textLine(str: string) {
+        this.text(str + '\n');
+    }
+
+    row(col1: string, col2: string) {
+        const c1 = transliterate(col1);
+        const c2 = transliterate(col2);
+        const spacesCount = this.maxChars - (c1.length + c2.length);
+        const spaces = ' '.repeat(spacesCount > 0 ? spacesCount : 1);
+        this.textLine(col1 + spaces + col2);
+    }
+
+    feed(n: number) {
+        this.buffer.push(27, 100, n);
+    }
+
+    getBytes(): Uint8Array {
+        return new Uint8Array(this.buffer);
+    }
+}
+
+export async function printReceiptBluetooth(r: PrintReceipt, printerId: string) {
+  const isSmall = printerId.toLowerCase().includes('58') || printerId.toLowerCase().includes('xp-');
+  const size = isSmall ? 'mm58' : 'mm80'; 
+  const generator = new EscPosGenerator(size);
+  const maxCols = size === 'mm80' ? 48 : 32;
+
+  const shop = r.shop ?? (await getSetting('shop_name', 'OpenSales POS'));
+
+  generator.alignCenter();
+  generator.doubleSize();
+  generator.textLine(shop);
+  generator.normalSize();
+  generator.textLine(`${t('print.receipt')} #${r.receipt_number}`);
+  generator.textLine(formatDateTime(r.created_at));
+  generator.textLine(r.customer);
+  generator.hr();
+
+  generator.alignLeft();
+  for (const it of r.items) {
+    const wrapped = wrapTextWords(it.name, maxCols);
+    for (const line of wrapped) {
+      generator.textLine(line);
+    }
+    generator.row(`  ${it.qty} ${it.unit} x ${moneySum(it.price)}`, moneySum(it.subtotal));
+  }
+  generator.hr();
+
+  if (r.discount > 0) {
+    generator.row(t('print.discount'), `-${moneySum(r.discount)}`);
+  }
+  generator.row(t('print.total'), moneySum(r.total));
+  if (r.paid_cash > 0) generator.row(t('print.cash'), moneySum(r.paid_cash));
+  if (r.paid_card > 0) generator.row(t('print.card'), moneySum(r.paid_card));
+  if (r.change > 0) generator.row(t('print.change'), moneySum(r.change));
+  if (r.debt > 0) generator.row(t('print.debt'), moneySum(r.debt));
+  generator.hr();
+
+  generator.alignCenter();
+  generator.textLine(t('print.thankYou'));
+  generator.feed(3);
+
+  await invoke('write_bluetooth_printer', { bytes: Array.from(generator.getBytes()) });
+}
+
+export async function printLabelBluetooth(l: PrintLabel) {
+  const generator = new EscPosGenerator('mm80'); 
+  generator.alignCenter();
+  generator.textLine(l.name);
+  generator.textLine(l.barcode);
+  if (l.showPrice !== false) {
+    generator.doubleSize();
+    generator.textLine(moneySum(l.price));
+    generator.normalSize();
+  }
+  generator.feed(3);
+  await invoke('write_bluetooth_printer', { bytes: Array.from(generator.getBytes()) });
 }

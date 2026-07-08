@@ -1,5 +1,151 @@
 use tauri_plugin_sql::{Migration, MigrationKind};
 use std::process::Command;
+use std::sync::Arc;
+use std::time::Duration;
+use tokio::sync::Mutex;
+use tokio::time::sleep;
+use serde::Serialize;
+use btleplug::api::{Central, Manager as _, Peripheral as _, ScanFilter, WriteType};
+use btleplug::platform::{Manager, Peripheral};
+
+#[derive(Default)]
+pub struct BtState {
+    pub connected_peripheral: Arc<Mutex<Option<Peripheral>>>,
+}
+
+#[derive(Serialize, Clone)]
+pub struct BlePrinter {
+    pub id: String,
+    pub name: String,
+}
+
+#[tauri::command]
+async fn scan_bluetooth_printers() -> Result<Vec<BlePrinter>, String> {
+    let manager = Manager::new().await.map_err(|e| format!("Failed to create Bluetooth manager: {e}"))?;
+    let adapters = manager.adapters().await.map_err(|e| format!("Failed to get adapters: {e}"))?;
+    let central = adapters.into_iter().next().ok_or("No Bluetooth adapter found")?;
+
+    log::info!("Starting Bluetooth scan...");
+    central.start_scan(ScanFilter::default()).await.map_err(|e| format!("Failed to start scan: {e}"))?;
+    sleep(Duration::from_millis(4000)).await;
+    let _ = central.stop_scan().await;
+
+    let peripherals = central.peripherals().await.map_err(|e| format!("Failed to get peripherals: {e}"))?;
+    let mut printers = Vec::new();
+
+    log::info!("Found {} Bluetooth peripherals in total", peripherals.len());
+    for p in peripherals {
+        if let Ok(Some(props)) = p.properties().await {
+            let name = props.local_name.unwrap_or_else(|| {
+                let id_str = p.id().to_string();
+                let short_id: String = id_str.chars().take(8).collect();
+                format!("BT Device ({})", short_id)
+            });
+            log::info!("BLE Discovered device: ID={}, Name={}", p.id(), name);
+            printers.push(BlePrinter {
+                id: p.id().to_string(),
+                name,
+            });
+        }
+    }
+    Ok(printers)
+}
+
+#[tauri::command]
+async fn connect_bluetooth_printer(id: String, state: tauri::State<'_, BtState>) -> Result<(), String> {
+    // 1. FIRST check if we already have an active, working connection to this device ID
+    {
+        let active = state.connected_peripheral.lock().await;
+        if let Some(ref p) = *active {
+            if p.id().to_string() == id {
+                if let Ok(true) = p.is_connected().await {
+                    log::info!("Already connected to peripheral {}", id);
+                    return Ok(());
+                }
+            }
+        }
+    } // Lock is automatically released here
+
+    let manager = Manager::new().await.map_err(|e| format!("Failed to create Bluetooth manager: {e}"))?;
+    let adapters = manager.adapters().await.map_err(|e| format!("Failed to get adapters: {e}"))?;
+    let central = adapters.into_iter().next().ok_or("No Bluetooth adapter found")?;
+
+    let mut peripherals = central.peripherals().await.map_err(|e| format!("Failed to get peripherals: {e}"))?;
+    let mut target_peripheral = peripherals.into_iter().find(|p| p.id().to_string() == id);
+
+    // If device is not in the active cache, trigger an automatic dynamic scan
+    if target_peripheral.is_none() {
+        log::info!("Peripheral {} not in active cache. Starting dynamic scan...", id);
+        let _ = central.start_scan(ScanFilter::default()).await;
+        
+        // Poll for up to 5 seconds (10 * 500ms)
+        for _ in 0..10 {
+            sleep(Duration::from_millis(500)).await;
+            peripherals = central.peripherals().await.map_err(|e| format!("Failed to get peripherals: {e}"))?;
+            target_peripheral = peripherals.into_iter().find(|p| p.id().to_string() == id);
+            if target_peripheral.is_some() {
+                log::info!("Peripheral {} found during scan!", id);
+                break;
+            }
+        }
+        let _ = central.stop_scan().await;
+    }
+
+    let target_peripheral = target_peripheral
+        .ok_or_else(|| "Peripheral not found in scan list. Please make sure the printer is turned on and not connected to other devices (like Chrome or mobile phone).".to_string())?;
+
+    let mut active = state.connected_peripheral.lock().await;
+
+    // Disconnect if we have another peripheral connected
+    if let Some(ref p) = *active {
+        let _ = p.disconnect().await;
+    }
+    *active = None;
+
+    log::info!("Connecting to peripheral {}...", id);
+    target_peripheral.connect().await.map_err(|e| format!("Connection failed: {e}"))?;
+    target_peripheral.discover_services().await.map_err(|e| format!("Service discovery failed: {e}"))?;
+
+    *active = Some(target_peripheral);
+    Ok(())
+}
+
+#[tauri::command]
+async fn disconnect_bluetooth_printer(state: tauri::State<'_, BtState>) -> Result<(), String> {
+    let mut active = state.connected_peripheral.lock().await;
+    if let Some(ref p) = *active {
+        let _ = p.disconnect().await;
+    }
+    *active = None;
+    Ok(())
+}
+
+#[tauri::command]
+async fn write_bluetooth_printer(bytes: Vec<u8>, state: tauri::State<'_, BtState>) -> Result<(), String> {
+    let active = state.connected_peripheral.lock().await;
+    let peripheral = active.as_ref().ok_or("No printer connected")?;
+
+    let chars = peripheral.characteristics();
+    let write_char = chars.iter().find(|c| {
+        c.properties.contains(btleplug::api::CharPropFlags::WRITE) ||
+        c.properties.contains(btleplug::api::CharPropFlags::WRITE_WITHOUT_RESPONSE)
+    }).ok_or("No writable BLE characteristic found on the printer")?;
+
+    let write_type = if write_char.properties.contains(btleplug::api::CharPropFlags::WRITE_WITHOUT_RESPONSE) {
+        WriteType::WithoutResponse
+    } else {
+        WriteType::WithResponse
+    };
+
+    let chunk_size = 128;
+    for chunk in bytes.chunks(chunk_size) {
+        peripheral.write(write_char, chunk, write_type).await
+            .map_err(|e| format!("Failed to write chunk: {e}"))?;
+        sleep(Duration::from_millis(5)).await;
+    }
+
+    Ok(())
+}
 
 // Tizimда o'rnatilган printerlar ro'yxati (browsersiz pechat uchun tanlash).
 #[tauri::command]
@@ -245,7 +391,15 @@ CREATE INDEX IF NOT EXISTS idx_expenses_created ON expenses(created_at);
                 .add_migrations("sqlite:pos.db", migrations)
                 .build(),
         )
-        .invoke_handler(tauri::generate_handler![list_printers, print_file])
+        .manage(BtState::default())
+        .invoke_handler(tauri::generate_handler![
+            list_printers,
+            print_file,
+            scan_bluetooth_printers,
+            connect_bluetooth_printer,
+            disconnect_bluetooth_printer,
+            write_bluetooth_printer
+        ])
         .setup(|app| {
             // Release'da ham log — faylga yoziladi (Win: %APPDATA%\uz.opensales.pos\logs\,
             // mac: ~/Library/Logs/uz.opensales.pos/). Qotish/xatolarni tashxislash uchun.

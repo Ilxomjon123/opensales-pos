@@ -2,7 +2,9 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>NSCameraUsageDescription</key>
-    <string>QR-kodni skanerlash uchun kameraga ruxsat kerak.</string>
+    <key>NSBluetoothAlwaysUsageDescription</key>
+    <string>This app requires Bluetooth access to connect and print to wireless thermal printers.</string>
+    <key>NSBluetoothPeripheralUsageDescription</key>
+    <string>This app requires Bluetooth access to connect and print to wireless thermal printers.</string>
 </dict>
 </plist>

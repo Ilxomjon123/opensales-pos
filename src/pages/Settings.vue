@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue'
+import { invoke } from '@tauri-apps/api/core'
 import SearchableSelect from '../components/SearchableSelect.vue'
 import { Check, Store, Coins, ShoppingCart, ShieldCheck, KeyRound, Copy, FileText, DatabaseBackup, RotateCcw, RefreshCw, Download, CloudUpload, Lock, LockOpen, Printer, Languages } from 'lucide-vue-next'
 import { getSetting, setSetting } from '../lib/db'
 import { useI18n } from 'vue-i18n'
+import { printReceipt, printLabel } from '../lib/print'
 import { setLocale, availableLocales, type Locale } from '../lib/i18n'
 import { listPrinters } from '../lib/silentprint'
 import { setCurrency, formatDateTime } from '../lib/format'
@@ -29,7 +31,6 @@ const shopName = ref('OpenSales POS')
 const printers = ref<string[]>([])
 const receiptPrinter = ref('')
 const labelPrinter = ref('')
-async function loadPrinters() { try { printers.value = await listPrinters() } catch { printers.value = [] } }
 const newPin = ref('')
 const pinError = ref('')
 const saved = ref(false)
@@ -181,6 +182,39 @@ const licText = computed(() => {
   return t('settings.licExpired')
 })
 
+interface BleDevice {
+  id: string
+  name: string
+}
+const bleDevices = ref<BleDevice[]>([])
+const loadingPrinters = ref(false)
+
+async function loadPrinters() {
+  loadingPrinters.value = true
+  try {
+    const [sysList, bleList] = await Promise.all([
+      listPrinters().catch(() => []),
+      invoke<BleDevice[]>('scan_bluetooth_printers').catch(() => [])
+    ])
+
+    printers.value = sysList
+
+    // Merge BLE list while retaining selected
+    const saved = [...bleDevices.value]
+    bleDevices.value = bleList
+    for (const d of saved) {
+      if (!bleDevices.value.some(x => x.id === d.id)) {
+        bleDevices.value.push(d)
+      }
+    }
+  } catch (e: any) {
+    notify('Printer load error: ' + (e?.message ?? e), 'error')
+  } finally {
+    // Artificial 500ms delay to make the spin animation noticeable
+    await new Promise((r) => setTimeout(r, 500))
+    loadingPrinters.value = false
+  }
+}
 onMounted(async () => {
   currency.value = await getSetting('currency_symbol', "so'm")
   allowNegative.value = (await getSetting('allow_negative_stock', '0')) === '1'
@@ -188,6 +222,25 @@ onMounted(async () => {
   shopName.value = await getSetting('shop_name', 'OpenSales POS')
   receiptPrinter.value = await getSetting('receipt_printer', '')
   labelPrinter.value = await getSetting('label_printer', '')
+
+  // Parse saved Bluetooth printers on startup so they display in dropdowns
+  if (receiptPrinter.value && receiptPrinter.value.startsWith('ble:')) {
+    const parts = receiptPrinter.value.split('|')
+    const id = parts[0].slice(4)
+    const name = parts[1] || id
+    if (!bleDevices.value.some(d => d.id === id)) {
+      bleDevices.value.push({ id, name })
+    }
+  }
+  if (labelPrinter.value && labelPrinter.value.startsWith('ble:')) {
+    const parts = labelPrinter.value.split('|')
+    const id = parts[0].slice(4)
+    const name = parts[1] || id
+    if (!bleDevices.value.some(d => d.id === id)) {
+      bleDevices.value.push({ id, name })
+    }
+  }
+
   await loadPrinters()
   await refreshLicense()
   await loadBackups()
@@ -218,6 +271,60 @@ async function save() {
   setCurrency(currency.value)
   saved.value = true
   setTimeout(() => (saved.value = false), 2000)
+}
+
+const testingReceipt = ref(false)
+const testingLabel = ref(false)
+
+async function testReceiptPrint() {
+  testingReceipt.value = true
+  try {
+    await setSetting('receipt_printer', receiptPrinter.value || '')
+    const dummyReceipt = {
+      receipt_number: "TEST-0001",
+      created_at: new Date().toISOString(),
+      customer: t('common.walkInCustomer') || "Yo'l-yo'lakay xaridor",
+      items: [
+        { name: "Test Product A", qty: 2, unit: "dona", price: 15000, subtotal: 30000 },
+        { name: "Test Product B", qty: 1, unit: "kg", price: 25000, subtotal: 25000 }
+      ],
+      discount: 5000,
+      total: 50000,
+      paid_cash: 50000,
+      paid_card: 0,
+      change: 0,
+      debt: 0,
+      shop: shopName.value || "OpenSales Test"
+    }
+    await printReceipt(dummyReceipt)
+    notify(t('settings.saved') || "Saqlandi", 'success')
+  } catch (e: any) {
+    notify(e?.message || String(e), 'error')
+  } finally {
+    testingReceipt.value = false
+  }
+}
+
+async function testLabelPrint() {
+  testingLabel.value = true
+  try {
+    await setSetting('label_printer', labelPrinter.value || '')
+    const dummyLabel = {
+      name: "Test Label Product",
+      price: 45000,
+      barcode: "123456789012",
+      type: "EAN_13",
+      copies: 1,
+      size: "40mm 30mm",
+      showPrice: true
+    }
+    await printLabel(dummyLabel)
+    notify(t('settings.saved') || "Saqlandi", 'success')
+  } catch (e: any) {
+    notify(e?.message || String(e), 'error')
+  } finally {
+    testingLabel.value = false
+  }
 }
 </script>
 
@@ -308,22 +415,61 @@ async function save() {
         <section class="rounded-xl border bg-card p-4 sm:p-5 lg:col-span-2">
           <div class="mb-4 flex items-center justify-between gap-2">
             <div class="flex items-center gap-2 text-sm font-semibold"><Printer class="h-4 w-4 text-primary" /> {{ $t('settings.printer') }}</div>
-            <button @click="loadPrinters" class="flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-xs hover:bg-muted"><RefreshCw class="h-3.5 w-3.5" /> {{ $t('settings.refresh') }}</button>
+            <button 
+              @click="loadPrinters" 
+              :disabled="loadingPrinters"
+              class="flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-xs hover:bg-muted"
+            >
+              <RefreshCw class="h-3.5 w-3.5" :class="loadingPrinters ? 'animate-spin' : ''" /> 
+              {{ $t('settings.refresh') }}
+            </button>
           </div>
           <div class="grid gap-4 sm:grid-cols-2">
             <div>
               <label class="mb-1.5 block text-sm font-medium">{{ $t('settings.receiptPrinter') }}</label>
-              <select v-model="receiptPrinter" class="h-10 w-full rounded-lg border bg-background px-3 text-sm">
-                <option value="">{{ $t('settings.viaBrowser') }}</option>
-                <option v-for="p in printers" :key="p" :value="p">{{ p }}</option>
-              </select>
+              <div class="flex gap-2">
+                <select v-model="receiptPrinter" class="h-10 flex-1 rounded-lg border bg-background px-3 text-sm">
+                  <option value="">{{ $t('settings.viaBrowser') }}</option>
+                  <optgroup label="Tizim printerlari (USB/Wi-Fi)" v-if="printers.length > 0">
+                    <option v-for="p in printers" :key="p" :value="p">{{ p }}</option>
+                  </optgroup>
+                  <optgroup label="Bluetooth printerlar" v-if="bleDevices.length > 0">
+                    <option v-for="d in bleDevices" :key="d.id" :value="`ble:${d.id}|${d.name}`">[BT] {{ d.name }}</option>
+                  </optgroup>
+                </select>
+                <button 
+                  @click="testReceiptPrint"
+                  class="h-10 px-3 border rounded-lg hover:bg-muted text-sm flex items-center gap-1.5 whitespace-nowrap"
+                  :disabled="testingReceipt"
+                >
+                  <RefreshCw v-if="testingReceipt" class="h-4 w-4 animate-spin" />
+                  <Printer v-else class="h-4 w-4" />
+                  {{ $t('settings.testPrint') || 'Test' }}
+                </button>
+              </div>
             </div>
             <div>
               <label class="mb-1.5 block text-sm font-medium">{{ $t('settings.labelPrinter') }}</label>
-              <select v-model="labelPrinter" class="h-10 w-full rounded-lg border bg-background px-3 text-sm">
-                <option value="">{{ $t('settings.viaBrowser') }}</option>
-                <option v-for="p in printers" :key="p" :value="p">{{ p }}</option>
-              </select>
+              <div class="flex gap-2">
+                <select v-model="labelPrinter" class="h-10 flex-1 rounded-lg border bg-background px-3 text-sm">
+                  <option value="">{{ $t('settings.viaBrowser') }}</option>
+                  <optgroup label="Tizim printerlari (USB/Wi-Fi)" v-if="printers.length > 0">
+                    <option v-for="p in printers" :key="p" :value="p">{{ p }}</option>
+                  </optgroup>
+                  <optgroup label="Bluetooth printerlar" v-if="bleDevices.length > 0">
+                    <option v-for="d in bleDevices" :key="d.id" :value="`ble:${d.id}|${d.name}`">[BT] {{ d.name }}</option>
+                  </optgroup>
+                </select>
+                <button 
+                  @click="testLabelPrint"
+                  class="h-10 px-3 border rounded-lg hover:bg-muted text-sm flex items-center gap-1.5 whitespace-nowrap"
+                  :disabled="testingLabel"
+                >
+                  <RefreshCw v-if="testingLabel" class="h-4 w-4 animate-spin" />
+                  <Printer v-else class="h-4 w-4" />
+                  {{ $t('settings.testPrint') || 'Test' }}
+                </button>
+              </div>
             </div>
           </div>
           <p class="mt-2 text-xs text-muted-foreground">
