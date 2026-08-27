@@ -23,6 +23,10 @@ function sha512hex(s: string): string {
 
 // PIN unutilganda owner master kalit bilan qayta o'rnatish.
 // BITTA kalit — owner master (VITE_OWNER_MASTER_HASH) hamma joyda ishlaydi.
+// DIQQAT: bu yerdagi xesh ATAYLAB bitta raund — VITE_OWNER_MASTER_HASH aynan
+// SHA-512(KALIT). license.ts dagi 200k raundli zanjir boshqa maqsad uchun
+// (Worker'ga yuboriladigan X-Owner-Proof), uni bu yerga ko'chirma —
+// aks holda PIN tiklash ishlamay qoladi.
 export async function verifyRecoveryKey(recoveryKey: string): Promise<boolean> {
   const hash = (import.meta.env.VITE_OWNER_MASTER_HASH ?? '').trim().toLowerCase()
   return hash !== '' && sha512hex(recoveryKey.trim().toUpperCase()) === hash

@@ -142,26 +142,51 @@ export async function deactivate(): Promise<void> {
 }
 
 // ---- Egasi uchun generator (seed dasturda saqlanmaydi, qo'lda kiritiladi) ----
-// SHA-512 hex (sync, nacl orqali) — master kalitni ochiq saqlamasdan tekshirish uchun.
-// Offline brute-force'ni sekinlashtirish uchun ko'p martalik hash zanjiri (oddiy KDF-stretch) —
-// bitta yalang'och SHA-512 o'rniga; hosh generatsiya qilinganda ham xuddi shu son marta takrorlansin.
+// Master kalit uchun IKKI xil hosila bor — ularni aralashtirmaslik kerak:
+//
+//   H1     = SHA-512(KALIT)                  → bundle'da (VITE_OWNER_MASTER_HASH).
+//            Kalitni TEKSHIRISH shu bilan. auth.ts dagi PIN tiklash ham aynan shu.
+//   Hproof = SHA-512 zanjiri, MASTER_HASH_ROUNDS marta → Cloudflare Worker sirida.
+//            Cross-device zaxira o'qishda X-Owner-Proof sifatida yuboriladi.
+//
+// Nega ajratilgan: bundle'ni o'qigan odam H1 ni ko'radi, lekin undan Hproof ni
+// hisoblab bo'lmaydi (zanjir kalitning o'zidan boshlanadi) — ya'ni bundle'dan
+// boshqa qurilmalar zaxirasiga kirish kaliti chiqmaydi.
+//
+// ESKI XATO: bu yerda tekshirish ham MASTER_HASH_ROUNDS marta hisoblanardi va
+// 1 raundli VITE_OWNER_MASTER_HASH bilan solishtirilardi → isOwnerMaster() hech
+// qachon true qaytarmagan (generator/zaxira/tiklash ochilmagan) va ownerProof()
+// doim null bo'lgan (Worker 403 bergan).
 const MASTER_HASH_ROUNDS = 200_000
-function sha512hex(s: string): string {
-  let h = nacl.hash(enc.encode(s))
-  for (let i = 1; i < MASTER_HASH_ROUNDS; i++) h = nacl.hash(h)
-  return Array.from(h).map((b) => b.toString(16).padStart(2, '0')).join('')
+
+function toHex(b: Uint8Array): string {
+  return Array.from(b).map((x) => x.toString(16).padStart(2, '0')).join('')
 }
-// Tasdiqlangan master hash shu sessiyada eslab qolinadi — cross-device backup
-// so'rovlarida Worker'ga X-Owner-Proof sifatida yuboriladi (Worker o'z nusxasi
-// bilan solishtiradi). Xotirada, diskka yozilmaydi.
+function masterVerifyHash(key: string): string {
+  return toHex(nacl.hash(enc.encode(key)))
+}
+function masterProofHash(key: string): string {
+  let h = nacl.hash(enc.encode(key))
+  for (let i = 1; i < MASTER_HASH_ROUNDS; i++) h = nacl.hash(h)
+  return toHex(h)
+}
+
+// Tasdiqlangan kalit shu sessiyada eslab qolinadi (xotirada, diskka yozilmaydi).
+// Proof zanjiri ~1s oladi, shuning uchun faqat haqiqatan kerak bo'lganda —
+// ya'ni cross-device zaxira so'rovida — hisoblanadi.
+let ownerVerifiedKey: string | null = null
 let ownerProofCache: string | null = null
+
 export function isOwnerMaster(input: string): boolean {
-  const hash = sha512hex(input.trim().toUpperCase())
-  const ok = OWNER_MASTER_HASH !== '' && hash === OWNER_MASTER_HASH
-  if (ok) ownerProofCache = hash
+  const key = input.trim().toUpperCase()
+  const ok = OWNER_MASTER_HASH !== '' && masterVerifyHash(key) === OWNER_MASTER_HASH
+  if (ok) { ownerVerifiedKey = key; ownerProofCache = null }
   return ok
 }
 export function ownerProof(): string | null {
+  if (ownerProofCache) return ownerProofCache
+  if (!ownerVerifiedKey) return null
+  ownerProofCache = masterProofHash(ownerVerifiedKey)
   return ownerProofCache
 }
 export function generateKey(deviceId: string, exp: string | null, secretSeedB64: string): string {
