@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue'
-import { invoke } from '@tauri-apps/api/core'
 import SearchableSelect from '../components/SearchableSelect.vue'
 import { Check, Store, Coins, ShoppingCart, ShieldCheck, KeyRound, Copy, FileText, DatabaseBackup, RotateCcw, RefreshCw, Download, CloudUpload, Lock, LockOpen, Printer, Languages } from 'lucide-vue-next'
 import { getSetting, setSetting } from '../lib/db'
@@ -8,6 +7,7 @@ import { useI18n } from 'vue-i18n'
 import { printReceipt, printLabel } from '../lib/print'
 import { setLocale, availableLocales, type Locale } from '../lib/i18n'
 import { listPrinters } from '../lib/silentprint'
+import { scanBlePrinters, cachedBleDevices, rememberBleDevice, bleScannedOnce, type BleDevice } from '../lib/bleprinters'
 import { setCurrency, formatDateTime } from '../lib/format'
 import { license, refreshLicense, activate, isOwnerMaster } from '../lib/license'
 import { listBackups, makeBackup, restoreBackup, backupPin, githubDownload, syncNow as libSyncNow, lastSync, loadLastSync, syncing, githubDevices, githubBackups, NEED_PASS, type BackupFile, type GhDevice } from '../lib/backup'
@@ -182,38 +182,43 @@ const licText = computed(() => {
   return t('settings.licExpired')
 })
 
-interface BleDevice {
-  id: string
-  name: string
-}
-const bleDevices = ref<BleDevice[]>([])
+const bleDevices = ref<BleDevice[]>(cachedBleDevices())
 const loadingPrinters = ref(false)
+const scanningBle = ref(false)
+const bleError = ref('')
 
-async function loadPrinters() {
+// Tizim printerlari (USB/Wi-Fi). Rust tomonda keshlangan va timeout bilan —
+// sahifa hech qachon shu chaqiruvda qotib qolmaydi.
+async function loadSystemPrinters(force = false) {
+  if (loadingPrinters.value) return
   loadingPrinters.value = true
   try {
-    const [sysList, bleList] = await Promise.all([
-      listPrinters().catch(() => []),
-      invoke<BleDevice[]>('scan_bluetooth_printers').catch(() => [])
-    ])
-
-    printers.value = sysList
-
-    // Merge BLE list while retaining selected
-    const saved = [...bleDevices.value]
-    bleDevices.value = bleList
-    for (const d of saved) {
-      if (!bleDevices.value.some(x => x.id === d.id)) {
-        bleDevices.value.push(d)
-      }
-    }
-  } catch (e: any) {
-    notify('Printer load error: ' + (e?.message ?? e), 'error')
+    printers.value = await listPrinters(force)
   } finally {
-    // Artificial 500ms delay to make the spin animation noticeable
-    await new Promise((r) => setTimeout(r, 500))
     loadingPrinters.value = false
   }
+}
+
+// BLE skan ~4 soniya davom etadi va radioga bog'liq — sahifani hech qachon
+// bloklamaydi, alohida indikator bilan fonda ketadi.
+async function scanBle() {
+  if (scanningBle.value) return
+  scanningBle.value = true
+  bleError.value = ''
+  try {
+    const r = await scanBlePrinters()
+    bleDevices.value = r.devices
+    if (r.error === 'timeout') bleError.value = t('settings.bleScanTimeout')
+    else if (r.error) bleError.value = t('settings.bleScanFailed', { error: r.error })
+  } finally {
+    scanningBle.value = false
+  }
+}
+
+// "Yangilash" tugmasi: keshni chetlab o'tib ikkalasini ham yangilaydi.
+async function loadPrinters() {
+  await loadSystemPrinters(true)
+  await scanBle()
 }
 onMounted(async () => {
   currency.value = await getSetting('currency_symbol', "so'm")
@@ -223,25 +228,20 @@ onMounted(async () => {
   receiptPrinter.value = await getSetting('receipt_printer', '')
   labelPrinter.value = await getSetting('label_printer', '')
 
-  // Parse saved Bluetooth printers on startup so they display in dropdowns
-  if (receiptPrinter.value && receiptPrinter.value.startsWith('ble:')) {
-    const parts = receiptPrinter.value.split('|')
+  // Saqlangan Bluetooth printerlar darhol ro'yxatda ko'rinsin (skan kutilmaydi).
+  for (const saved of [receiptPrinter.value, labelPrinter.value]) {
+    if (!saved || !saved.startsWith('ble:')) continue
+    const parts = saved.split('|')
     const id = parts[0].slice(4)
-    const name = parts[1] || id
-    if (!bleDevices.value.some(d => d.id === id)) {
-      bleDevices.value.push({ id, name })
-    }
+    rememberBleDevice({ id, name: parts[1] || id })
   }
-  if (labelPrinter.value && labelPrinter.value.startsWith('ble:')) {
-    const parts = labelPrinter.value.split('|')
-    const id = parts[0].slice(4)
-    const name = parts[1] || id
-    if (!bleDevices.value.some(d => d.id === id)) {
-      bleDevices.value.push({ id, name })
-    }
-  }
+  bleDevices.value = cachedBleDevices()
 
-  await loadPrinters()
+  // MUHIM: printer qidiruvi `await` qilinmaydi. Ilgari bu yerda BLE skan
+  // kutilardi va u javob bermasa Sozlamalar sahifasi butunlay qotib qolardi.
+  void loadSystemPrinters()
+  if (!bleScannedOnce()) void scanBle()
+
   await refreshLicense()
   await loadBackups()
   await loadLastSync()
@@ -417,10 +417,10 @@ async function testLabelPrint() {
             <div class="flex items-center gap-2 text-sm font-semibold"><Printer class="h-4 w-4 text-primary" /> {{ $t('settings.printer') }}</div>
             <button 
               @click="loadPrinters" 
-              :disabled="loadingPrinters"
-              class="flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-xs hover:bg-muted"
+              :disabled="loadingPrinters || scanningBle"
+              class="flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-xs hover:bg-muted disabled:opacity-60"
             >
-              <RefreshCw class="h-3.5 w-3.5" :class="loadingPrinters ? 'animate-spin' : ''" /> 
+              <RefreshCw class="h-3.5 w-3.5" :class="(loadingPrinters || scanningBle) ? 'animate-spin' : ''" /> 
               {{ $t('settings.refresh') }}
             </button>
           </div>
@@ -472,9 +472,13 @@ async function testLabelPrint() {
               </div>
             </div>
           </div>
+          <p v-if="scanningBle" class="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
+            <RefreshCw class="h-3 w-3 animate-spin" /> {{ $t('settings.bleSearching') }}
+          </p>
+          <p v-else-if="bleError" class="mt-2 text-xs text-amber-600">{{ bleError }}</p>
           <p class="mt-2 text-xs text-muted-foreground">
             {{ $t('settings.printerHint') }}
-            <template v-if="printers.length === 0"><br>{{ $t('settings.noPrinterFound') }}</template>
+            <template v-if="printers.length === 0 && !loadingPrinters"><br>{{ $t('settings.noPrinterFound') }}</template>
           </p>
         </section>
 

@@ -3,9 +3,10 @@ import { invoke } from '@tauri-apps/api/core'
 import { writeFile, mkdir, BaseDirectory } from '@tauri-apps/plugin-fs'
 import { appCacheDir, join } from '@tauri-apps/api/path'
 
-// Tizimда o'rnatilган printerlar.
-export function listPrinters(): Promise<string[]> {
-  return invoke<string[]>('list_printers').catch(() => [])
+// Tizimда o'rnatilган printerlar. Rust tomonda 60s kesh + 8s timeout bor,
+// `force` keshni chetlab o'tadi ("Yangilash" tugmasi).
+export function listPrinters(force = false): Promise<string[]> {
+  return invoke<string[]>('list_printers', { force }).catch(() => [])
 }
 
 // PNG baytlarini faylга yozib, printerга yuboradi. printer bo'sh = standart printer.
