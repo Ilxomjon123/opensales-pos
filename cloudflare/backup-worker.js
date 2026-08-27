@@ -35,8 +35,12 @@
  *   GH_TOKEN          — fine-grained PAT, faqat backup repo, contents:write
  *   GH_REPO           — "egasi/opensales-pos-backups"
  *   LICENSE_PUBKEY    — base64 Ed25519 public key (POS'dagi VITE_LICENSE_PUBKEY bilan bir xil)
- *   OWNER_MASTER_HASH — POS'dagi VITE_OWNER_MASTER_HASH bilan AYNAN bir xil qiymat
- *                       (license.ts sha512hex, 200_000 round SHA-512 zanjiri, hex, kichik harf).
+ *   OWNER_MASTER_HASH — license.ts `ownerProof()` qaytaradigan qiymat: master
+ *                       kalitdan 200_000 raundli SHA-512 zanjiri (hex, kichik harf).
+ *                       DIQQAT: bu POS'dagi VITE_OWNER_MASTER_HASH BILAN BIR XIL EMAS —
+ *                       u bitta raundli xesh va faqat kalitni tekshirish uchun. Ikkisini
+ *                       aralashtirish 2026-07-04..08-27 orasida cross-device o'qishni
+ *                       butunlay ishlamay qoldirgan edi.
  *                       `npx wrangler secret put OWNER_MASTER_HASH` — [vars]ga EMAS, secret'ga.
  */
 
@@ -112,8 +116,10 @@ function timingSafeEqualStr(a, b) {
   for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
   return diff === 0;
 }
-// Proof — POS'da owner-master parol tasdiqlangach hisoblangan sha512hex (client hisoblaydi,
-// Worker faqat solishtiradi — 200_000 roundni qayta hisoblash shart emas).
+// Proof — POS'da owner-master parol tasdiqlangach hisoblangan 200_000 raundli zanjir
+// (client hisoblaydi, Worker faqat solishtiradi — qayta hisoblash shart emas).
+// Bundle'dagi VITE_OWNER_MASTER_HASH bundan boshqa qiymat, shuning uchun bundle'ni
+// o'qigan odam bu proof'ni yasay olmaydi.
 function hasOwnerProof(request, env) {
   if (!env.OWNER_MASTER_HASH) return false;
   const proof = (request.headers.get('X-Owner-Proof') || '').trim().toLowerCase();
