@@ -20,9 +20,10 @@ Yangilash ma'lumotni saqlashi uchun:
 - Dasturda FAQAT public kalit (`src/lib/license.ts`). Private seed faqat egasida, hech qachon build ichiga joylanmaydi.
 - 1-marta o'rnatishda avtomatik 15 kun sinov. Muddat tugasa → `/activate` ekrani bloklaydi.
 - Kalit har PC ga bog'liq (`device_id`). Deterministik: bir xil (deviceId + exp + seed) = bir xil kalit.
-- Generator: aktivatsiya ekranida logoga 5 marta bos YOKI Sozlamalar→Litsenziya kalit ikonkasini 5 marta bos → master (`VITE_OWNER_MASTER`) → seed + muddat → kalit.
+- Generator: aktivatsiya ekranida logoga 5 marta bos YOKI Sozlamalar→Litsenziya kalit ikonkasini 5 marta bos → master kalit → seed + muddat → kalit.
 - Bekor qilish: generatordagi qizil tugma → `license_revoked=1` → dastur aktivatsiyani kutadi.
-- Maxfiy qiymatlar `.env`da (`VITE_*`), DB'da emas: `VITE_OWNER_MASTER`, `VITE_RECOVERY_MASTER`, `VITE_DEFAULT_PIN`. Private seed kodda yo'q — parol menejerda.
+- Maxfiy qiymatlar `.env`da (`VITE_*`), DB'da emas: `VITE_OWNER_MASTER_HASH`, `VITE_DEFAULT_PIN`, `VITE_INTEGRITY_SECRET`. Private seed kodda yo'q — parol menejerda.
+- Master kalitning OCHIQ matni hech qayerda saqlanmaydi. `.env`da faqat `VITE_OWNER_MASTER_HASH` = SHA-512(KALIT), bitta raund — kalitni tekshirish shu bilan (`auth.ts` PIN tiklash va `license.ts isOwnerMaster()` ikkalasi ham). 200 000 raundli zanjir ALOHIDA narsa: u faqat `ownerProof()` — Cloudflare backup-worker'ga `X-Owner-Proof` sifatida boradi, worker sirida shu qiymat turishi kerak. Ikkalasini aralashtirma.
 
 ## UI
 
@@ -41,6 +42,6 @@ Yangilash ma'lumotni saqlashi uchun:
 ## Backup (`lib/backup.ts`)
 
 - Kunlik lokal nusxa (VACUUM INTO — WAL bilan toza), AppData/`backups/`, oxirgi 14 ta. Internet bo'lsa fonda GitHub'ga sync.
-- GitHub sync: private `opensales-pos-backups`, yo'l `backups/<deviceId>/pos-*.db` + `_info.json` (shop_name + host). Token `VITE_BACKUP_TOKEN` (fine-grained PAT, faqat shu repo contents:write). Repo `VITE_BACKUP_REPO`.
+- GitHub sync: private `opensales-pos-backups`, yo'l `backups/<deviceId>/pos-*.db` + `_info.json` (shop_name + host). Ilovada GitHub tokeni YO'Q — hammasi Cloudflare worker orqali (`VITE_BACKUP_PROXY_URL`, `cloudflare/backup-worker.js`); worker device_id + license_key bilan avtorizatsiya qiladi, boshqa qurilma papkasini o'qishda `X-Owner-Proof` talab qiladi.
 - Tiklash OQ EKRAN bermasligi uchun: ochiq pos.db ustiga yozma. `restoreBackup` marker (`restore_pending`) yozadi + relaunch; `applyPendingRestore()` main.ts'da DB ochilishidan OLDIN almashtiradi.
-- Zaxira bo'limi (Sozlamalar) owner-master bilan yashirin: "Sozlamalar" sarlavhasini 5 marta bos → master (`VITE_OWNER_MASTER`). GitHub'dan tiklash searchable select (shop · host · id).
+- Zaxira bo'limi (Sozlamalar) owner-master bilan yashirin: "Sozlamalar" sarlavhasini 5 marta bos → master kalit. GitHub'dan tiklash searchable select (shop · host · id).
