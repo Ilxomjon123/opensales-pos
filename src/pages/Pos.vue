@@ -188,6 +188,11 @@ function addProduct(p: Product) {
   }
 }
 function inc(l: CartLine) { if (allowNegative.value || l.qty < l.stock) l.qty++ }
+
+// Plitkadagi "−": savatni ochmasdan kamaytirish (mobil'da savat yopiq sheet —
+// ilgari plitka faqat +1 qila olardi). +1 — plitkaning o'zi.
+const cartLineByProduct = computed(() => new Map(cart.value.map((l) => [l.product_id, l])))
+function tileStepDown(p: Product) { const l = cartLineByProduct.value.get(p.id); if (l) dec(l) }
 function dec(l: CartLine) { l.qty--; if (l.qty <= 0) removeLine(l) }
 function removeLine(l: CartLine) { cart.value = cart.value.filter((x) => x !== l) }
 function clearCart() { cart.value = []; discount.value = 0; paidCash.value = 0; paidCard.value = 0 }
@@ -370,8 +375,12 @@ async function doCloseShift() {
 
       <!-- Grid -->
       <div class="grid flex-1 auto-rows-max grid-cols-[repeat(auto-fill,minmax(140px,1fr))] items-start gap-2.5 overflow-y-auto pb-20 sm:gap-3 lg:pb-0">
-        <button v-for="p in filtered" :key="p.id" type="button" :disabled="!allowNegative && p.stock <= 0" @click="addProduct(p)"
-          class="group flex flex-col overflow-hidden rounded-xl border bg-card text-left transition hover:border-primary/40 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-50">
+        <!-- Plitka va hisoblagich QO'SHNI: tugma ichida tugma bo'lolmaydi, "−"
+             bosilishi esa plitkaga o'tib +1 bo'lib ketmasligi kerak. -->
+        <div v-for="p in filtered" :key="p.id" class="relative">
+        <button type="button" :disabled="!allowNegative && p.stock <= 0" @click="addProduct(p)"
+          class="group flex w-full flex-col overflow-hidden rounded-xl border bg-card text-left transition hover:border-primary/40 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-50"
+          :class="cartLineByProduct.has(p.id) ? 'border-primary/60 ring-1 ring-primary/30' : ''">
           <div class="relative h-28 w-full shrink-0 bg-muted">
             <img v-if="p.image" :src="p.image" class="h-full w-full object-cover" />
             <div v-else class="flex h-full w-full items-center justify-center text-muted-foreground"><Package class="h-10 w-10" /></div>
@@ -383,6 +392,22 @@ async function doCloseShift() {
             <div class="text-xs text-muted-foreground">{{ p.stock }} {{ p.unit }}</div>
           </div>
         </button>
+        <!-- Savatda bo'lsa: o'ng yuqorida miqdor, chap yuqorida "−". Burchakda —
+             ataylab: kassir plitkani ketma-ket bosganda (+1) barmog'i markazga
+             tushadi, "−" markazda bo'lsa tasodifan kamaytirib yuborardi. Tugagan
+             (o'chiq) plitkada ham ishlaydi. 1 da "−" o'rnida savat belgisi. -->
+        <template v-if="cartLineByProduct.has(p.id)">
+          <div class="pointer-events-none absolute top-2 right-2 flex h-6 min-w-6 items-center justify-center rounded-full bg-primary px-1.5 text-xs font-bold text-primary-foreground tabular-nums shadow-md ring-2 ring-background">
+            {{ cartLineByProduct.get(p.id)?.qty }}
+          </div>
+          <button type="button" @click="tileStepDown(p)"
+            :aria-label="(cartLineByProduct.get(p.id)?.qty ?? 0) <= 1 ? $t('pos.removeFromCart') : $t('pos.decreaseQty')"
+            class="absolute top-1.5 left-1.5 flex h-9 w-9 items-center justify-center rounded-full bg-background/95 text-foreground shadow-md ring-1 ring-border backdrop-blur-sm transition hover:bg-muted active:scale-90">
+            <Trash2 v-if="(cartLineByProduct.get(p.id)?.qty ?? 0) <= 1" class="h-4 w-4 text-rose-600" />
+            <Minus v-else class="h-4 w-4" />
+          </button>
+        </template>
+        </div>
         <div v-if="filtered.length === 0" class="col-span-full rounded-xl border border-dashed bg-muted/30 p-12 text-center text-muted-foreground">{{ $t('pos.noProductsFound') }}</div>
       </div>
     </div>
