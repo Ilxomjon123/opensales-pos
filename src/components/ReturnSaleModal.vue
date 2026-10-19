@@ -8,9 +8,10 @@ import { moneySum } from '../lib/format'
 import { confirmDialog } from '../lib/confirm'
 import { notify } from '../lib/notify'
 import {
-  returnQuote, createReturn, returnErrorMessage, printReturnReceipt, createdToReceipt, fmtQty,
+  returnQuote, createReturn, returnErrorMessage, printReturnReceipt, createdToReceipt, fmtQty, clampRefundBalance,
   type ReturnQuote, type CreatedReturn,
 } from '../lib/returns'
+import RefundSplit from './RefundSplit.vue'
 
 const props = defineProps<{ saleId: number; customerLabel: string }>()
 const emit = defineEmits<{ close: []; done: [r: CreatedReturn] }>()
@@ -34,16 +35,12 @@ const selected = computed(() =>
     .filter((l) => l.qty > 0),
 )
 const amount = computed(() => quote.value?.amount ?? 0)
-const moneyPart = computed(() => Math.max(0, amount.value - refundBalance.value))
-const balanceMin = computed(() => Math.max(0, amount.value - (quote.value?.moneyCap ?? 0)))
 const anyReturnable = computed(() => lines.value.some((l) => l.qtyRemaining > 1e-6))
 const canSubmit = computed(() => !!quote.value?.shiftOpen && selected.value.length > 0 && !busy.value && !error.value)
 
 function clampBalance(v: number): number {
   const q = quote.value
-  if (!q || !q.balanceAllowed) return 0
-  const n = Number.isFinite(v) ? Math.round(v) : 0
-  return Math.min(q.amount, Math.max(balanceMin.value, n))
+  return q ? clampRefundBalance(v, q.amount, q.moneyCap, q.balanceAllowed) : 0
 }
 
 // Har miqdor o'zgarishida Rust qayta hisoblaydi. Eski javob yangisini bosib ketmasin — seq.
@@ -89,9 +86,9 @@ function selectAll() {
   qty.value = next
 }
 function clearAll() { qty.value = {} }
-function onBalanceInput(raw: unknown) {
+function onBalance(v: number) {
   balanceTouched.value = true
-  refundBalance.value = clampBalance(Number(raw))
+  refundBalance.value = v
 }
 function isIntegerUnit(l: { qtySold: number }) { return Number.isInteger(l.qtySold) }
 
@@ -216,26 +213,8 @@ function print() {
               </div>
               <div v-if="quote.alreadyRefunded > 0" class="text-right text-xs text-muted-foreground">{{ $t('returns.alreadyRefunded', { amount: moneySum(quote.alreadyRefunded) }) }}</div>
 
-              <template v-if="amount > 0">
-                <div v-if="quote.balanceAllowed" class="space-y-1">
-                  <label class="flex items-baseline justify-between text-sm font-medium">
-                    <span>{{ $t('returns.toBalance') }}</span>
-                    <span class="text-xs font-normal text-muted-foreground">{{ $t('returns.customerBalance', { amount: quote.customerBalance < 0 ? '− ' + moneySum(-quote.customerBalance) : moneySum(quote.customerBalance) }) }}</span>
-                  </label>
-                  <input type="number" :min="balanceMin" :max="amount" :value="refundBalance" @change="onBalanceInput(($event.target as HTMLInputElement).value)"
-                    class="h-10 w-full rounded-md border bg-background px-3 text-sm tabular-nums" />
-                  <p class="text-xs text-muted-foreground">{{ $t('returns.balanceDebtHint') }} · {{ $t('returns.moneyCapHint', { amount: moneySum(quote.moneyCap) }) }}</p>
-                </div>
-                <p v-else class="text-xs text-muted-foreground">{{ $t('returns.walkInMoneyOnly') }}</p>
-
-                <div v-if="moneyPart > 0" class="flex flex-wrap items-center justify-between gap-2">
-                  <span class="text-sm font-medium">{{ $t('returns.moneyPart') }}: <span class="tabular-nums">{{ moneySum(moneyPart) }}</span></span>
-                  <div class="flex gap-1.5">
-                    <button @click="method = 'cash'" class="h-9 rounded-md border px-3 text-sm" :class="method === 'cash' ? 'border-primary bg-primary/10 text-primary' : ''">{{ $t('returns.cash') }}</button>
-                    <button @click="method = 'card'" class="h-9 rounded-md border px-3 text-sm" :class="method === 'card' ? 'border-primary bg-primary/10 text-primary' : ''">{{ $t('returns.card') }}</button>
-                  </div>
-                </div>
-              </template>
+              <RefundSplit :amount="amount" :money-cap="quote.moneyCap" :balance-allowed="quote.balanceAllowed" :customer-balance="quote.customerBalance"
+                :balance="refundBalance" @update:balance="onBalance" v-model:method="method" />
             </div>
 
             <div>

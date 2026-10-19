@@ -772,6 +772,8 @@ pub fn run() {
             returns::ensure_returns_schema,
             returns::return_quote,
             returns::create_return,
+            returns::customer::customer_return_quote,
+            returns::customer::create_customer_return,
             camera::camera_permission,
             camera::request_camera_permission,
             camera::open_camera_settings,

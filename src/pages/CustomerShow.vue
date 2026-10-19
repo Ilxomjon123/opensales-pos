@@ -6,6 +6,7 @@ import { ArrowLeft, Receipt, HandCoins, Wallet, Scale, History, ChevronDown, Rot
 import { getCustomer, listSales, customerPayments, customerReturns, recordCustomerPayment, setCustomerBalance, type Customer, type Sale, type SaleItem, type CustomerPayment, type SaleReturn } from '../lib/db'
 import { moneySum, formatDateTime } from '../lib/format'
 import { notify } from '../lib/notify'
+import CustomerReturnModal from '../components/CustomerReturnModal.vue'
 
 type SaleFull = Sale & { items: SaleItem[]; customer_name: string | null }
 
@@ -28,6 +29,7 @@ function toggle(saleId?: number) {
   expanded.value = s
 }
 
+const showReturn = ref(false)
 const showPay = ref(false)
 const payAmount = ref(0)
 const payMethod = ref('cash')
@@ -105,6 +107,9 @@ async function saveBal() {
         </div>
       </div>
       <div v-if="customer && !customer.is_walk_in" class="flex shrink-0 items-center gap-2">
+        <button @click="showReturn = true" :title="$t('returns.customerTitle')" class="flex h-9 items-center gap-1.5 rounded-lg border border-amber-500/50 px-2.5 text-sm font-medium text-amber-700 hover:bg-amber-500/10 sm:px-3.5 dark:text-amber-400">
+          <RotateCcw class="h-4 w-4" /> <span class="hidden sm:inline">{{ $t('returns.action') }}</span>
+        </button>
         <button @click="openBal" :title="$t('customerShow.setBalance')" class="flex h-9 items-center gap-1.5 rounded-lg border px-2.5 text-sm font-medium hover:bg-muted sm:px-3.5">
           <Scale class="h-4 w-4" /> <span class="hidden sm:inline">{{ $t('customerShow.setBalance') }}</span>
         </button>
@@ -240,6 +245,8 @@ async function saveBal() {
         </table>
       </div>
     </div>
+
+    <CustomerReturnModal v-if="showReturn" :customer-id="id" :customer-label="displayName" @close="showReturn = false" @done="load" />
 
     <!-- To'lov modal -->
     <div v-if="showPay" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">

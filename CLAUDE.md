@@ -24,6 +24,8 @@ Yangilash ma'lumotni saqlashi uchun:
 - Real bazada INTEGER ustunlarda kasr bor (`cost_price` 12527.2) — Rust'da pul ustunlari `CAST(ROUND())`, narx/tannarx `CAST(.. AS REAL)` bilan o'qiladi (sqlx turini qat'iy tekshiradi).
 - Hisoblarga ta'siri: `customerMovements` (+ `refund_balance`), `shiftStats` (kutilgan naqd − `refund_cash`), Hisobot (vozvrat sanasi bo'yicha ayiriladi, foyda sotuvdagi formulaning teskarisi).
 - Testlar: `cargo test --lib returns` — real migratsiyalar qo'llangan fayl bazada (parallel ikki vozvrat, xatoda rollback va h.k.).
+- Mijoz bo'yicha vozvrat (`returns/customer.rs`, Mijoz sahifasi → "Vozvrat"): tovar + miqdor → mijozning cheklariga ENG YANGISIDAN taqsimlanadi, har chekka alohida `create_on`, hammasi bitta tranzaksiyada. Umumiy pul `split_refunds` bilan cheklarga bo'linadi (har chekda balans ∈ [summa − pul chegarasi, summa]). Yo'l-yo'lakay xaridorga YO'Q — sotuvlari umumiy, bu cheksiz vozvratga aylanadi; u chek bo'yicha qaytaradi.
+- Pul taqsimoti UI'si bitta: `RefundSplit.vue` (ikkala modal ham ishlatadi).
 
 ## Kamera (`src-tauri/src/camera.rs`, `lib/camera.ts`)
 

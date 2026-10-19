@@ -133,7 +133,94 @@ export function createdToReceipt(r: CreatedReturn, customer: string): ReturnRece
   }
 }
 
+// Balansga yoziladigan qism [summa − pul chegarasi, summa] oralig'ida, butun so'mda.
+// Yo'l-yo'lakay xaridorda balans yo'q — doim 0.
+export function clampRefundBalance(v: number, amount: number, moneyCap: number, allowed: boolean): number {
+  if (!allowed) return 0
+  const n = Number.isFinite(v) ? Math.round(v) : 0
+  return Math.min(amount, Math.max(Math.max(0, amount - moneyCap), n))
+}
+
 // Miqdorni ko'rsatish: 3 xonagacha, ortiqcha nolsiz (0.75, 2, 1.333).
 export function fmtQty(q: number): string {
   return String(Math.round(q * 1000) / 1000)
+}
+
+// ---- Mijoz bo'yicha vozvrat (Rust returns/customer.rs) ----
+// Kassir tovar + miqdor tanlaydi; tizim uni mijozning cheklariga eng yangisidan boshlab taqsimlaydi.
+
+export type ProductQtyInput = { productId: number; qty: number }
+
+export type ReturnableProduct = {
+  productId: number
+  productName: string
+  unit: string
+  qtySold: number
+  qtyReturned: number
+  qtyRemaining: number
+  lastPrice: number
+}
+
+export type SaleAllocation = {
+  saleId: number
+  receiptNumber: string
+  createdAt: string
+  lines: { saleItemId: number; productName: string; unit: string; qty: number; price: number }[]
+  amount: number
+  moneyCap: number
+  suggestedBalance: number
+}
+
+export type CustomerReturnQuote = {
+  customerId: number
+  customerBalance: number
+  products: ReturnableProduct[]
+  allocations: SaleAllocation[]
+  amount: number
+  moneyCap: number
+  balanceMin: number
+  suggestedBalance: number
+  shiftOpen: boolean
+}
+
+export type CustomerReturnRequest = {
+  customerId: number
+  lines: ProductQtyInput[]
+  refundCash: number
+  refundCard: number
+  refundBalance: number
+  reason: string | null
+}
+
+export type CustomerReturnResult = {
+  returns: CreatedReturn[]
+  amount: number
+  refundCash: number
+  refundCard: number
+  refundBalance: number
+}
+
+export async function customerReturnQuote(customerId: number, lines: ProductQtyInput[]): Promise<CustomerReturnQuote> {
+  await db()
+  return invoke<CustomerReturnQuote>('customer_return_quote', { customerId, lines })
+}
+
+export async function createCustomerReturn(request: CustomerReturnRequest): Promise<CustomerReturnResult> {
+  await db()
+  return invoke<CustomerReturnResult>('create_customer_return', { request })
+}
+
+// Bir nechta chekdan qilingan vozvrat uchun BITTA umumiy chek.
+export function customerResultToReceipt(r: CustomerReturnResult, customer: string): ReturnReceiptData {
+  return {
+    return_number: r.returns.map((x) => x.returnNumber).join(', '),
+    receipt_number: [...new Set(r.returns.map((x) => x.receiptNumber))].join(', '),
+    created_at: r.returns[0]?.createdAt ?? new Date().toISOString(),
+    customer,
+    items: r.returns.flatMap((x) => x.items.map((i) => ({ name: i.productName, qty: i.qty, unit: i.unit, price: i.price, subtotal: i.subtotal }))),
+    amount: r.amount,
+    refund_cash: r.refundCash,
+    refund_card: r.refundCard,
+    refund_balance: r.refundBalance,
+  }
 }
