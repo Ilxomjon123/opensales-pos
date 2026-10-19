@@ -11,7 +11,8 @@ const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
 const dateFrom = ref(iso(monthStart))
 const dateTo = ref(iso(now))
 
-const period = ref({ count: 0, total: 0, cash: 0, card: 0, debt: 0, profit: 0, expenses: 0, net: 0 })
+// gross — davrdagi sotuvlar; total/cash/card/profit — vozvratlar ayirilgandan keyin (sof).
+const period = ref({ count: 0, gross: 0, total: 0, cash: 0, card: 0, debt: 0, returns: 0, profit: 0, expenses: 0, net: 0 })
 const topProducts = ref<{ name: string; qty: number; total: number }[]>([])
 const lowStock = ref<{ name: string; stock: number; unit: string }[]>([])
 
@@ -45,18 +46,41 @@ async function load() {
      JOIN sales s ON s.id = si.sale_id
      WHERE date(s.created_at) BETWEEN ? AND ?`, [from, to],
   )
-  const grossProfit = p[0]?.profit ?? 0
+  // Vozvrat qaytarilgan KUNI hisoblanadi (pul o'sha kuni chiqqan). Foyda sotuvdagi formulaning
+  // aynan teskarisi — to'liq qaytgan sotuv hisobotda nol foyda beradi.
+  const r = await d.select<{ amount: number; cash: number; card: number }[]>(
+    `SELECT COALESCE(SUM(amount),0) amount, COALESCE(SUM(refund_cash),0) cash, COALESCE(SUM(refund_card),0) card
+     FROM sale_returns WHERE date(created_at) BETWEEN ? AND ?`, [from, to],
+  )
+  const rp = await d.select<{ profit: number }[]>(
+    `SELECT COALESCE(SUM((ri.price - COALESCE(NULLIF(ri.cost_price,0), pr.cost_price, 0)) * ri.qty),0) profit
+     FROM sale_return_items ri LEFT JOIN products pr ON pr.id = ri.product_id
+     JOIN sale_returns r ON r.id = ri.return_id
+     WHERE date(r.created_at) BETWEEN ? AND ?`, [from, to],
+  )
+  const ret = r[0] ?? { amount: 0, cash: 0, card: 0 }
+  const grossProfit = (p[0]?.profit ?? 0) - (rp[0]?.profit ?? 0)
+  const s = t[0]
   // Savdo natijalarini darhol o'rnatamiz — xarajat jadvali bo'lmasa ham hisobot ko'rinadi.
-  period.value = { ...t[0], profit: grossProfit, expenses: 0, net: grossProfit }
+  period.value = {
+    count: s.count, gross: s.total, total: s.total - ret.amount, cash: s.cash - ret.cash, card: s.card - ret.card,
+    debt: s.debt, returns: ret.amount, profit: grossProfit, expenses: 0, net: grossProfit,
+  }
   try {
     const exp = await expensesTotal(from, to)
     period.value = { ...period.value, expenses: exp, net: grossProfit - exp }
   } catch (e) { console.error('expensesTotal:', e) /* xarajat o'qilmadi — 0, lekin log qoldiramiz */ }
+  // Sof sotuv: sotilgan − qaytarilgan (davr ichida). To'liq qaytganlar ro'yxatga chiqmaydi.
   topProducts.value = await d.select(
-    `SELECT si.product_name name, SUM(si.qty) qty, SUM(si.subtotal) total
-     FROM sale_items si JOIN sales s ON s.id = si.sale_id
-     WHERE date(s.created_at) BETWEEN ? AND ?
-     GROUP BY si.product_name ORDER BY total DESC LIMIT 8`, [from, to],
+    `SELECT name, SUM(qty) qty, SUM(total) total FROM (
+       SELECT si.product_name name, si.qty qty, si.subtotal total
+       FROM sale_items si JOIN sales s ON s.id = si.sale_id
+       WHERE date(s.created_at) BETWEEN ? AND ?
+       UNION ALL
+       SELECT ri.product_name, -ri.qty, -ri.subtotal
+       FROM sale_return_items ri JOIN sale_returns r ON r.id = ri.return_id
+       WHERE date(r.created_at) BETWEEN ? AND ?
+     ) GROUP BY name HAVING SUM(qty) > 0.000001 ORDER BY total DESC LIMIT 8`, [from, to, from, to],
   )
   lowStock.value = await d.select(
     `SELECT name, stock, unit FROM products WHERE is_active = 1 AND stock <= 10 ORDER BY stock LIMIT 10`,
@@ -94,7 +118,7 @@ watch([dateFrom, dateTo], load)
         <div class="rounded-xl border bg-card p-4">
           <div class="flex items-center gap-2 text-xs text-muted-foreground"><Receipt class="h-4 w-4" /> {{ $t('reports.periodSales') }}</div>
           <div class="mt-2 text-2xl font-bold">{{ period.count }}</div>
-          <div class="text-sm text-muted-foreground">{{ moneySum(period.total) }}</div>
+          <div class="text-sm text-muted-foreground">{{ moneySum(period.gross) }}</div>
         </div>
         <div class="rounded-xl border bg-card p-4">
           <div class="flex items-center gap-2 text-xs text-muted-foreground"><Coins class="h-4 w-4" /> {{ $t('reports.cashCard') }}</div>
@@ -105,6 +129,7 @@ watch([dateFrom, dateTo], load)
           <div class="flex items-center gap-2 text-xs text-muted-foreground"><TrendingUp class="h-4 w-4" /> {{ $t('reports.turnover') }}</div>
           <div class="mt-2 text-lg font-bold tabular-nums">{{ moneySum(period.total) }}</div>
           <div class="text-sm text-muted-foreground">{{ $t('reports.salesCount', { count: period.count }) }}</div>
+          <div v-if="period.returns > 0" class="text-xs tabular-nums text-amber-600">{{ $t('reports.returnsLine', { amount: moneySum(period.returns) }) }}</div>
         </div>
         <div class="rounded-xl border bg-card p-4">
           <div class="flex items-center gap-2 text-xs text-muted-foreground"><Boxes class="h-4 w-4" /> {{ $t('reports.debt') }}</div>

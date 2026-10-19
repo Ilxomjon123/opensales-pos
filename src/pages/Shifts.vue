@@ -4,7 +4,7 @@ import { Clock, DoorOpen, Receipt, Coins } from 'lucide-vue-next'
 import { db, type Shift } from '../lib/db'
 import { moneySum, formatDateTime } from '../lib/format'
 
-type Row = Shift & { sales_count: number; total_sales: number }
+type Row = Shift & { sales_count: number; total_sales: number; returns_total: number }
 const shifts = ref<Row[]>([])
 const statusFilter = ref<'all' | 'open' | 'closed'>('all')
 
@@ -13,8 +13,13 @@ onMounted(async () => {
   const rows = await d.select<Shift[]>('SELECT * FROM shifts ORDER BY id DESC LIMIT 200')
   const out: Row[] = []
   for (const s of rows) {
-    const r = await d.select<{ c: number; t: number }[]>('SELECT COUNT(*) c, COALESCE(SUM(total),0) t FROM sales WHERE shift_id = ?', [s.id])
-    out.push({ ...s, sales_count: r[0]?.c ?? 0, total_sales: r[0]?.t ?? 0 })
+    const r = await d.select<{ c: number; t: number; rt: number }[]>(
+      `SELECT COUNT(*) c, COALESCE(SUM(total),0) t,
+              (SELECT COALESCE(SUM(amount),0) FROM sale_returns WHERE shift_id = ?) rt
+       FROM sales WHERE shift_id = ?`,
+      [s.id, s.id],
+    )
+    out.push({ ...s, sales_count: r[0]?.c ?? 0, total_sales: r[0]?.t ?? 0, returns_total: r[0]?.rt ?? 0 })
   }
   shifts.value = out
 })
@@ -82,7 +87,10 @@ function pickStatus(v: 'open' | 'closed') { statusFilter.value = statusFilter.va
             </div>
             <div class="mt-0.5 truncate text-xs text-muted-foreground">{{ formatDateTime(s.opened_at) }} → {{ formatDateTime(s.closed_at) }}</div>
           </div>
-          <div class="shrink-0 text-right font-semibold tabular-nums">{{ moneySum(s.total_sales) }}</div>
+          <div class="shrink-0 text-right">
+            <div class="font-semibold tabular-nums">{{ moneySum(s.total_sales) }}</div>
+            <div v-if="s.returns_total > 0" class="text-xs tabular-nums text-amber-600">{{ $t('shifts.returnsLine', { amount: moneySum(s.returns_total) }) }}</div>
+          </div>
         </li>
         <li v-if="visible.length === 0" class="px-4 py-16 text-center text-muted-foreground"><Clock class="mx-auto mb-2 h-8 w-8 opacity-40" /> {{ $t('shifts.empty') }}</li>
         <li v-if="visible.length" class="flex justify-between bg-muted/40 px-4 py-3 text-sm font-semibold"><span>{{ $t('shifts.totalCount', { count: visible.length }) }}</span><span class="tabular-nums">{{ moneySum(visTotal) }}</span></li>
@@ -98,7 +106,10 @@ function pickStatus(v: 'open' | 'closed') { statusFilter.value = statusFilter.va
             <td class="px-4 py-3 text-xs">{{ formatDateTime(s.opened_at) }}</td>
             <td class="px-4 py-3 text-xs">{{ formatDateTime(s.closed_at) }}</td>
             <td class="px-4 py-3 text-right tabular-nums">{{ s.sales_count }}</td>
-            <td class="px-4 py-3 text-right font-semibold tabular-nums">{{ moneySum(s.total_sales) }}</td>
+            <td class="px-4 py-3 text-right tabular-nums">
+              <div class="font-semibold">{{ moneySum(s.total_sales) }}</div>
+              <div v-if="s.returns_total > 0" class="text-xs text-amber-600">{{ $t('shifts.returnsLine', { amount: moneySum(s.returns_total) }) }}</div>
+            </td>
             <td class="px-4 py-3"><span class="rounded-full px-2 py-0.5 text-xs" :class="s.status === 'open' ? 'bg-emerald-500/15 text-emerald-600' : 'bg-slate-500/15 text-slate-600'">{{ s.status === 'open' ? $t('shifts.statusOpen') : $t('shifts.statusClosed') }}</span></td>
           </tr>
           <tr v-if="visible.length === 0"><td colspan="6" class="px-4 py-16 text-center text-muted-foreground"><Clock class="mx-auto mb-2 h-8 w-8 opacity-40" /> {{ $t('shifts.empty') }}</td></tr>

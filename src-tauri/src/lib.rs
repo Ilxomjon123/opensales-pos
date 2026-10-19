@@ -1,3 +1,6 @@
+mod camera;
+mod returns;
+
 use tauri_plugin_sql::{Migration, MigrationKind};
 use std::process::Command;
 use std::sync::Arc;
@@ -582,10 +585,10 @@ async fn print_file(path: String, printer: Option<String>, copies: Option<u32>) 
     }
 }
 
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
-pub fn run() {
-    // Offline POS — SQLite sxema (birinchi ishga tushishda yaratiladi).
-    let migrations = vec![
+// Offline POS — SQLite sxema (birinchi ishga tushishda yaratiladi). Alohida funksiya:
+// testlar aynan shu ro'yxatni qo'llab haqiqiy sxemada ishlaydi.
+pub(crate) fn migrations() -> Vec<Migration> {
+    vec![
     Migration {
         version: 1,
         description: "create_pos_schema",
@@ -742,20 +745,36 @@ CREATE INDEX IF NOT EXISTS idx_expenses_created ON expenses(created_at);
 "#,
         kind: MigrationKind::Up,
     },
-    ];
+    Migration {
+        version: 10,
+        description: "sale_returns",
+        // Sotuvni qaytarish (vozvrat). Matn returns.rs'da — self-heal ham shuni ishlatadi.
+        sql: returns::RETURNS_SCHEMA_SQL,
+        kind: MigrationKind::Up,
+    },
+    ]
+}
 
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_os::init())
         .plugin(
             tauri_plugin_sql::Builder::default()
-                .add_migrations("sqlite:pos.db", migrations)
+                .add_migrations(returns::DB_URL, migrations())
                 .build(),
         )
         .manage(BtState::default())
         .manage(PrinterState::default())
         .invoke_handler(tauri::generate_handler![
+            returns::ensure_returns_schema,
+            returns::return_quote,
+            returns::create_return,
+            camera::camera_permission,
+            camera::request_camera_permission,
+            camera::open_camera_settings,
             list_printers,
             print_file,
             scan_bluetooth_printers,

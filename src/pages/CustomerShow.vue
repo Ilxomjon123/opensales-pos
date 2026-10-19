@@ -2,8 +2,8 @@
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, Receipt, HandCoins, Wallet, Scale, History, ChevronDown } from 'lucide-vue-next'
-import { getCustomer, listSales, customerPayments, recordCustomerPayment, setCustomerBalance, type Customer, type Sale, type SaleItem, type CustomerPayment } from '../lib/db'
+import { ArrowLeft, Receipt, HandCoins, Wallet, Scale, History, ChevronDown, RotateCcw } from 'lucide-vue-next'
+import { getCustomer, listSales, customerPayments, customerReturns, recordCustomerPayment, setCustomerBalance, type Customer, type Sale, type SaleItem, type CustomerPayment, type SaleReturn } from '../lib/db'
 import { moneySum, formatDateTime } from '../lib/format'
 import { notify } from '../lib/notify'
 
@@ -18,6 +18,7 @@ const customer = ref<Customer | null>(null)
 const displayName = computed(() => customer.value?.is_walk_in ? t('common.walkInCustomer') : (customer.value?.name ?? '—'))
 const sales = ref<SaleFull[]>([])
 const payments = ref<CustomerPayment[]>([])
+const returns = ref<SaleReturn[]>([])
 // Yoyilgan sotuvlar (tovarlarini ko'rsatish uchun)
 const expanded = ref<Set<number>>(new Set())
 function toggle(saleId?: number) {
@@ -45,11 +46,13 @@ const statusLabels = computed<Record<string, string>>(() => ({ paid: t('customer
 const statusStyles: Record<string, string> = { paid: 'bg-emerald-500/15 text-emerald-600', partial: 'bg-amber-500/15 text-amber-600', debt: 'bg-rose-500/15 text-rose-600' }
 
 // Ustunlar Sotuvlar bo'limidagidek: Summa · To'langan · Qarz.
-type Ledger = { kind: 'sale' | 'payment' | 'opening'; date: string; label: string; total: number; paid: number; debt: number; status?: string; sale?: SaleFull }
+// Vozvrat: total = −summa (savdo kamaydi), paid = balansga yozilgani (qarzni kamaytiradi, to'lov kabi).
+type Ledger = { kind: 'sale' | 'payment' | 'opening' | 'return'; date: string; label: string; total: number; paid: number; debt: number; status?: string; sale?: SaleFull }
 const ledger = computed<Ledger[]>(() => {
   const rows: Ledger[] = []
   for (const s of sales.value) rows.push({ kind: 'sale', date: s.created_at, label: t('customerShow.saleLabel', { number: s.receipt_number }), total: s.total, paid: s.paid_amount, debt: s.debt_amount, status: s.payment_status, sale: s })
   for (const p of payments.value) rows.push({ kind: 'payment', date: p.created_at, label: p.method === 'card' ? t('customerShow.paymentCard') : t('customerShow.paymentCash'), total: 0, paid: p.amount, debt: 0 })
+  for (const r of returns.value) rows.push({ kind: 'return', date: r.created_at, label: t('customerShow.returnLabel', { number: r.return_number }), total: -r.amount, paid: r.refund_balance, debt: 0 })
   rows.sort((a, b) => (a.date < b.date ? 1 : -1))
   // Dastlabki saldo eng oxirgi (eng eski) qator — tizimdan oldingi qarz/haqdorlik.
   const op = opening.value
@@ -58,14 +61,14 @@ const ledger = computed<Ledger[]>(() => {
 })
 // Jami (footer) — sotuvlar bo'yicha
 const tot = computed(() => ({
-  total: sales.value.reduce((s, x) => s + x.total, 0),
-  paid: payments.value.reduce((s, x) => s + x.amount, 0) + sales.value.reduce((s, x) => s + x.paid_amount, 0),
+  total: sales.value.reduce((s, x) => s + x.total, 0) - returns.value.reduce((s, x) => s + x.amount, 0),
+  paid: payments.value.reduce((s, x) => s + x.amount, 0) + sales.value.reduce((s, x) => s + x.paid_amount, 0) + returns.value.reduce((s, x) => s + x.refund_balance, 0),
   debt: Math.max(0, -(customer.value?.balance ?? 0)),
 }))
 
 async function load() {
   customer.value = await getCustomer(id)
-  ;[sales.value, payments.value] = await Promise.all([listSales({ customerId: id }), customerPayments(id)])
+  ;[sales.value, payments.value, returns.value] = await Promise.all([listSales({ customerId: id }), customerPayments(id), customerReturns(id)])
   payAmount.value = customer.value && customer.value.balance < 0 ? -customer.value.balance : 0
 }
 onMounted(load)
@@ -123,7 +126,7 @@ async function saveBal() {
           </div>
         </div>
         <div class="rounded-xl border bg-card p-4"><div class="text-xs text-muted-foreground">{{ $t('customerShow.salesCount') }}</div><div class="mt-1 text-2xl font-bold tabular-nums">{{ sales.length }}</div></div>
-        <div class="rounded-xl border bg-card p-4"><div class="text-xs text-muted-foreground">{{ $t('customerShow.totalSales') }}</div><div class="mt-1 text-lg font-bold tabular-nums">{{ moneySum(sales.reduce((s, x) => s + x.total, 0)) }}</div></div>
+        <div class="rounded-xl border bg-card p-4"><div class="text-xs text-muted-foreground">{{ $t('customerShow.totalSales') }}</div><div class="mt-1 text-lg font-bold tabular-nums">{{ moneySum(sales.reduce((s, x) => s + x.total, 0)) }}</div><div v-if="returns.length" class="text-xs tabular-nums text-amber-600">{{ $t('reports.returnsLine', { amount: moneySum(returns.reduce((s, x) => s + x.amount, 0)) }) }}</div></div>
         <div class="rounded-xl border bg-card p-4"><div class="text-xs text-muted-foreground">{{ $t('customerShow.totalPaid') }}</div><div class="mt-1 text-lg font-bold tabular-nums text-emerald-600">{{ moneySum(payments.reduce((s, x) => s + x.amount, 0)) }}</div></div>
       </div>
 
@@ -133,8 +136,8 @@ async function saveBal() {
         <ul class="divide-y lg:hidden">
           <li v-for="(r, i) in ledger" :key="i">
             <div class="flex items-center gap-3 px-4 py-3" :class="r.kind === 'sale' ? 'cursor-pointer active:bg-muted/40' : ''" @click="r.kind === 'sale' && toggle(r.sale?.id)">
-              <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full" :class="r.kind === 'payment' ? 'bg-emerald-500/10 text-emerald-600' : r.kind === 'opening' ? 'bg-muted text-muted-foreground' : 'bg-primary/10 text-primary'">
-                <component :is="r.kind === 'payment' ? Wallet : r.kind === 'opening' ? History : Receipt" class="h-4 w-4" />
+              <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full" :class="r.kind === 'payment' ? 'bg-emerald-500/10 text-emerald-600' : r.kind === 'opening' ? 'bg-muted text-muted-foreground' : r.kind === 'return' ? 'bg-amber-500/10 text-amber-600' : 'bg-primary/10 text-primary'">
+                <component :is="r.kind === 'payment' ? Wallet : r.kind === 'opening' ? History : r.kind === 'return' ? RotateCcw : Receipt" class="h-4 w-4" />
               </div>
               <div class="min-w-0 flex-1">
                 <div class="flex items-center gap-1.5">
@@ -148,8 +151,9 @@ async function saveBal() {
               </div>
               <div class="shrink-0 text-right">
                 <div v-if="r.kind === 'sale'" class="font-semibold tabular-nums">{{ moneySum(r.total) }}</div>
+                <div v-else-if="r.kind === 'return'" class="font-semibold tabular-nums text-amber-600">− {{ moneySum(-r.total) }}</div>
                 <div v-if="r.debt > 0" class="text-xs tabular-nums text-rose-500">{{ $t('customerShow.debtPrefix') }} {{ moneySum(r.debt) }}</div>
-                <div v-else-if="r.paid > 0" class="text-xs tabular-nums text-emerald-600">{{ r.kind === 'sale' ? $t('customerShow.paidPrefix') + ' ' : '' }}{{ moneySum(r.paid) }}</div>
+                <div v-else-if="r.paid > 0" class="text-xs tabular-nums text-emerald-600">{{ r.kind === 'sale' ? $t('customerShow.paidPrefix') + ' ' : r.kind === 'return' ? $t('customerShow.toBalancePrefix') + ' ' : '' }}{{ moneySum(r.paid) }}</div>
               </div>
               <ChevronDown v-if="r.kind === 'sale'" class="h-4 w-4 shrink-0 text-muted-foreground transition-transform" :class="r.sale && expanded.has(r.sale.id) ? 'rotate-180' : ''" />
             </div>
@@ -181,15 +185,15 @@ async function saveBal() {
             <template v-for="(r, i) in ledger" :key="i">
               <tr class="hover:bg-muted/40" :class="r.kind === 'sale' ? 'cursor-pointer' : ''" @click="r.kind === 'sale' && toggle(r.sale?.id)">
                 <td class="px-4 py-2.5">
-                  <span class="inline-flex items-center gap-1.5 font-medium" :class="r.kind === 'payment' ? 'text-emerald-600' : r.kind === 'opening' ? 'text-muted-foreground' : ''">
+                  <span class="inline-flex items-center gap-1.5 font-medium" :class="r.kind === 'payment' ? 'text-emerald-600' : r.kind === 'opening' ? 'text-muted-foreground' : r.kind === 'return' ? 'text-amber-600' : ''">
                     <ChevronDown v-if="r.kind === 'sale'" class="h-3.5 w-3.5 text-muted-foreground transition-transform" :class="r.sale && expanded.has(r.sale.id) ? 'rotate-180' : ''" />
-                    <component v-else :is="r.kind === 'payment' ? Wallet : History" class="h-3.5 w-3.5" />
+                    <component v-else :is="r.kind === 'payment' ? Wallet : r.kind === 'return' ? RotateCcw : History" class="h-3.5 w-3.5" />
                     {{ r.label }}
                     <span v-if="r.sale" class="text-xs font-normal text-muted-foreground">· {{ $t('customerShow.itemsCount', { count: r.sale.items.length }) }}</span>
                   </span>
                 </td>
                 <td class="px-4 py-2.5 text-xs">{{ r.kind === 'opening' ? '—' : formatDateTime(r.date) }}</td>
-                <td class="px-4 py-2.5 text-right font-medium tabular-nums" :class="r.total > 0 ? '' : 'text-muted-foreground'">{{ r.total > 0 ? moneySum(r.total) : '—' }}</td>
+                <td class="px-4 py-2.5 text-right font-medium tabular-nums" :class="r.total > 0 ? '' : r.total < 0 ? 'text-amber-600' : 'text-muted-foreground'">{{ r.total > 0 ? moneySum(r.total) : r.total < 0 ? '− ' + moneySum(-r.total) : '—' }}</td>
                 <td class="px-4 py-2.5 text-right tabular-nums" :class="r.paid > 0 ? 'text-emerald-600' : 'text-muted-foreground'">{{ r.paid > 0 ? moneySum(r.paid) : '—' }}</td>
                 <td class="px-4 py-2.5 text-right tabular-nums" :class="r.debt > 0 ? 'text-rose-500' : 'text-muted-foreground'">{{ r.debt > 0 ? moneySum(r.debt) : '—' }}</td>
                 <td class="px-4 py-2.5"><span v-if="r.status" class="rounded-full px-2 py-0.5 text-xs" :class="statusStyles[r.status]">{{ statusLabels[r.status] ?? r.status }}</span></td>

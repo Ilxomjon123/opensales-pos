@@ -21,9 +21,27 @@ export type PrintReceipt = {
   change: number
   debt: number
   shop?: string
+  // 'return' — vozvrat cheki: paid_cash/paid_card = qaytarilgan pul, debt = balansga yozilgani.
+  kind?: 'sale' | 'return'
+  original_receipt?: string
+}
+
+// Chek turi bo'yicha sarlavha va qator nomlari — uchala renderer (HTML, PNG, BLE) shuni ishlatadi.
+function receiptLabels(r: PrintReceipt) {
+  const ret = r.kind === 'return'
+  return {
+    title: ret ? t('print.returnReceipt') : t('print.receipt'),
+    original: ret && r.original_receipt ? `${t('print.originalReceipt')} #${r.original_receipt}` : '',
+    total: ret ? t('print.refundTotal') : t('print.total'),
+    cash: ret ? t('print.refundCash') : t('print.cash'),
+    card: ret ? t('print.refundCard') : t('print.card'),
+    debt: ret ? t('print.refundBalance') : t('print.debt'),
+    foot: ret ? '' : t('print.thankYou'),
+  }
 }
 
 export async function printReceipt(r: PrintReceipt) {
+  const L = receiptLabels(r)
   const shop = r.shop ?? (await getSetting('shop_name', 'OpenSales POS'))
   const printer = (await getSetting('receipt_printer', '')) || (await getSetting('printer_name', ''))
   if (printer && printer.startsWith('ble:')) {
@@ -54,7 +72,7 @@ export async function printReceipt(r: PrintReceipt) {
     )
     .join('')
   const html = `<!doctype html><html><head><meta charset="utf-8">
-  <title>${esc(t('print.receipt'))} ${esc(r.receipt_number)}</title>
+  <title>${esc(L.title)} ${esc(r.receipt_number)}</title>
   <script>window.onload=function(){setTimeout(function(){window.print()},250)}</script>
   <style>
     @media print {
@@ -139,15 +157,15 @@ export async function printReceipt(r: PrintReceipt) {
     }
   </style></head><body>
     <h2>${esc(shop)}</h2>
-    <div class="sub">${esc(t('print.receipt'))} #${esc(r.receipt_number)}<br>${formatDateTime(r.created_at)} · ${esc(r.customer)}</div>
+    <div class="sub">${esc(L.title)} #${esc(r.receipt_number)}${L.original ? '<br>' + esc(L.original) : ''}<br>${formatDateTime(r.created_at)} · ${esc(r.customer)}</div>
     <table>${rows}</table>
     ${r.discount > 0 ? line(esc(t('print.discount')), '− ' + moneySum(r.discount)) : ''}
-    <div class="tot"><span>${esc(t('print.total'))}</span><span>${moneySum(r.total)}</span></div>
-    ${r.paid_cash > 0 ? line(esc(t('print.cash')), moneySum(r.paid_cash)) : ''}
-    ${r.paid_card > 0 ? line(esc(t('print.card')), moneySum(r.paid_card)) : ''}
+    <div class="tot"><span>${esc(L.total)}</span><span>${moneySum(r.total)}</span></div>
+    ${r.paid_cash > 0 ? line(esc(L.cash), moneySum(r.paid_cash)) : ''}
+    ${r.paid_card > 0 ? line(esc(L.card), moneySum(r.paid_card)) : ''}
     ${r.change > 0 ? line(esc(t('print.change')), moneySum(r.change)) : ''}
-    ${r.debt > 0 ? line(esc(t('print.debt')), moneySum(r.debt)) : ''}
-    <div class="foot">${esc(t('print.thankYou'))}</div>
+    ${r.debt > 0 ? line(esc(L.debt), moneySum(r.debt)) : ''}
+    ${L.foot ? `<div class="foot">${esc(L.foot)}</div>` : ''}
   </body></html>`
 
   // Tauri WKWebView window.print() macOS'da ishlamaydi — chekni HTML'ga yozib,
@@ -277,6 +295,7 @@ function clampLines(ctx: CanvasRenderingContext2D, text: string, maxW: number, m
 
 // Chekни PNG'ga chizish. Kenglik 576px (~72mm chop maydoni).
 async function receiptPng(r: PrintReceipt, shop: string): Promise<Uint8Array> {
+  const L = receiptLabels(r)
   const W = 576, pad = 16, innerW = W - pad * 2
   const temp = document.createElement('canvas')
   temp.width = W; temp.height = 5000
@@ -300,7 +319,8 @@ async function receiptPng(r: PrintReceipt, shop: string): Promise<Uint8Array> {
   }
 
   center(shop, 30, true)
-  center(`${t('print.receipt')} #${r.receipt_number}`, 20)
+  center(`${L.title} #${r.receipt_number}`, 20)
+  if (L.original) center(L.original, 18)
   center(`${formatDateTime(r.created_at)} · ${r.customer}`, 18)
   hr()
   for (const it of r.items) {
@@ -311,13 +331,13 @@ async function receiptPng(r: PrintReceipt, shop: string): Promise<Uint8Array> {
   }
   hr()
   if (r.discount > 0) lr(t('print.discount'), '− ' + moneySum(r.discount), 20)
-  lr(t('print.total'), moneySum(r.total), 28, true)
-  if (r.paid_cash > 0) lr(t('print.cash'), moneySum(r.paid_cash), 20)
-  if (r.paid_card > 0) lr(t('print.card'), moneySum(r.paid_card), 20)
+  lr(L.total, moneySum(r.total), 28, true)
+  if (r.paid_cash > 0) lr(L.cash, moneySum(r.paid_cash), 20)
+  if (r.paid_card > 0) lr(L.card, moneySum(r.paid_card), 20)
   if (r.change > 0) lr(t('print.change'), moneySum(r.change), 20)
-  if (r.debt > 0) lr(t('print.debt'), moneySum(r.debt), 22, true)
+  if (r.debt > 0) lr(L.debt, moneySum(r.debt), 22, true)
   hr(false)
-  center(t('print.thankYou'), 18)
+  if (L.foot) center(L.foot, 18)
   y += pad
 
   const out = document.createElement('canvas')
@@ -539,12 +559,14 @@ export async function printReceiptBluetooth(r: PrintReceipt, printerId: string) 
   const maxCols = size === 'mm80' ? 48 : 32;
 
   const shop = r.shop ?? (await getSetting('shop_name', 'OpenSales POS'));
+  const L = receiptLabels(r);
 
   generator.alignCenter();
   generator.doubleSize();
   generator.textLine(shop);
   generator.normalSize();
-  generator.textLine(`${t('print.receipt')} #${r.receipt_number}`);
+  generator.textLine(`${L.title} #${r.receipt_number}`);
+  if (L.original) generator.textLine(L.original);
   generator.textLine(formatDateTime(r.created_at));
   generator.textLine(r.customer);
   generator.hr();
@@ -562,15 +584,15 @@ export async function printReceiptBluetooth(r: PrintReceipt, printerId: string) 
   if (r.discount > 0) {
     generator.row(t('print.discount'), `-${moneySum(r.discount)}`);
   }
-  generator.row(t('print.total'), moneySum(r.total));
-  if (r.paid_cash > 0) generator.row(t('print.cash'), moneySum(r.paid_cash));
-  if (r.paid_card > 0) generator.row(t('print.card'), moneySum(r.paid_card));
+  generator.row(L.total, moneySum(r.total));
+  if (r.paid_cash > 0) generator.row(L.cash, moneySum(r.paid_cash));
+  if (r.paid_card > 0) generator.row(L.card, moneySum(r.paid_card));
   if (r.change > 0) generator.row(t('print.change'), moneySum(r.change));
-  if (r.debt > 0) generator.row(t('print.debt'), moneySum(r.debt));
+  if (r.debt > 0) generator.row(L.debt, moneySum(r.debt));
   generator.hr();
 
   generator.alignCenter();
-  generator.textLine(t('print.thankYou'));
+  if (L.foot) generator.textLine(L.foot);
   generator.feed(3);
 
   await invoke('write_bluetooth_printer', { bytes: Array.from(generator.getBytes()) });

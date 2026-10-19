@@ -1,10 +1,12 @@
 <script setup lang="ts">
 // QR VA shtrix kod (EAN-13/8, UPC, Code128/39, ITF) o'qiydigan kamera skaneri.
 // ZXing multi-format. Dekod bo'lgan matnni `decoded` orqali qaytaradi.
-import { ref, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { BrowserMultiFormatReader, DecodeHintType, BarcodeFormat } from '@zxing/library'
 import { X, ScanLine, Minus, ChevronUp } from 'lucide-vue-next'
+import { cameraPermission, ensureCameraPermission, canOpenCameraSettings, openCameraSettings } from '../lib/camera'
+import { notify } from '../lib/notify'
 
 const { t } = useI18n()
 
@@ -18,7 +20,15 @@ const emit = defineEmits<{ decoded: [text: string, format: string]; close: [] }>
 const fmtName = (f: BarcodeFormat) => BarcodeFormat[f] ?? 'AUTO'
 
 const video = ref<HTMLVideoElement | null>(null)
-const error = ref('')
+// Xato turi — har biri boshqa yechim talab qiladi (ruxsat / kamera ulash / boshqa dasturni yopish).
+type CamError = 'denied' | 'notFound' | 'busy' | 'error'
+const camError = ref<CamError | null>(null)
+const errorKeys: Record<CamError, string> = {
+  denied: 'qrScanner.cameraDenied', notFound: 'qrScanner.cameraNotFound', busy: 'qrScanner.cameraBusy', error: 'qrScanner.cameraError',
+}
+const error = computed(() => (camError.value ? t(errorKeys[camError.value]) : ''))
+const requesting = ref(false) // tizim ruxsat oynasi ochiq — javob kutilmoqda
+let disposed = false
 const hit = ref(false) // har muvaffaqiyatli skanда yashil chaqnash
 const collapsed = ref(false) // dock: kamera ko'rinishini yashirib faqat sarlavha qoldirish
 
@@ -67,7 +77,24 @@ hints.set(DecodeHintType.POSSIBLE_FORMATS, [
 // TRY_HARDER o'chirilgan: u agressiv → past sifatли kadrда xato o'qishni oshiradi.
 // Tasdiq (CONFIRM) ishonchlilikni ta'minlaydi.
 
-onMounted(async () => {
+function classify(e: unknown): CamError {
+  const name = (e as { name?: string } | null)?.name ?? ''
+  if (name === 'NotAllowedError' || name === 'SecurityError') return 'denied'
+  if (name === 'NotFoundError' || name === 'OverconstrainedError' || name === 'DevicesNotFoundError') return 'notFound'
+  if (name === 'NotReadableError' || name === 'TrackStartError') return 'busy'
+  return 'error'
+}
+
+async function start() {
+  camError.value = null
+  stop()
+  // Avval OS ruxsati: hali so'ralmagan bo'lsa tizim oynasi shu yerda ochiladi. Rad etilgan
+  // bo'lsa getUserMedia'ni chaqirib o'tirmaymiz — macOS baribir qayta so'ramaydi.
+  requesting.value = true
+  const perm = await ensureCameraPermission()
+  requesting.value = false
+  if (disposed) return
+  if (perm === 'denied' || perm === 'restricted') { camError.value = 'denied'; return }
   try {
     // Yuqori rezolyutsiya — kichik shtrix chiziqlar ajralishi uchun. Orqa kamera + uzluksiz fokus.
     reader = new BrowserMultiFormatReader(hints, 150)
@@ -102,16 +129,28 @@ onMounted(async () => {
         emit('decoded', code, fmt) // kamera ochiq qoladi — ketma-ket skan
       },
     )
-  } catch (e: any) {
-    error.value = t('qrScanner.cameraError')
+  } catch (e: unknown) {
+    console.error('camera:', e)
+    if (!disposed) camError.value = classify(e)
   }
-})
+}
+
+// "Ruxsat berish": hali so'ralmagan bo'lsa tizim oynasi, rad etilgan bo'lsa Tizim
+// sozlamalarining Kamera bo'limi (dastur rad etilgan ruxsatni qayta so'ray olmaydi).
+async function grant() {
+  if ((await cameraPermission()) === 'prompt' || !canOpenCameraSettings) return start()
+  try { await openCameraSettings() } catch (e) { notify(String(e), 'error') }
+}
+
+// Sozlamalarda ruxsat berib qaytganda (oyna fokus oladi) o'zimiz qayta urinamiz.
+function onFocus() { if (camError.value === 'denied' && !requesting.value) void start() }
 
 function stop() {
   try { reader?.reset() } catch { /* ignore */ }
   reader = null
 }
-onBeforeUnmount(stop)
+onMounted(() => { window.addEventListener('focus', onFocus); void start() })
+onBeforeUnmount(() => { disposed = true; window.removeEventListener('focus', onFocus); stop() })
 </script>
 
 <template>
@@ -131,12 +170,19 @@ onBeforeUnmount(stop)
       </div>
       <div v-show="!collapsed" class="relative aspect-square bg-black">
         <video ref="video" class="h-full w-full object-cover" playsinline muted></video>
-        <template v-if="!error">
+        <div v-if="requesting" class="absolute inset-0 flex items-center justify-center p-3 text-center text-xs text-white/80">{{ $t('qrScanner.requestingPermission') }}</div>
+        <template v-else-if="!error">
           <div class="pointer-events-none absolute inset-x-4 inset-y-8 rounded-lg border-2 border-white/70">
             <div class="scan-line absolute inset-x-0 h-0.5 bg-primary shadow-[0_0_8px_2px] shadow-primary/60"></div>
           </div>
         </template>
-        <div v-if="error" class="absolute inset-0 flex items-center justify-center p-3 text-center text-xs text-white">{{ error }}</div>
+        <div v-if="error" class="absolute inset-0 flex flex-col items-center justify-center gap-2 p-3 text-center text-xs text-white">
+          <span>{{ error }}</span>
+          <div class="flex flex-wrap justify-center gap-1.5">
+            <button v-if="camError === 'denied'" @click="grant" class="rounded-md bg-white px-2.5 py-1 font-semibold text-black hover:bg-white/90">{{ $t('qrScanner.grantAccess') }}</button>
+            <button @click="start" class="rounded-md bg-white/15 px-2.5 py-1 font-medium hover:bg-white/25">{{ $t('qrScanner.retry') }}</button>
+          </div>
+        </div>
         <div v-if="hit" class="pointer-events-none absolute inset-0 bg-emerald-400/40"></div>
       </div>
     </div>
@@ -148,8 +194,9 @@ onBeforeUnmount(stop)
       </div>
       <div class="relative aspect-square bg-black">
         <video ref="video" class="h-full w-full object-cover" playsinline muted></video>
+        <div v-if="requesting" class="absolute inset-0 flex items-center justify-center p-6 text-center text-sm text-white/80">{{ $t('qrScanner.requestingPermission') }}</div>
         <!-- Skanerlash ramkasi + harakatlanuvchi chiziq -->
-        <template v-if="!error">
+        <template v-else-if="!error">
           <div class="pointer-events-none absolute inset-x-6 inset-y-12 rounded-xl border-2 border-white/70">
             <span class="absolute -left-0.5 -top-0.5 h-6 w-6 rounded-tl-xl border-l-4 border-t-4 border-primary"></span>
             <span class="absolute -right-0.5 -top-0.5 h-6 w-6 rounded-tr-xl border-r-4 border-t-4 border-primary"></span>
@@ -158,7 +205,13 @@ onBeforeUnmount(stop)
             <div class="scan-line absolute inset-x-0 h-0.5 bg-primary shadow-[0_0_8px_2px] shadow-primary/60"></div>
           </div>
         </template>
-        <div v-if="error" class="absolute inset-0 flex items-center justify-center p-6 text-center text-sm text-white">{{ error }}</div>
+        <div v-if="error" class="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center text-sm text-white">
+          <span>{{ error }}</span>
+          <div class="flex flex-wrap justify-center gap-2">
+            <button v-if="camError === 'denied'" @click="grant" class="rounded-md bg-white px-3 py-1.5 font-semibold text-black hover:bg-white/90">{{ $t('qrScanner.grantAccess') }}</button>
+            <button @click="start" class="rounded-md bg-white/15 px-3 py-1.5 font-medium hover:bg-white/25">{{ $t('qrScanner.retry') }}</button>
+          </div>
+        </div>
         <!-- Skan qabul qilindi — yashil chaqnash -->
         <div v-if="hit" class="pointer-events-none absolute inset-0 bg-emerald-400/30"></div>
       </div>

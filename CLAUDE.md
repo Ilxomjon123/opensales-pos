@@ -14,6 +14,21 @@ Yangilash ma'lumotni saqlashi uchun:
 2. **Eski migratsiyani tahrirlama / DROP qilma.** Faqat yangi `version` qo'sh (lib.rs).
 3. Yangi ustun → yangi migratsiya `ALTER TABLE ... ADD COLUMN` (v2/v3 kabi).
 4. `seedIfEmpty` faqat bo'sh bazada ishlaydi (mijozlar bo'sh bo'lsa). Mahsulot/kategoriya seed yo'q — egasi o'zi qo'shadi.
+5. **Eski bazalarda migratsiyalar v7 da tiqilgan**: `healSchema` `barcode_type` ni oldin qo'shgani uchun v8 `ADD COLUMN` har safar yiqiladi, plagin qolganini qo'llamaydi (v9+ hech qachon ishlamaydi). Yangi jadval faqat migratsiyaga tayanmasin — `CREATE TABLE IF NOT EXISTS` self-heal ham bo'lsin (expenses: `healSchema`; vozvrat: `ensure_returns_schema`, DDL `returns.rs` dagi bitta konstanta).
+
+## Vozvrat (`src-tauri/src/returns.rs`)
+
+- Mantiq Rust'da, bitta `BEGIN IMMEDIATE` tranzaksiyada: JS'da tranzaksiya yo'q (plagin pool'ida har `execute` alohida ulanish). Qoldiq + pul + balans yarim yozilmasin.
+- `return_quote` (UI summani shundan oladi) va `create_return` bitta `compute()` ni ishlatadi — formula TS'da takrorlanmaydi.
+- Summa: chegirma proporsional, jamlanib hisoblanadi → bir chek bo'yicha barcha vozvratlar = aynan `sales.total`. Pul (naqd/karta) ≤ chek uchun olingan pul, yoki balansdan keyin mijoz qarzdor qolmasa ko'proq; qolgani balansga. Yo'l-yo'lakayga balans yo'q. Smena ochiq bo'lishi shart; vozvrat qaytarilgan paytdagi smenaga yoziladi.
+- Real bazada INTEGER ustunlarda kasr bor (`cost_price` 12527.2) — Rust'da pul ustunlari `CAST(ROUND())`, narx/tannarx `CAST(.. AS REAL)` bilan o'qiladi (sqlx turini qat'iy tekshiradi).
+- Hisoblarga ta'siri: `customerMovements` (+ `refund_balance`), `shiftStats` (kutilgan naqd − `refund_cash`), Hisobot (vozvrat sanasi bo'yicha ayiriladi, foyda sotuvdagi formulaning teskarisi).
+- Testlar: `cargo test --lib returns` — real migratsiyalar qo'llangan fayl bazada (parallel ikki vozvrat, xatoda rollback va h.k.).
+
+## Kamera (`src-tauri/src/camera.rs`, `lib/camera.ts`)
+
+- `Info.plist` da `NSCameraUsageDescription` SHART — kalitsiz macOS ruxsat oynasini umuman chiqarmaydi, getUserMedia jim rad etiladi.
+- macOS: holat AVFoundation'dan o'qiladi; `prompt` bo'lsa tizim oynasi ochiladi, `denied` bo'lsa skanerda "Ruxsat berish" → Tizim sozlamalari → Kamera. Oyna fokusga qaytganda o'zi qayta urinadi.
 
 ## Litsenziya (Ed25519, offline)
 

@@ -1,4 +1,5 @@
 import Database from '@tauri-apps/plugin-sql'
+import { invoke } from '@tauri-apps/api/core'
 import { t } from './i18n'
 
 // Yagona SQLite ulanish. Rust migration sxemani yaratadi (lib.rs).
@@ -59,6 +60,10 @@ async function healSchema(d: Database): Promise<void> {
     created_at TEXT NOT NULL
   )`)
   await d.execute('CREATE INDEX IF NOT EXISTS idx_expenses_created ON expenses(created_at)')
+  // 4) vozvrat jadvallari (v10 tiqilgan bazalarda). DDL bitta joyda — Rust returns.rs;
+  //    pool shu paytda ro'yxatda (Database.load tugagan). Yiqilsa dastur ochilaversin —
+  //    faqat vozvrat ishlamaydi, sababi logда qoladi.
+  try { await invoke('ensure_returns_schema') } catch (e) { console.error('ensure_returns_schema:', e) }
 }
 
 // ---- Turlar ----
@@ -112,6 +117,32 @@ export type SaleItem = {
   unit: string
   subtotal: number
 }
+export type SaleReturn = {
+  id: number
+  sale_id: number
+  shift_id: number | null
+  customer_id: number | null
+  return_number: string
+  amount: number
+  refund_cash: number
+  refund_card: number
+  refund_balance: number
+  reason: string | null
+  created_at: string
+}
+export type SaleReturnItem = {
+  id: number
+  return_id: number
+  sale_item_id: number
+  product_id: number | null
+  product_name: string
+  price: number
+  cost_price: number
+  qty: number
+  unit: string
+  subtotal: number
+}
+export type SaleReturnFull = SaleReturn & { items: SaleReturnItem[] }
 export type CartLine = {
   product_id: number
   name: string
@@ -305,17 +336,18 @@ export async function saveCustomer(name: string, phone: string | null, id?: numb
   return r.lastInsertId as number
 }
 
-// Tizim ichidagi sof harakat: qabul qilingan to'lovlar − berilgan qarzlar.
+// Tizim ichidagi sof harakat: qabul qilingan to'lovlar + vozvratdan balansga yozilgan − berilgan qarzlar.
 // Saldo shu + dastlabki saldodan iborat (invariant: balance = opening_balance + movements).
 export async function customerMovements(customerId: number): Promise<number> {
   const d = await db()
-  const r = await d.select<{ pays: number; debts: number }[]>(
+  const r = await d.select<{ pays: number; debts: number; returns: number }[]>(
     `SELECT
        COALESCE((SELECT SUM(amount) FROM customer_payments WHERE customer_id = ?), 0) pays,
-       COALESCE((SELECT SUM(debt_amount) FROM sales WHERE customer_id = ?), 0) debts`,
-    [customerId, customerId],
+       COALESCE((SELECT SUM(debt_amount) FROM sales WHERE customer_id = ?), 0) debts,
+       COALESCE((SELECT SUM(refund_balance) FROM sale_returns WHERE customer_id = ?), 0) returns`,
+    [customerId, customerId, customerId],
   )
-  return (r[0]?.pays ?? 0) - (r[0]?.debts ?? 0)
+  return (r[0]?.pays ?? 0) + (r[0]?.returns ?? 0) - (r[0]?.debts ?? 0)
 }
 
 // Mijozning JORIY saldosini belgilash. Tizim ichidagi oldi-berdi (movements) hisobga
@@ -357,6 +389,10 @@ export async function shiftStats(shiftId: number): Promise<{
   total_cash: number
   total_card: number
   total_debt: number
+  returns_count: number
+  returns_total: number
+  refund_cash: number
+  refund_card: number
   expected_cash: number
 }> {
   const d = await db()
@@ -367,15 +403,26 @@ export async function shiftStats(shiftId: number): Promise<{
      FROM sales WHERE shift_id = ?`,
     [shiftId],
   )
+  // Vozvrat sotuvning smenasiga emas, qaytarilgan paytdagi smenaga yoziladi (pul shu kassadan chiqqan).
+  const rr = await d.select<{ c: number; total: number; cash: number; card: number }[]>(
+    `SELECT COUNT(*) c, COALESCE(SUM(amount),0) total, COALESCE(SUM(refund_cash),0) cash, COALESCE(SUM(refund_card),0) card
+     FROM sale_returns WHERE shift_id = ?`,
+    [shiftId],
+  )
   const sh = await d.select<Shift[]>('SELECT opening_cash FROM shifts WHERE id = ?', [shiftId])
   const s = r[0]
+  const ret = rr[0] ?? { c: 0, total: 0, cash: 0, card: 0 }
   return {
     sales_count: s.sales_count,
     total_sales: s.total_sales,
     total_cash: s.total_cash,
     total_card: s.total_card,
     total_debt: s.total_debt,
-    expected_cash: (sh[0]?.opening_cash ?? 0) + s.total_cash,
+    returns_count: ret.c,
+    returns_total: ret.total,
+    refund_cash: ret.cash,
+    refund_card: ret.card,
+    expected_cash: (sh[0]?.opening_cash ?? 0) + s.total_cash - ret.cash,
   }
 }
 
@@ -442,28 +489,68 @@ async function nextReceiptNumber(shiftId: number): Promise<string> {
 }
 
 // ---- Sotuvlar tarixi ----
-export type SalesFilter = { search?: string; paymentStatus?: string; productId?: number; customerId?: number; dateFrom?: string; dateTo?: string }
-export async function listSales(f: SalesFilter = {}): Promise<(Sale & { items: SaleItem[]; customer_name: string | null; is_walk_in: number | null })[]> {
+export type SalesFilter = { search?: string; paymentStatus?: string; returnedOnly?: boolean; productId?: number; customerId?: number; dateFrom?: string; dateTo?: string }
+export type SaleListItem = SaleItem & { returned_qty: number }
+export type SaleListRow = Sale & {
+  items: SaleListItem[]
+  customer_name: string | null
+  is_walk_in: number | null
+  returned_amount: number
+  returns: SaleReturnFull[]
+}
+export async function listSales(f: SalesFilter = {}): Promise<SaleListRow[]> {
   const d = await db()
   const where: string[] = []
   const args: any[] = []
   if (f.paymentStatus) { where.push('s.payment_status = ?'); args.push(f.paymentStatus) }
+  if (f.returnedOnly) where.push('EXISTS (SELECT 1 FROM sale_returns r WHERE r.sale_id = s.id)')
   if (f.search) { where.push('s.receipt_number LIKE ?'); args.push(`%${f.search}%`) }
   if (f.dateFrom) { where.push("date(s.created_at) >= date(?)"); args.push(f.dateFrom) }
   if (f.dateTo) { where.push("date(s.created_at) <= date(?)"); args.push(f.dateTo) }
   if (f.productId) { where.push('s.id IN (SELECT sale_id FROM sale_items WHERE product_id = ?)'); args.push(f.productId) }
   if (f.customerId) { where.push('s.customer_id = ?'); args.push(f.customerId) }
   const w = where.length ? 'WHERE ' + where.join(' AND ') : ''
-  const sales = await d.select<(Sale & { customer_name: string | null; is_walk_in: number | null })[]>(
-    `SELECT s.*, c.name customer_name, c.is_walk_in is_walk_in FROM sales s LEFT JOIN customers c ON c.id = s.customer_id ${w} ORDER BY s.id DESC LIMIT 200`,
+  const sales = await d.select<(Sale & { customer_name: string | null; is_walk_in: number | null; returned_amount: number; returns_count: number })[]>(
+    `SELECT s.*, c.name customer_name, c.is_walk_in is_walk_in,
+            COALESCE((SELECT SUM(r.amount) FROM sale_returns r WHERE r.sale_id = s.id), 0) returned_amount,
+            (SELECT COUNT(*) FROM sale_returns r WHERE r.sale_id = s.id) returns_count
+     FROM sales s LEFT JOIN customers c ON c.id = s.customer_id ${w} ORDER BY s.id DESC LIMIT 200`,
     args,
   )
-  const out = []
-  for (const s of sales) {
-    const items = await d.select<SaleItem[]>('SELECT * FROM sale_items WHERE sale_id = ?', [s.id])
-    out.push({ ...s, items })
+  const returns = await returnsForSales(sales.filter((s) => s.returns_count > 0).map((s) => s.id))
+  const out: SaleListRow[] = []
+  for (const { returns_count: _, ...s } of sales) {
+    const items = await d.select<SaleListItem[]>(
+      `SELECT si.*, COALESCE((SELECT SUM(ri.qty) FROM sale_return_items ri WHERE ri.sale_item_id = si.id), 0) returned_qty
+       FROM sale_items si WHERE si.sale_id = ? ORDER BY si.id`,
+      [s.id],
+    )
+    out.push({ ...s, items, returns: returns.get(s.id) ?? [] })
   }
   return out
+}
+
+// Berilgan sotuvlarning vozvratlari (tovarlari bilan), sale_id bo'yicha guruhlangan. 2 ta so'rov.
+async function returnsForSales(saleIds: number[]): Promise<Map<number, SaleReturnFull[]>> {
+  const map = new Map<number, SaleReturnFull[]>()
+  if (saleIds.length === 0) return map
+  const d = await db()
+  const ph = saleIds.map(() => '?').join(',')
+  const rets = await d.select<SaleReturn[]>(`SELECT * FROM sale_returns WHERE sale_id IN (${ph}) ORDER BY id`, saleIds)
+  const items = await d.select<SaleReturnItem[]>(
+    `SELECT ri.* FROM sale_return_items ri JOIN sale_returns r ON r.id = ri.return_id WHERE r.sale_id IN (${ph}) ORDER BY ri.id`,
+    saleIds,
+  )
+  const byReturn = new Map<number, SaleReturnItem[]>()
+  for (const it of items) byReturn.set(it.return_id, [...(byReturn.get(it.return_id) ?? []), it])
+  for (const r of rets) map.set(r.sale_id, [...(map.get(r.sale_id) ?? []), { ...r, items: byReturn.get(r.id) ?? [] }])
+  return map
+}
+
+// Mijozning vozvratlari (eng yangisi birinchi) — mijoz sahifasidagi oldi-berdi uchun.
+export async function customerReturns(customerId: number): Promise<SaleReturn[]> {
+  const d = await db()
+  return d.select<SaleReturn[]>('SELECT * FROM sale_returns WHERE customer_id = ? ORDER BY id DESC', [customerId])
 }
 
 // ---- Mahsulot × mijoz sotuv tarixi ----

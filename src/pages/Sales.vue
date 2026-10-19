@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Receipt, ChevronDown, Search, Printer, Coins, Wallet, HandCoins } from 'lucide-vue-next'
-import { listSales, listProducts, listCustomers, type SaleItem, type Product, type Customer } from '../lib/db'
+import { Receipt, ChevronDown, Search, Printer, Coins, Wallet, HandCoins, RotateCcw } from 'lucide-vue-next'
+import { listSales, listProducts, listCustomers, type SaleListItem, type SaleReturnFull, type Product, type Customer } from '../lib/db'
 import { moneySum, formatDateTime, translitMatch } from '../lib/format'
 import SearchableSelect from '../components/SearchableSelect.vue'
+import ReturnSaleModal from '../components/ReturnSaleModal.vue'
 import { printReceipt } from '../lib/print'
+import { printReturnReceipt, fmtQty } from '../lib/returns'
 
 const { t } = useI18n()
 
@@ -28,7 +30,30 @@ function printSale(s: Row) {
   })
 }
 
+function printReturn(s: Row, r: SaleReturnFull) {
+  void printReturnReceipt({
+    return_number: r.return_number,
+    receipt_number: s.receipt_number,
+    created_at: r.created_at,
+    customer: customerName(s),
+    items: r.items.map((i) => ({ name: i.product_name, qty: i.qty, unit: i.unit, price: i.price, subtotal: i.subtotal })),
+    amount: r.amount,
+    refund_cash: r.refund_cash,
+    refund_card: r.refund_card,
+    refund_balance: r.refund_balance,
+  })
+}
+
 type Row = Awaited<ReturnType<typeof listSales>>[number]
+// Vozvrat holati: hamma qator to'liq qaytgan → 'full', biror narsa qaytgan → 'partial'.
+function returnState(s: Row): 'full' | 'partial' | null {
+  if (s.returns.length === 0) return null
+  return s.items.length > 0 && s.items.every((i) => i.returned_qty >= i.qty - 1e-6) ? 'full' : 'partial'
+}
+const returnTarget = ref<Row | null>(null)
+async function onReturned() {
+  await load()
+}
 const sales = ref<Row[]>([])
 const products = ref<Product[]>([])
 const customers = ref<Customer[]>([])
@@ -50,7 +75,8 @@ const statusStyles: Record<string, string> = {
 
 async function load() {
   sales.value = await listSales({
-    paymentStatus: status.value || undefined,
+    paymentStatus: status.value && status.value !== 'returned' ? status.value : undefined,
+    returnedOnly: status.value === 'returned',
     productId: productId.value || undefined,
     customerId: customerId.value || undefined,
     dateFrom: dateFrom.value || undefined,
@@ -68,12 +94,13 @@ const totals = computed(() => ({
   total: visible.value.reduce((s, x) => s + x.total, 0),
   paid: visible.value.reduce((s, x) => s + x.paid_amount, 0),
   debt: visible.value.reduce((s, x) => s + x.debt_amount, 0),
+  returned: visible.value.reduce((s, x) => s + x.returned_amount, 0),
 }))
 const productItems = computed(() => products.value.map((p) => ({ value: p.id, label: p.name })))
 const customerItems = computed(() => customers.value.map((c) => ({ value: c.id, label: c.phone ? `${c.name} · ${c.phone}` : c.name })))
 function pickStatus(v: string) { status.value = status.value === v ? '' : v }
 function toggle(id: number) { const n = new Set(expanded.value); n.has(id) ? n.delete(id) : n.add(id); expanded.value = n }
-function itemQtyUnit(i: SaleItem) { return `${i.qty} ${i.unit}` }
+function itemQtyUnit(i: SaleListItem) { return `${i.qty} ${i.unit}` }
 </script>
 
 <template>
@@ -91,7 +118,7 @@ function itemQtyUnit(i: SaleItem) { return `${i.qty} ${i.unit}` }
       </div>
       <div class="flex items-center gap-3 rounded-xl border bg-card p-3">
         <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-sky-500/10 text-sky-600"><Coins class="h-4.5 w-4.5" /></div>
-        <div><div class="text-xs text-muted-foreground">{{ $t('sales.totalAmount') }}</div><div class="text-lg font-bold tabular-nums">{{ moneySum(totals.total) }}</div></div>
+        <div><div class="text-xs text-muted-foreground">{{ $t('sales.totalAmount') }}</div><div class="text-lg font-bold tabular-nums">{{ moneySum(totals.total) }}</div><div v-if="totals.returned > 0" class="text-xs tabular-nums text-amber-600">{{ $t('reports.returnsLine', { amount: moneySum(totals.returned) }) }}</div></div>
       </div>
       <button @click="pickStatus('paid')" class="flex items-center gap-3 rounded-xl border bg-card p-3 text-left transition hover:shadow-sm" :class="status === 'paid' ? 'border-emerald-500 ring-1 ring-emerald-500' : ''">
         <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600"><Wallet class="h-4.5 w-4.5" /></div>
@@ -120,6 +147,7 @@ function itemQtyUnit(i: SaleItem) { return `${i.qty} ${i.unit}` }
         <option value="paid">{{ $t('sales.statusPaid') }}</option>
         <option value="partial">{{ $t('sales.statusPartial') }}</option>
         <option value="debt">{{ $t('sales.statusDebt') }}</option>
+        <option value="returned">{{ $t('sales.filterReturned') }}</option>
       </select>
     </div>
 
@@ -132,6 +160,7 @@ function itemQtyUnit(i: SaleItem) { return `${i.qty} ${i.unit}` }
               <div class="flex items-center gap-2">
                 <span class="inline-flex items-center gap-1 truncate font-medium text-primary"><Receipt class="h-3.5 w-3.5 shrink-0" />{{ s.receipt_number }}</span>
                 <span class="shrink-0 rounded-full px-2 py-0.5 text-[11px]" :class="statusStyles[s.payment_status]">{{ statusLabels[s.payment_status] }}</span>
+                <span v-if="returnState(s)" class="shrink-0 rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] text-amber-700 dark:text-amber-400">{{ returnState(s) === 'full' ? $t('returns.fullyReturned') : $t('returns.partiallyReturned') }}</span>
               </div>
               <div class="mt-0.5 truncate text-xs text-muted-foreground">{{ customerName(s) }} · {{ formatDateTime(s.created_at) }}</div>
             </div>
@@ -143,13 +172,24 @@ function itemQtyUnit(i: SaleItem) { return `${i.qty} ${i.unit}` }
           </button>
           <div v-if="expanded.has(s.id)" class="bg-muted/20 px-4 py-3">
             <div v-for="i in s.items" :key="i.id" class="flex items-center justify-between gap-2 border-b border-border/40 py-1.5 text-xs last:border-0">
-              <span class="min-w-0 flex-1 truncate">{{ i.product_name }}</span>
+              <span class="min-w-0 flex-1 truncate">{{ i.product_name }}<span v-if="i.returned_qty > 0" class="ml-1 text-amber-600">↺ {{ fmtQty(i.returned_qty) }}</span></span>
               <span class="shrink-0 text-muted-foreground tabular-nums">{{ itemQtyUnit(i) }} × {{ moneySum(i.price) }}</span>
               <span class="w-20 shrink-0 text-right font-medium tabular-nums">{{ moneySum(i.subtotal) }}</span>
             </div>
-            <div class="mt-2 flex items-center justify-between">
+            <div v-if="s.returns.length" class="mt-2 space-y-1 rounded-md border border-amber-500/30 bg-amber-500/5 p-2">
+              <div v-for="r in s.returns" :key="r.id" class="flex items-center gap-2 text-xs">
+                <RotateCcw class="h-3 w-3 shrink-0 text-amber-600" />
+                <span class="min-w-0 flex-1 truncate">{{ r.return_number }} · {{ formatDateTime(r.created_at) }}</span>
+                <span class="shrink-0 font-medium tabular-nums">− {{ moneySum(r.amount) }}</span>
+                <button @click.stop="printReturn(s, r)" class="shrink-0 rounded p-1 hover:bg-muted" :title="$t('returns.printReceipt')"><Printer class="h-3.5 w-3.5" /></button>
+              </div>
+            </div>
+            <div class="mt-2 flex items-center justify-between gap-2">
               <span class="text-xs text-emerald-600 tabular-nums">{{ $t('sales.paidPrefix', { amount: moneySum(s.paid_amount) }) }}</span>
-              <button @click.stop="printSale(s)" class="flex h-8 items-center gap-1.5 rounded-md border bg-card px-3 text-xs font-medium"><Printer class="h-3.5 w-3.5" /> {{ $t('sales.receipt') }}</button>
+              <div class="flex gap-1.5">
+                <button v-if="returnState(s) !== 'full'" @click.stop="returnTarget = s" class="flex h-8 items-center gap-1.5 rounded-md border border-amber-500/50 bg-card px-3 text-xs font-medium text-amber-700 dark:text-amber-400"><RotateCcw class="h-3.5 w-3.5" /> {{ $t('returns.action') }}</button>
+                <button @click.stop="printSale(s)" class="flex h-8 items-center gap-1.5 rounded-md border bg-card px-3 text-xs font-medium"><Printer class="h-3.5 w-3.5" /> {{ $t('sales.receipt') }}</button>
+              </div>
             </div>
           </div>
         </li>
@@ -176,23 +216,48 @@ function itemQtyUnit(i: SaleItem) { return `${i.qty} ${i.unit}` }
               <td class="px-4 py-3 text-right font-semibold">{{ moneySum(s.total) }}</td>
               <td class="px-4 py-3 text-right text-emerald-600">{{ moneySum(s.paid_amount) }}</td>
               <td class="px-4 py-3 text-right" :class="s.debt_amount > 0 ? 'text-rose-500' : ''">{{ s.debt_amount > 0 ? moneySum(s.debt_amount) : '—' }}</td>
-              <td class="px-4 py-3"><span class="inline-flex rounded-full px-2 py-0.5 text-xs" :class="statusStyles[s.payment_status]">{{ statusLabels[s.payment_status] }}</span></td>
+              <td class="px-4 py-3">
+                <div class="flex flex-wrap gap-1">
+                  <span class="inline-flex rounded-full px-2 py-0.5 text-xs" :class="statusStyles[s.payment_status]">{{ statusLabels[s.payment_status] }}</span>
+                  <span v-if="returnState(s)" class="inline-flex rounded-full bg-amber-500/15 px-2 py-0.5 text-xs text-amber-700 dark:text-amber-400">{{ returnState(s) === 'full' ? $t('returns.fullyReturned') : $t('returns.partiallyReturned') }}</span>
+                </div>
+              </td>
             </tr>
             <tr v-if="expanded.has(s.id)" class="bg-muted/20">
               <td></td>
               <td colspan="7" class="px-4 py-3">
                 <table class="w-full text-xs">
-                  <thead class="text-left text-muted-foreground"><tr><th class="py-1">{{ $t('sales.product') }}</th><th class="py-1 text-right">{{ $t('sales.quantity') }}</th><th class="py-1 text-right">{{ $t('sales.price') }}</th><th class="py-1 text-right">{{ $t('sales.amount') }}</th></tr></thead>
+                  <thead class="text-left text-muted-foreground"><tr><th class="py-1">{{ $t('sales.product') }}</th><th class="py-1 text-right">{{ $t('sales.quantity') }}</th><th v-if="s.returns.length" class="py-1 text-right">{{ $t('returns.colReturned') }}</th><th class="py-1 text-right">{{ $t('sales.price') }}</th><th class="py-1 text-right">{{ $t('sales.amount') }}</th></tr></thead>
                   <tbody>
                     <tr v-for="i in s.items" :key="i.id" class="border-t border-border/50">
                       <td class="py-1.5">{{ i.product_name }}</td>
                       <td class="py-1.5 text-right tabular-nums">{{ itemQtyUnit(i) }}</td>
+                      <td v-if="s.returns.length" class="py-1.5 text-right tabular-nums" :class="i.returned_qty > 0 ? 'text-amber-600' : 'text-muted-foreground'">{{ i.returned_qty > 0 ? fmtQty(i.returned_qty) : '—' }}</td>
                       <td class="py-1.5 text-right tabular-nums">{{ moneySum(i.price) }}</td>
                       <td class="py-1.5 text-right font-medium tabular-nums">{{ moneySum(i.subtotal) }}</td>
                     </tr>
                   </tbody>
                 </table>
-                <div class="mt-2 flex justify-end">
+                <div v-if="s.returns.length" class="mt-3 rounded-md border border-amber-500/30 bg-amber-500/5">
+                  <div class="border-b border-amber-500/20 px-3 py-1.5 text-xs font-semibold text-amber-700 dark:text-amber-400">{{ $t('returns.history') }}</div>
+                  <div v-for="r in s.returns" :key="r.id" class="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-amber-500/10 px-3 py-1.5 text-xs first:border-t-0">
+                    <span class="inline-flex items-center gap-1 font-medium"><RotateCcw class="h-3 w-3 text-amber-600" />{{ r.return_number }}</span>
+                    <span class="text-muted-foreground">{{ formatDateTime(r.created_at) }}</span>
+                    <span class="text-muted-foreground">{{ r.items.map((i) => `${i.product_name} × ${fmtQty(i.qty)}`).join(', ') }}</span>
+                    <span v-if="r.reason" class="italic text-muted-foreground">«{{ r.reason }}»</span>
+                    <span class="ml-auto flex items-center gap-3 tabular-nums">
+                      <span v-if="r.refund_cash > 0">{{ $t('returns.refundCash') }} {{ moneySum(r.refund_cash) }}</span>
+                      <span v-if="r.refund_card > 0">{{ $t('returns.refundCard') }} {{ moneySum(r.refund_card) }}</span>
+                      <span v-if="r.refund_balance > 0">{{ $t('returns.refundBalance') }} {{ moneySum(r.refund_balance) }}</span>
+                      <span class="font-semibold">− {{ moneySum(r.amount) }}</span>
+                      <button @click.stop="printReturn(s, r)" class="rounded p-1 hover:bg-muted" :title="$t('returns.printReceipt')"><Printer class="h-3.5 w-3.5" /></button>
+                    </span>
+                  </div>
+                </div>
+                <div class="mt-2 flex justify-end gap-2">
+                  <button v-if="returnState(s) !== 'full'" @click.stop="returnTarget = s" class="flex h-8 items-center gap-1.5 rounded-md border border-amber-500/50 bg-card px-3 text-xs font-medium text-amber-700 hover:bg-amber-500/10 dark:text-amber-400">
+                    <RotateCcw class="h-3.5 w-3.5" /> {{ $t('returns.action') }}
+                  </button>
                   <button @click.stop="printSale(s)" class="flex h-8 items-center gap-1.5 rounded-md border bg-card px-3 text-xs font-medium hover:bg-muted">
                     <Printer class="h-3.5 w-3.5" /> {{ $t('sales.printReceipt') }}
                   </button>
@@ -214,5 +279,7 @@ function itemQtyUnit(i: SaleItem) { return `${i.qty} ${i.unit}` }
         </tfoot>
       </table>
     </div>
+
+    <ReturnSaleModal v-if="returnTarget" :sale-id="returnTarget.id" :customer-label="customerName(returnTarget)" @close="returnTarget = null" @done="onReturned" />
   </div>
 </template>

@@ -25,7 +25,7 @@ const products = ref<Product[]>([])
 const categories = ref<Category[]>([])
 const customers = ref<Customer[]>([])
 const shift = ref<Shift | null>(null)
-const stats = ref({ sales_count: 0, total_sales: 0 })
+const stats = ref({ sales_count: 0, total_sales: 0, returns_count: 0, returns_total: 0, refund_cash: 0 })
 const allowNegative = ref(false)
 const keepCart = ref(false)
 
@@ -570,6 +570,10 @@ async function doCloseShift() {
       <div class="mb-3 space-y-1 rounded-md bg-muted/40 p-3 text-sm">
         <div class="flex justify-between"><span class="text-muted-foreground">{{ $t('pos.sales') }}</span><strong>{{ $t('pos.salesCount', { count: stats.sales_count }) }}</strong></div>
         <div class="flex justify-between"><span class="text-muted-foreground">{{ $t('common.total') }}</span><strong>{{ moneySum(stats.total_sales) }}</strong></div>
+        <template v-if="stats.returns_count > 0">
+          <div class="flex justify-between text-amber-700 dark:text-amber-400"><span>{{ $t('pos.returns') }}</span><strong class="tabular-nums">{{ $t('pos.returnsCount', { count: stats.returns_count, amount: moneySum(stats.returns_total) }) }}</strong></div>
+          <div v-if="stats.refund_cash > 0" class="flex justify-between"><span class="text-muted-foreground">{{ $t('pos.refundedCash') }}</span><span class="tabular-nums">− {{ moneySum(stats.refund_cash) }}</span></div>
+        </template>
       </div>
       <label class="mb-1 block text-sm font-medium">{{ $t('pos.cashInDrawer', { symbol: currencySymbol }) }}</label>
       <input v-model.number="closeCashInput" type="number" min="0" class="mb-4 h-10 w-full rounded-md border bg-background px-3 text-sm" />
