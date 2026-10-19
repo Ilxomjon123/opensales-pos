@@ -224,3 +224,9 @@ export function customerResultToReceipt(r: CustomerReturnResult, customer: strin
     refund_balance: r.refundBalance,
   }
 }
+
+// Sotuvning vozvrat holati: hamma qator to'liq qaytgan → 'full', biror narsa qaytgan → 'partial'.
+export function saleReturnState(s: { items: { qty: number; returned_qty: number }[]; returns: unknown[] }): 'full' | 'partial' | null {
+  if (s.returns.length === 0) return null
+  return s.items.length > 0 && s.items.every((i) => i.returned_qty >= i.qty - 1e-6) ? 'full' : 'partial'
+}

@@ -7,7 +7,7 @@ import { moneySum, formatDateTime, translitMatch } from '../lib/format'
 import SearchableSelect from '../components/SearchableSelect.vue'
 import ReturnSaleModal from '../components/ReturnSaleModal.vue'
 import { printReceipt } from '../lib/print'
-import { printReturnReceipt, fmtQty } from '../lib/returns'
+import { printReturnReceipt, fmtQty, saleReturnState } from '../lib/returns'
 
 const { t } = useI18n()
 
@@ -45,11 +45,7 @@ function printReturn(s: Row, r: SaleReturnFull) {
 }
 
 type Row = Awaited<ReturnType<typeof listSales>>[number]
-// Vozvrat holati: hamma qator to'liq qaytgan → 'full', biror narsa qaytgan → 'partial'.
-function returnState(s: Row): 'full' | 'partial' | null {
-  if (s.returns.length === 0) return null
-  return s.items.length > 0 && s.items.every((i) => i.returned_qty >= i.qty - 1e-6) ? 'full' : 'partial'
-}
+const returnState = (s: Row) => saleReturnState(s)
 const returnTarget = ref<Row | null>(null)
 async function onReturned() {
   await load()

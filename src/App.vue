@@ -2,7 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink, RouterView, useRouter, useRoute } from 'vue-router'
-import { ShoppingBag, Receipt, Clock, UserCircle2, Box, FolderTree, BarChart3, Monitor, Sun, Moon, LogOut, Settings, LayoutGrid, Wallet } from 'lucide-vue-next'
+import { ShoppingBag, Receipt, Clock, UserCircle2, Box, FolderTree, BarChart3, Monitor, Sun, Moon, LogOut, Settings, LayoutGrid, Wallet, RotateCcw } from 'lucide-vue-next'
 import { theme, setTheme } from './lib/theme'
 import { logout } from './lib/auth'
 import { appVersion } from './lib/version'
@@ -31,6 +31,7 @@ const bottomNav = computed(() => [
 ])
 // "Ko'proq" sheet — qolgan bo'limlar.
 const moreItemsT = computed(() => [
+  { to: '/returns', label: t('app.navReturns'), icon: RotateCcw },
   { to: '/shifts', label: t('app.navShifts'), icon: Clock },
   { to: '/categories', label: t('app.navCategories'), icon: FolderTree },
   { to: '/expenses', label: t('app.navExpenses'), icon: Wallet },
@@ -51,6 +52,7 @@ const groups = computed(() => [
   { label: t('app.groupSales'), items: [
     { to: '/pos', label: t('app.navPosFull'), icon: ShoppingBag },
     { to: '/sales', label: t('app.navSales'), icon: Receipt },
+    { to: '/returns', label: t('app.navReturns'), icon: RotateCcw },
     { to: '/shifts', label: t('app.navShifts'), icon: Clock },
     { to: '/customers', label: t('app.navCustomers'), icon: UserCircle2 },
   ] },

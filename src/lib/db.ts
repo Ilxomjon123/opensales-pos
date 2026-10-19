@@ -547,6 +547,49 @@ async function returnsForSales(saleIds: number[]): Promise<Map<number, SaleRetur
   return map
 }
 
+// ---- Vozvratlar bo'limi ----
+export type ReturnMethod = 'cash' | 'card' | 'balance'
+export type ReturnsFilter = { customerId?: number; productId?: number; dateFrom?: string; dateTo?: string; method?: ReturnMethod }
+export type ReturnListRow = SaleReturn & {
+  receipt_number: string
+  customer_name: string | null
+  is_walk_in: number | null
+  items: SaleReturnItem[]
+}
+// Usul filtri — SQL faqat shu ro'yxatdan (foydalanuvchi matni so'rovga qo'shilmaydi).
+const RETURN_METHOD_SQL: Record<ReturnMethod, string> = {
+  cash: 'r.refund_cash > 0',
+  card: 'r.refund_card > 0',
+  balance: 'r.refund_balance > 0',
+}
+export async function listReturns(f: ReturnsFilter = {}): Promise<ReturnListRow[]> {
+  const d = await db()
+  const where: string[] = []
+  const args: any[] = []
+  if (f.customerId) { where.push('r.customer_id = ?'); args.push(f.customerId) }
+  if (f.productId) { where.push('EXISTS (SELECT 1 FROM sale_return_items ri WHERE ri.return_id = r.id AND ri.product_id = ?)'); args.push(f.productId) }
+  if (f.dateFrom) { where.push('date(r.created_at) >= date(?)'); args.push(f.dateFrom) }
+  if (f.dateTo) { where.push('date(r.created_at) <= date(?)'); args.push(f.dateTo) }
+  if (f.method) where.push(RETURN_METHOD_SQL[f.method])
+  const w = where.length ? 'WHERE ' + where.join(' AND ') : ''
+  const rows = await d.select<Omit<ReturnListRow, 'items'>[]>(
+    `SELECT r.*, s.receipt_number, c.name customer_name, c.is_walk_in is_walk_in
+     FROM sale_returns r JOIN sales s ON s.id = r.sale_id LEFT JOIN customers c ON c.id = r.customer_id
+     ${w} ORDER BY r.id DESC LIMIT 500`,
+    args,
+  )
+  const byReturn = new Map<number, SaleReturnItem[]>()
+  if (rows.length) {
+    const ids = rows.map((r) => r.id)
+    const items = await d.select<SaleReturnItem[]>(
+      `SELECT * FROM sale_return_items WHERE return_id IN (${ids.map(() => '?').join(',')}) ORDER BY id`,
+      ids,
+    )
+    for (const it of items) byReturn.set(it.return_id, [...(byReturn.get(it.return_id) ?? []), it])
+  }
+  return rows.map((r) => ({ ...r, items: byReturn.get(r.id) ?? [] }))
+}
+
 // Mijozning vozvratlari (eng yangisi birinchi) — mijoz sahifasidagi oldi-berdi uchun.
 export async function customerReturns(customerId: number): Promise<SaleReturn[]> {
   const d = await db()

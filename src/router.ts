@@ -15,6 +15,7 @@ const routes = [
   { path: '/login', name: 'login', component: () => import('./pages/Login.vue') },
   { path: '/pos', name: 'pos', component: () => import('./pages/Pos.vue') },
   { path: '/sales', name: 'sales', component: () => import('./pages/Sales.vue') },
+  { path: '/returns', name: 'returns', component: () => import('./pages/Returns.vue') },
   { path: '/shifts', name: 'shifts', component: () => import('./pages/Shifts.vue') },
   { path: '/customers', name: 'customers', component: () => import('./pages/Customers.vue') },
   { path: '/customers/:id', name: 'customer', component: () => import('./pages/CustomerShow.vue') },

@@ -26,6 +26,7 @@ Yangilash ma'lumotni saqlashi uchun:
 - Testlar: `cargo test --lib returns` — real migratsiyalar qo'llangan fayl bazada (parallel ikki vozvrat, xatoda rollback va h.k.).
 - Mijoz bo'yicha vozvrat (`returns/customer.rs`, Mijoz sahifasi → "Vozvrat"): tovar + miqdor → mijozning cheklariga ENG YANGISIDAN taqsimlanadi, har chekka alohida `create_on`, hammasi bitta tranzaksiyada. Umumiy pul `split_refunds` bilan cheklarga bo'linadi (har chekda balans ∈ [summa − pul chegarasi, summa]). Yo'l-yo'lakay xaridorga YO'Q — sotuvlari umumiy, bu cheksiz vozvratga aylanadi; u chek bo'yicha qaytaradi.
 - Pul taqsimoti UI'si bitta: `RefundSplit.vue` (ikkala modal ham ishlatadi).
+- "Vozvratlar" bo'limi (`pages/Returns.vue`, `/returns`): barcha vozvratlar (bo'lim standarti bo'yicha) + "Yangi vozvrat" (`NewReturnModal` → chek yoki mijoz bo'yicha oyna). Usul filtri SQL'i whitelist (`RETURN_METHOD_SQL`).
 
 ## Kamera (`src-tauri/src/camera.rs`, `lib/camera.ts`)
 
