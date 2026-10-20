@@ -716,7 +716,7 @@ export default {
   updatePrompt: {
     downloading: 'Загрузка… {percent}%',
     later: 'Позже',
-    newVersion: 'Новая версия {version}',
+    newVersion: 'Новая версия: {version}',
     update: 'Обновить',
     updateError: 'Ошибка при обновлении: {error}',
   },

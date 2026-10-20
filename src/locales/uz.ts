@@ -716,7 +716,7 @@ export default {
   updatePrompt: {
     downloading: 'Yuklanmoqda… {percent}%',
     later: 'Keyinroq',
-    newVersion: 'Yangi versiya {version}',
+    newVersion: 'Yangi versiya: {version}',
     update: 'Yangilash',
     updateError: 'Yangilashda xato: {error}',
   },
