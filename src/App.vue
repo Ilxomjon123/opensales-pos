@@ -2,7 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink, RouterView, useRouter, useRoute } from 'vue-router'
-import { ShoppingBag, Receipt, Clock, UserCircle2, Box, FolderTree, BarChart3, Monitor, Sun, Moon, LogOut, Settings, LayoutGrid, Wallet, RotateCcw } from 'lucide-vue-next'
+import { ShoppingBag, Receipt, Clock, UserCircle2, Box, FolderTree, BarChart3, Monitor, Sun, Moon, LogOut, Settings, LayoutGrid, Wallet, RotateCcw, PackagePlus, ArrowLeftRight } from 'lucide-vue-next'
 import { theme, setTheme } from './lib/theme'
 import { logout } from './lib/auth'
 import { appVersion } from './lib/version'
@@ -32,10 +32,12 @@ const bottomNav = computed(() => [
 // "Ko'proq" sheet — qolgan bo'limlar.
 const moreItemsT = computed(() => [
   { to: '/returns', label: t('app.navReturns'), icon: RotateCcw },
+  { to: '/receipts', label: t('app.navReceipts'), icon: PackagePlus },
   { to: '/shifts', label: t('app.navShifts'), icon: Clock },
   { to: '/categories', label: t('app.navCategories'), icon: FolderTree },
   { to: '/expenses', label: t('app.navExpenses'), icon: Wallet },
   { to: '/reports', label: t('app.navReports'), icon: BarChart3 },
+  { to: '/movement', label: t('app.navMovement'), icon: ArrowLeftRight },
   { to: '/settings', label: t('app.navSettings'), icon: Settings },
 ])
 const moreActive = ref(false)
@@ -58,11 +60,13 @@ const groups = computed(() => [
   ] },
   { label: t('app.groupCatalog'), items: [
     { to: '/products', label: t('app.navProducts'), icon: Box },
+    { to: '/receipts', label: t('app.navReceipts'), icon: PackagePlus },
     { to: '/categories', label: t('app.navCategories'), icon: FolderTree },
   ] },
   { label: t('app.groupManagement'), items: [
     { to: '/expenses', label: t('app.navExpenses'), icon: Wallet },
     { to: '/reports', label: t('app.navReports'), icon: BarChart3 },
+    { to: '/movement', label: t('app.navMovement'), icon: ArrowLeftRight },
     { to: '/settings', label: t('app.navSettings'), icon: Settings },
   ] },
 ])

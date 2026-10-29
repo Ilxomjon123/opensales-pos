@@ -28,6 +28,27 @@ Yangilash ma'lumotni saqlashi uchun:
 - Pul taqsimoti UI'si bitta: `RefundSplit.vue` (ikkala modal ham ishlatadi).
 - "Vozvratlar" bo'limi (`pages/Returns.vue`, `/returns`): barcha vozvratlar (bo'lim standarti bo'yicha) + "Yangi vozvrat" (`NewReturnModal` → chek yoki mijoz bo'yicha oyna). Usul filtri SQL'i whitelist (`RETURN_METHOD_SQL`).
 
+## Kirim (prixod) va tovar harakati (`src-tauri/src/stock.rs`, `lib/stock.ts`)
+
+- Qoldiqni faqat 4 yo'l o'zgartiradi va har biri jurnal qoldiradi: sotuv (`sale_items`), vozvrat (`sale_return_items`), kirim (`stock_receipt_items`), qo'lda tuzatish (`stock_adjustments`). `products.stock` ga boshqa joydan YOZMA — "Davr harakati" (`stockMovementReport`) davr boshi/oxiridagi qoldiqni joriy qoldiqdan shu jurnallar bilan orqaga tiklaydi; jurnalsiz o'zgarish hisobotni buzadi.
+- `saveProduct` qoldiqni yozmaydi (yangi mahsulot 0 bilan). Mahsulot formasi qoldiqni `adjustProductStock` orqali beradi: yangi → `initial`, tahrir → `manual`.
+- Kirim/bekor qilish/tuzatish Rust'da, bitta `BEGIN IMMEDIATE` tranzaksiyada (vozvrat bilan bir xil sabab). DDL `STOCK_SCHEMA_SQL` — migratsiya v11 + `ensure_stock_schema` self-heal (eski bazalar v7/v8 da tiqilgan).
+- Tannarx kirimda og'irlikli o'rtacha; eski tannarx 0 yoki qoldiq ≤ 0 bo'lsa — kirim narxi; kirim narxi 0 bo'lsa o'zgarmaydi. Sotuv narxi kirimda ixtiyoriy yangilanadi.
+- Bekor qilish yozuvni o'chirmaydi (`voided_at`), qoldiqni ayiradi; tovar sotilib qoldiq yetmasa rad etiladi (`allow_negative_stock` yoqilmagan bo'lsa). Tannarx/narx faqat kirimdan keyin hech kim o'zgartirmagan bo'lsa eski holiga qaytadi.
+- Bekor qilingan kirim hisobotda umuman yo'q. Bu versiyadan oldingi qo'lda o'zgarishlar jurnalda yo'q — ular "boshlang'ich" ga qo'shilgan.
+- Testlar: `cargo test --lib stock`.
+
+## Davr harakati / Mahsulot harakati (`pages/Movement.vue`, `pages/ProductMovement.vue`)
+
+- Panda WMS'dagi bilan bir xil modullar (egasi so'ragan). Ma'lumot `lib/stock.ts`: `MOVES_SQL` — to'rt jurnal bitta ro'yxatda; `stockMovementReport` (Davr qatori), `productMoves` + `moveSummary` (kartochka). Kirim = kirim + vozvrat + tuzatish(+), chiqim = sotuv + tuzatish(−).
+- Kartochka davr yig'indisi (4 karta) Davr harakati qatoriga AYNAN teng va filtrsiz; "Qoldiq" ustuni butun tarixdan, filtrga qaramaydi. Bir kun ichida avval kirim, keyin chiqim (o'tgan kunga yozilgan kirim soxta minus bermasin).
+- Davr ikkala sahifa orasida `lib/rowCursor.ts storedRange` bilan bo'lishiladi; kartochka holati manzilda (`from,to,dir,party,q,sort,src`). Qator kursori ↑↓ PgUp/PgDn Esc Enter — `useRowCursor`. Hujjatni ochish: o'sha bo'lim `?q=<raqam>` bilan (Kirim/Sotuvlar/Vozvratlar/Mahsulotlar `?q=` ni o'qiydi).
+
+## Excel eksport (`lib/xlsx.ts`, `lib/exports.ts`)
+
+- Haqiqiy .xlsx (fflate zip + inline matn), CSV EMAS: rus/o'zbek Windows Excel CSV'ni ";" bilan kutadi. CSV ham bor (Panda kabi: BOM + ";"). Fayl Downloads'ga yoziladi va `openPath` bilan ochiladi (opener scope'da `$DOWNLOAD/**`).
+- Eksportlar: Mahsulotlar (inventarizatsiya uchun "Sanaldi" + formulali "Farq"), Davr harakati va Mahsulot harakati (Excel + CSV; kartochkada tepada meta — mahsulot, davr, qoldiqlar, filtr). Kirim bo'limida Excel YO'Q (egasi: kerak emas).
+
 ## Kamera (`src-tauri/src/camera.rs`, `lib/camera.ts`)
 
 - `Info.plist` da `NSCameraUsageDescription` SHART — kalitsiz macOS ruxsat oynasini umuman chiqarmaydi, getUserMedia jim rad etiladi.

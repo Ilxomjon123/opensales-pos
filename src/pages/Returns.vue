@@ -3,7 +3,7 @@
 // ikkalasi ham har chekka alohida yozuv) + "Yangi vozvrat".
 import { ref, computed, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { RouterLink } from 'vue-router'
+import { RouterLink, useRoute } from 'vue-router'
 import { RotateCcw, ChevronDown, Search, Printer, Coins, CreditCard, Wallet, Plus } from 'lucide-vue-next'
 import { listReturns, listProducts, listCustomers, type ReturnListRow, type ReturnMethod, type Product, type Customer } from '../lib/db'
 import { moneySum, formatDateTime, translitMatch } from '../lib/format'
@@ -14,12 +14,14 @@ import ReturnSaleModal from '../components/ReturnSaleModal.vue'
 import CustomerReturnModal from '../components/CustomerReturnModal.vue'
 
 const { t } = useI18n()
+const route = useRoute()
 
 const rows = ref<ReturnListRow[]>([])
 const products = ref<Product[]>([])
 const customers = ref<Customer[]>([])
 const expanded = ref<Set<number>>(new Set())
-const search = ref('')
+// ?q= — Mahsulot harakatidan hujjatni ochish (chek/vozvrat raqami).
+const search = ref(typeof route.query.q === 'string' ? route.query.q : '')
 const method = ref<ReturnMethod | ''>('')
 const productId = ref<number | null>(null)
 const customerId = ref<number | null>(null)

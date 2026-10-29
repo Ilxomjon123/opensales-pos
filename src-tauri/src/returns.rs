@@ -672,12 +672,12 @@ pub async fn create_return(
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
     use std::path::PathBuf;
 
-    pub(super) fn rt() -> tokio::runtime::Runtime {
+    pub(crate) fn rt() -> tokio::runtime::Runtime {
         tokio::runtime::Builder::new_multi_thread()
             .enable_all()
             .build()
@@ -685,8 +685,8 @@ mod tests {
     }
 
     /// Haqiqiy fayl baza (parallel ulanishlar va qulflar prod'dagidek ishlashi uchun).
-    pub(super) struct TestDb {
-        pub(super) pool: SqlitePool,
+    pub(crate) struct TestDb {
+        pub(crate) pool: SqlitePool,
         path: PathBuf,
     }
 
@@ -698,7 +698,7 @@ mod tests {
         }
     }
 
-    pub(super) async fn empty_db() -> TestDb {
+    pub(crate) async fn empty_db() -> TestDb {
         let path = std::env::temp_dir().join(format!("pos-returns-{}.db", uuid::Uuid::new_v4()));
         let opts = SqliteConnectOptions::new().filename(&path).create_if_missing(true);
         let pool = SqlitePoolOptions::new()
@@ -710,7 +710,7 @@ mod tests {
     }
 
     /// Prod'dagi barcha migratsiyalar (v10 vozvrat jadvallari ham) qo'llangan baza.
-    pub(super) async fn migrated_db() -> TestDb {
+    pub(crate) async fn migrated_db() -> TestDb {
         let db = empty_db().await;
         for m in crate::migrations() {
             sqlx::raw_sql(m.sql)
@@ -721,23 +721,23 @@ mod tests {
         db
     }
 
-    pub(super) async fn exec(pool: &SqlitePool, sql: &str) -> i64 {
+    pub(crate) async fn exec(pool: &SqlitePool, sql: &str) -> i64 {
         sqlx::query(sql).execute(pool).await.expect(sql).last_insert_rowid()
     }
 
-    pub(super) async fn open_shift(pool: &SqlitePool) -> i64 {
+    pub(crate) async fn open_shift(pool: &SqlitePool) -> i64 {
         exec(pool, "INSERT INTO shifts(opened_at, opening_cash, status) VALUES('2026-01-01T08:00:00Z', 0, 'open')").await
     }
 
-    pub(super) async fn walk_in(pool: &SqlitePool) -> i64 {
+    pub(crate) async fn walk_in(pool: &SqlitePool) -> i64 {
         exec(pool, "INSERT INTO customers(name, is_walk_in) VALUES('Yo''l-yo''lakay', 1)").await
     }
 
-    pub(super) async fn customer(pool: &SqlitePool) -> i64 {
+    pub(crate) async fn customer(pool: &SqlitePool) -> i64 {
         exec(pool, "INSERT INTO customers(name, is_walk_in) VALUES('Ali', 0)").await
     }
 
-    pub(super) async fn product(pool: &SqlitePool, name: &str, price: i64, stock: f64) -> i64 {
+    pub(crate) async fn product(pool: &SqlitePool, name: &str, price: i64, stock: f64) -> i64 {
         sqlx::query("INSERT INTO products(name, price, cost_price, stock) VALUES(?, ?, ?, ?)")
             .bind(name)
             .bind(price)
@@ -750,7 +750,7 @@ mod tests {
     }
 
     /// db.ts createSale bilan bir xil yozuv: qoldiq kamayadi, qarz balansdan ayiriladi.
-    pub(super) async fn sale(
+    pub(crate) async fn sale(
         pool: &SqlitePool,
         shift: i64,
         cust: i64,
@@ -822,14 +822,14 @@ mod tests {
         (sale_id, item_ids)
     }
 
-    pub(super) fn lines(items: &[(i64, f64)]) -> Vec<ReturnLineInput> {
+    pub(crate) fn lines(items: &[(i64, f64)]) -> Vec<ReturnLineInput> {
         items
             .iter()
             .map(|(id, qty)| ReturnLineInput { sale_item_id: *id, qty: *qty })
             .collect()
     }
 
-    pub(super) fn req(sale_id: i64, items: &[(i64, f64)], cash: i64, card: i64, balance: i64) -> ReturnRequest {
+    pub(crate) fn req(sale_id: i64, items: &[(i64, f64)], cash: i64, card: i64, balance: i64) -> ReturnRequest {
         ReturnRequest {
             sale_id,
             lines: lines(items),
@@ -845,15 +845,15 @@ mod tests {
         quote_on(&mut conn, sale_id, &lines(items)).await
     }
 
-    pub(super) async fn stock(pool: &SqlitePool, pid: i64) -> f64 {
+    pub(crate) async fn stock(pool: &SqlitePool, pid: i64) -> f64 {
         sqlx::query_scalar("SELECT stock FROM products WHERE id = ?").bind(pid).fetch_one(pool).await.unwrap()
     }
 
-    pub(super) async fn balance(pool: &SqlitePool, cid: i64) -> i64 {
+    pub(crate) async fn balance(pool: &SqlitePool, cid: i64) -> i64 {
         sqlx::query_scalar("SELECT balance FROM customers WHERE id = ?").bind(cid).fetch_one(pool).await.unwrap()
     }
 
-    pub(super) async fn count(pool: &SqlitePool, table: &str) -> i64 {
+    pub(crate) async fn count(pool: &SqlitePool, table: &str) -> i64 {
         sqlx::query_scalar(&format!("SELECT COUNT(*) FROM {table}")).fetch_one(pool).await.unwrap()
     }
 

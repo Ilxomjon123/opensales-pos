@@ -16,11 +16,13 @@ const period = ref({ count: 0, gross: 0, total: 0, cash: 0, card: 0, debt: 0, re
 const topProducts = ref<{ name: string; qty: number; total: number }[]>([])
 const lowStock = ref<{ name: string; stock: number; unit: string }[]>([])
 
-async function preset(kind: 'today' | 'week' | 'month' | 'all') {
+async function preset(kind: 'today' | 'week' | 'month' | 'quarter' | 'year' | 'all') {
   const t = new Date()
   if (kind === 'today') { dateFrom.value = iso(t); dateTo.value = iso(t) }
   else if (kind === 'week') { const w = new Date(); w.setDate(w.getDate() - 6); dateFrom.value = iso(w); dateTo.value = iso(t) }
   else if (kind === 'month') { dateFrom.value = iso(new Date(t.getFullYear(), t.getMonth(), 1)); dateTo.value = iso(t) }
+  else if (kind === 'quarter') { dateFrom.value = iso(new Date(t.getFullYear(), t.getMonth() - 2, 1)); dateTo.value = iso(t) }
+  else if (kind === 'year') { dateFrom.value = iso(new Date(t.getFullYear(), 0, 1)); dateTo.value = iso(t) }
   else {
     // Ilk sotuv kunidan bugungacha
     const d = await db()
@@ -105,10 +107,12 @@ watch([dateFrom, dateTo], load)
         <span class="text-muted-foreground">—</span>
         <input v-model="dateTo" type="date" class="h-9 min-w-0 flex-1 rounded-lg border bg-background px-2 text-sm sm:flex-none" />
       </div>
-      <div class="grid grid-cols-4 gap-1.5 sm:ml-1 sm:flex">
+      <div class="grid grid-cols-3 gap-1.5 sm:ml-1 sm:flex">
         <button @click="preset('today')" class="h-9 rounded-lg border bg-card px-3 text-sm hover:bg-muted">{{ $t('reports.today') }}</button>
         <button @click="preset('week')" class="h-9 rounded-lg border bg-card px-3 text-sm hover:bg-muted">{{ $t('reports.week7') }}</button>
         <button @click="preset('month')" class="h-9 rounded-lg border bg-card px-3 text-sm hover:bg-muted">{{ $t('reports.month') }}</button>
+        <button @click="preset('quarter')" class="h-9 rounded-lg border bg-card px-3 text-sm hover:bg-muted">{{ $t('reports.months3') }}</button>
+        <button @click="preset('year')" class="h-9 rounded-lg border bg-card px-3 text-sm hover:bg-muted">{{ $t('reports.year') }}</button>
         <button @click="preset('all')" class="h-9 rounded-lg border bg-card px-3 text-sm hover:bg-muted">{{ $t('common.all') }}</button>
       </div>
     </div>

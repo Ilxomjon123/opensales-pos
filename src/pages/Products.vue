@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Plus, Pencil, Trash2, Search, Package, ImagePlus, X, Eye, EyeOff, Boxes, Coins, AlertTriangle, PackageX, Percent, ArrowUp, ArrowDown, Sparkles, Printer, ScanLine } from 'lucide-vue-next'
+import { useRoute, useRouter } from 'vue-router'
+import { Plus, Pencil, Trash2, Search, Package, ImagePlus, X, Eye, EyeOff, Boxes, Coins, AlertTriangle, PackageX, Percent, ArrowUp, ArrowDown, Sparkles, Printer, ScanLine, FileSpreadsheet, ArrowLeftRight } from 'lucide-vue-next'
 import {
   listProducts, listCategories, saveProduct, deleteProduct, setProductActive,
   bulkPricePreview, bulkAdjustPrices, type Product, type Category, type BulkPriceParams, type BulkPricePreviewRow,
@@ -14,12 +15,18 @@ import { confirmDialog } from '../lib/confirm'
 import { notify } from '../lib/notify'
 import { generateUniqueBarcode, barcodeDataUrl } from '../lib/barcode'
 import { printLabel } from '../lib/print'
+import { adjustProductStock, stockErrorMessage } from '../lib/stock'
+import { exportProducts } from '../lib/exports'
 
 const { t } = useI18n()
+const route = useRoute()
+const router = useRouter()
 
 const products = ref<Product[]>([])
 const categories = ref<Category[]>([])
-const search = ref('')
+// ?q= — boshqa bo'limdan (Mahsulot harakati) shu mahsulotni topib ochish uchun.
+const search = ref(typeof route.query.q === 'string' ? route.query.q : '')
+function openMovement(p: Product) { router.push({ path: `/movement/${p.id}`, query: { src: 'products' } }) }
 const catFilter = ref<number | null>(null)
 const stockFilter = ref<'all' | 'in' | 'low' | 'out'>('all')
 const statusFilter = ref<'all' | 'active' | 'inactive'>('all')
@@ -159,16 +166,35 @@ async function printProductLabel() {
   await printLabel({ name: form.value.name || '—', price: form.value.price || 0, barcode: code, type: form.value.barcode_type, copies: labelCopies.value, size: labelSize.value })
 }
 
+// Qoldiq saveProduct'da yozilmaydi — o'zgargan bo'lsa jurnal orqali (tovar harakati hisoboti
+// shundan yig'iladi): yangi mahsulotda "boshlang'ich", tahrirda "qo'lda tuzatish".
 async function save() {
   if (!form.value.name?.trim()) return
+  const stock = Number(form.value.stock ?? 0)
+  if (!Number.isFinite(stock) || stock < 0) { notify(t('products.invalidStock'), 'error'); return }
+  const isNew = !form.value.id
+  const before = isNew ? 0 : products.value.find((p) => p.id === form.value.id)?.stock
   try {
-    await saveProduct(form.value as any)
+    const id = await saveProduct(form.value as any)
+    // Qoldiq yozilmay qolsa, qayta "Saqlash" ikkinchi mahsulot yaratmasin — endi bu tahrir.
+    form.value.id = id
+    if (stock !== before) await adjustProductStock(id, stock, isNew ? 'initial' : 'manual')
     showForm.value = false
     await load()
     notify(t('products.saved'), 'success')
-  } catch (e: any) {
-    notify(e?.message ?? t('products.error'), 'error')
+  } catch (e) {
+    await load()
+    notify(stockErrorMessage(e) || t('products.error'), 'error')
   }
+}
+
+const exporting = ref(false)
+async function doExport() {
+  if (exporting.value || visible.value.length === 0) return
+  exporting.value = true
+  try { await exportProducts(visible.value, catName); notify(t('exports.saved'), 'success') }
+  catch (e: any) { notify(t('exports.failed', { error: e?.message ?? e }), 'error') }
+  finally { exporting.value = false }
 }
 async function toggle(p: Product) {
   await setProductActive(p.id, !p.is_active)
@@ -224,6 +250,7 @@ async function applyBulk() {
       </div>
       <div class="flex shrink-0 items-center gap-2">
         <button @click="showScanner = true" :title="$t('products.scanCode')" class="flex h-9 items-center gap-1.5 rounded-lg border px-3 text-sm font-medium transition hover:bg-muted"><ScanLine class="h-4 w-4" /> <span class="hidden sm:inline">{{ $t('products.scanner') }}</span></button>
+        <button @click="doExport" :disabled="exporting || visible.length === 0" :title="$t('products.exportHint')" class="flex h-9 items-center gap-1.5 rounded-lg border px-3 text-sm font-medium transition hover:bg-muted disabled:opacity-50"><FileSpreadsheet class="h-4 w-4 text-emerald-600" /> <span class="hidden sm:inline">Excel</span></button>
         <button @click="openBulk" class="flex h-9 items-center gap-1.5 rounded-lg border px-3 text-sm font-medium transition hover:bg-muted"><Percent class="h-4 w-4" /> <span class="hidden sm:inline">{{ $t('products.prices') }}</span></button>
         <button @click="openNew" class="flex h-9 items-center gap-1.5 rounded-lg bg-primary px-3.5 text-sm font-medium text-primary-foreground transition hover:bg-primary/90"><Plus class="h-4 w-4" /> {{ $t('products.new') }}</button>
       </div>
@@ -288,6 +315,7 @@ async function applyBulk() {
           </div>
           <div class="flex shrink-0 flex-col items-end gap-1.5">
             <div class="flex items-center gap-0.5">
+              <button @click="openMovement(p)" :title="$t('products.movement')" class="rounded p-2 text-muted-foreground hover:bg-muted hover:text-foreground"><ArrowLeftRight class="h-4 w-4" /></button>
               <button @click="openEdit(p)" class="rounded p-2 text-muted-foreground hover:bg-muted hover:text-foreground"><Pencil class="h-4 w-4" /></button>
               <button @click="toggle(p)" class="rounded p-2 text-muted-foreground hover:bg-muted hover:text-foreground"><component :is="p.is_active ? EyeOff : Eye" class="h-4 w-4" /></button>
               <button @click="remove(p)" class="rounded p-2 text-muted-foreground hover:bg-rose-500/10 hover:text-rose-600"><Trash2 class="h-4 w-4" /></button>
@@ -318,6 +346,7 @@ async function applyBulk() {
             <td class="px-4 py-3 text-right tabular-nums text-muted-foreground">{{ moneySum(p.price * p.stock) }}</td>
             <td class="px-4 py-3">
               <div class="flex items-center justify-end gap-0.5">
+                <button @click="openMovement(p)" :title="$t('products.movement')" class="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"><ArrowLeftRight class="h-4 w-4" /></button>
                 <button @click="openEdit(p)" :title="$t('common.edit')" class="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"><Pencil class="h-4 w-4" /></button>
                 <button @click="toggle(p)" :title="p.is_active ? $t('products.deactivate') : $t('products.activate')" class="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"><component :is="p.is_active ? EyeOff : Eye" class="h-4 w-4" /></button>
                 <button @click="remove(p)" :title="$t('common.delete')" class="rounded p-1.5 text-muted-foreground hover:bg-rose-500/10 hover:text-rose-600"><Trash2 class="h-4 w-4" /></button>
@@ -392,9 +421,10 @@ async function applyBulk() {
           <div class="grid grid-cols-2 gap-3">
             <div><label class="mb-1 block text-sm font-medium">{{ $t('products.price') }}</label><input v-model.number="form.price" type="number" min="0" class="h-10 w-full rounded-md border bg-background px-3 text-sm tabular-nums" /></div>
             <div><label class="mb-1 block text-sm font-medium">{{ $t('products.costPrice') }}</label><input v-model.number="form.cost_price" type="number" min="0" class="h-10 w-full rounded-md border bg-background px-3 text-sm tabular-nums" /></div>
-            <div><label class="mb-1 block text-sm font-medium">{{ $t('products.stock') }}</label><input v-model.number="form.stock" type="number" min="0" class="h-10 w-full rounded-md border bg-background px-3 text-sm tabular-nums" /></div>
+            <div><label class="mb-1 block text-sm font-medium">{{ $t('products.stock') }}</label><input v-model.number="form.stock" type="number" min="0" step="any" class="h-10 w-full rounded-md border bg-background px-3 text-sm tabular-nums" /></div>
             <div><label class="mb-1 block text-sm font-medium">{{ $t('products.unit') }}</label><select v-model="form.unit" class="h-10 w-full rounded-md border bg-background px-3 text-sm"><option value="dona">{{ $t('products.unitPiece') }}</option><option value="kg">{{ $t('products.unitKg') }}</option><option value="litr">{{ $t('products.unitLiter') }}</option></select></div>
           </div>
+          <p class="text-xs text-muted-foreground">{{ form.id ? $t('products.stockEditHint') : $t('products.stockNewHint') }}</p>
         </div>
         <div class="mt-5 flex gap-2">
           <button @click="save" class="h-10 flex-1 rounded-md bg-primary text-sm font-medium text-primary-foreground hover:bg-primary/90">{{ $t('common.save') }}</button>

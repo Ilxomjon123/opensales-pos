@@ -6,18 +6,23 @@ type State = {
   title: string
   message: string
   danger: boolean
+  confirmText: string | null
+  cancelText: string | null
   resolve: ((v: boolean) => void) | null
 }
 
-export const confirmState = ref<State>({ open: false, title: '', message: '', danger: false, resolve: null })
+export const confirmState = ref<State>({ open: false, title: '', message: '', danger: false, confirmText: null, cancelText: null, resolve: null })
 
-export function confirmDialog(message: string, opts?: { title?: string; danger?: boolean }): Promise<boolean> {
+// confirmText/cancelText — amal nomi "Bekor qilish" bo'lgan joyda tugmalar chalkashmasin.
+export function confirmDialog(message: string, opts?: { title?: string; danger?: boolean; confirmText?: string; cancelText?: string }): Promise<boolean> {
   return new Promise((resolve) => {
     confirmState.value = {
       open: true,
       title: opts?.title ?? t('common.confirmTitle'),
       message,
       danger: opts?.danger ?? false,
+      confirmText: opts?.confirmText ?? null,
+      cancelText: opts?.cancelText ?? null,
       resolve,
     }
   })

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRoute } from 'vue-router'
 import { Receipt, ChevronDown, Search, Printer, Coins, Wallet, HandCoins, RotateCcw } from 'lucide-vue-next'
 import { listSales, listProducts, listCustomers, type SaleListItem, type SaleReturnFull, type Product, type Customer } from '../lib/db'
 import { moneySum, formatDateTime, translitMatch } from '../lib/format'
@@ -10,6 +11,7 @@ import { printReceipt } from '../lib/print'
 import { printReturnReceipt, fmtQty, saleReturnState } from '../lib/returns'
 
 const { t } = useI18n()
+const route = useRoute()
 
 function customerName(s: Row): string {
   return s.is_walk_in ? t('common.walkInCustomer') : (s.customer_name ?? '—')
@@ -54,7 +56,8 @@ const sales = ref<Row[]>([])
 const products = ref<Product[]>([])
 const customers = ref<Customer[]>([])
 const expanded = ref<Set<number>>(new Set())
-const search = ref('')
+// ?q= — Mahsulot harakatidan hujjatni ochish (chek/vozvrat raqami).
+const search = ref(typeof route.query.q === 'string' ? route.query.q : '')
 const status = ref('')
 const productId = ref<number | null>(null)
 const customerId = ref<number | null>(null)

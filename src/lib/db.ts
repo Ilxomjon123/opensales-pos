@@ -64,6 +64,8 @@ async function healSchema(d: Database): Promise<void> {
   //    pool shu paytda ro'yxatda (Database.load tugagan). Yiqilsa dastur ochilaversin —
   //    faqat vozvrat ishlamaydi, sababi logда qoladi.
   try { await invoke('ensure_returns_schema') } catch (e) { console.error('ensure_returns_schema:', e) }
+  // 5) kirim + qoldiq tuzatish jadvallari (v11) — DDL Rust stock.rs'da, xuddi shunday.
+  try { await invoke('ensure_stock_schema') } catch (e) { console.error('ensure_stock_schema:', e) }
 }
 
 // ---- Turlar ----
@@ -190,7 +192,10 @@ export async function listProducts(activeOnly = true): Promise<Product[]> {
   const where = activeOnly ? 'WHERE is_active = 1' : ''
   return d.select<Product[]>(`SELECT * FROM products ${where} ORDER BY name`)
 }
-export async function saveProduct(p: Partial<Product> & { name: string; price: number }): Promise<void> {
+// Qoldiq bu yerda YOZILMAYDI — u faqat jurnal orqali o'zgaradi (lib/stock.ts adjustProductStock,
+// kirim, sotuv, vozvrat), aks holda tovar harakati hisoboti yig'ilmaydi. Yangi mahsulot 0
+// qoldiq bilan yaratiladi. Qaytaradi: mahsulot id.
+export async function saveProduct(p: Partial<Product> & { name: string; price: number }): Promise<number> {
   const d = await db()
   const barcode = p.barcode?.trim() || null
   if (barcode && barcode.length > 512) throw new Error(t('products.barcodeTooLong'))
@@ -205,15 +210,16 @@ export async function saveProduct(p: Partial<Product> & { name: string; price: n
   const barcodeType = barcode ? (p.barcode_type || null) : null
   if (p.id) {
     await d.execute(
-      'UPDATE products SET category_id=?, name=?, price=?, cost_price=?, stock=?, unit=?, image=?, barcode=?, barcode_type=? WHERE id=?',
-      [p.category_id ?? null, p.name, p.price, p.cost_price ?? 0, p.stock ?? 0, p.unit ?? 'dona', p.image ?? null, barcode, barcodeType, p.id],
+      'UPDATE products SET category_id=?, name=?, price=?, cost_price=?, unit=?, image=?, barcode=?, barcode_type=? WHERE id=?',
+      [p.category_id ?? null, p.name, p.price, p.cost_price ?? 0, p.unit ?? 'dona', p.image ?? null, barcode, barcodeType, p.id],
     )
-  } else {
-    await d.execute(
-      'INSERT INTO products(category_id, name, price, cost_price, stock, unit, image, barcode, barcode_type) VALUES(?,?,?,?,?,?,?,?,?)',
-      [p.category_id ?? null, p.name, p.price, p.cost_price ?? 0, p.stock ?? 0, p.unit ?? 'dona', p.image ?? null, barcode, barcodeType],
-    )
+    return p.id
   }
+  const r = await d.execute(
+    'INSERT INTO products(category_id, name, price, cost_price, stock, unit, image, barcode, barcode_type) VALUES(?,?,?,?,0,?,?,?,?)',
+    [p.category_id ?? null, p.name, p.price, p.cost_price ?? 0, p.unit ?? 'dona', p.image ?? null, barcode, barcodeType],
+  )
+  return r.lastInsertId as number
 }
 
 // Shtrix/QR kod bo'yicha aktiv mahsulot topish (savatga qo'shish uchun). Topilmasa null.
@@ -232,6 +238,8 @@ export async function deleteProduct(id: number): Promise<void> {
   const d = await db()
   const sales = await d.select<{ c: number }[]>('SELECT COUNT(*) c FROM sale_items WHERE product_id = ?', [id])
   if ((sales[0]?.c ?? 0) > 0) throw new Error(t('products.hasSales'))
+  const receipts = await d.select<{ c: number }[]>('SELECT COUNT(*) c FROM stock_receipt_items WHERE product_id = ?', [id])
+  if ((receipts[0]?.c ?? 0) > 0) throw new Error(t('products.hasReceipts'))
   await d.execute('DELETE FROM products WHERE id = ?', [id])
 }
 
@@ -633,7 +641,8 @@ export async function listExpenses(f: ExpenseFilter = {}): Promise<Expense[]> {
 }
 // Tanlangan sanani (YYYY-MM-DD) ISO created_at'ga aylantiradi. Bugun bo'lsa joriy vaqt,
 // aks holda o'sha kun peshini (kun-chegarasi timezone siljishini oldini oladi).
-function expenseIso(date?: string): string {
+// Xarajat va kirim sanasi ikkalasi ham shu.
+export function dayIso(date?: string): string {
   if (!date) return new Date().toISOString()
   const today = new Date().toISOString().slice(0, 10)
   if (date === today) return new Date().toISOString()
@@ -647,7 +656,7 @@ export async function saveExpense(e: { id?: number; amount: number; category: st
   if (amount === 0) throw new Error(t('expenses.amountMustBePositive'))
   const category = e.category?.trim() || 'Boshqa'
   const note = e.note?.trim() || null
-  const createdAt = expenseIso(e.date)
+  const createdAt = dayIso(e.date)
   if (e.id) {
     await d.execute('UPDATE expenses SET amount=?, category=?, note=?, created_at=? WHERE id=?', [amount, category, note, createdAt, e.id])
   } else {

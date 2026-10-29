@@ -21,6 +21,7 @@
         "@tauri-apps/plugin-updater": "^2.10.1",
         "@zxing/library": "^0.23.0",
         "bwip-js": "^4.11.1",
+        "fflate": "^0.8.2",
         "jsbarcode": "^3.12.3",
         "jsqr": "^1.4.0",
         "lucide-vue-next": "^1.0.0",

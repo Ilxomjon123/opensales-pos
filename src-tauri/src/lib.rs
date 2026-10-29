@@ -1,5 +1,6 @@
 mod camera;
 mod returns;
+mod stock;
 
 use tauri_plugin_sql::{Migration, MigrationKind};
 use std::process::Command;
@@ -752,6 +753,13 @@ CREATE INDEX IF NOT EXISTS idx_expenses_created ON expenses(created_at);
         sql: returns::RETURNS_SCHEMA_SQL,
         kind: MigrationKind::Up,
     },
+    Migration {
+        version: 11,
+        description: "stock_receipts",
+        // Tovar kirimi (prixod) + qoldiq tuzatish jurnali. Matn stock.rs'da — self-heal ham shuni ishlatadi.
+        sql: stock::STOCK_SCHEMA_SQL,
+        kind: MigrationKind::Up,
+    },
     ]
 }
 
@@ -774,6 +782,10 @@ pub fn run() {
             returns::create_return,
             returns::customer::customer_return_quote,
             returns::customer::create_customer_return,
+            stock::ensure_stock_schema,
+            stock::create_stock_receipt,
+            stock::void_stock_receipt,
+            stock::adjust_product_stock,
             camera::camera_permission,
             camera::request_camera_permission,
             camera::open_camera_settings,
