@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, watch } from 'vue'
-import { TrendingUp, Receipt, Coins, Boxes, Calendar, Wallet, PiggyBank } from 'lucide-vue-next'
+import { TrendingUp, Receipt, Coins, Boxes, Calendar, Wallet, CircleDollarSign } from 'lucide-vue-next'
 import { db, expensesTotal } from '../lib/db'
 import { moneySum } from '../lib/format'
 
@@ -154,7 +154,7 @@ watch([dateFrom, dateTo], load)
           <div class="text-xs text-muted-foreground">{{ $t('reports.expensesHint') }}</div>
         </div>
         <div class="rounded-xl border-2 p-4" :class="period.net >= 0 ? 'border-emerald-500/40 bg-emerald-500/5' : 'border-rose-500/40 bg-rose-500/5'">
-          <div class="flex items-center gap-2 text-xs text-muted-foreground"><PiggyBank class="h-4 w-4" /> {{ $t('reports.netProfit') }}</div>
+          <div class="flex items-center gap-2 text-xs text-muted-foreground"><CircleDollarSign class="h-4 w-4" /> {{ $t('reports.netProfit') }}</div>
           <div class="mt-2 text-2xl font-bold tabular-nums" :class="period.net >= 0 ? 'text-emerald-600' : 'text-rose-600'">{{ period.net < 0 ? '− ' + moneySum(-period.net) : moneySum(period.net) }}</div>
           <div class="text-xs text-muted-foreground">{{ $t('reports.netProfitHint') }}</div>
         </div>
