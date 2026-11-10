@@ -1,0 +1,46 @@
+{
+  // OpenSales Kassa — Telegram Mini App POS (pos-tauri'ning bulut versiyasi).
+  // Deploy FAQAT user aytganda. Birinchi deploydan oldin:
+  //   npx wrangler d1 create pos-registry   → database_id ni shu yerga
+  //   npx wrangler secret put BOT_TOKEN | SESSION_KEY | TG_WEBHOOK_SECRET
+  //   vars: BOT_USERNAME, APP_URL, ADMIN_CHAT_ID
+  // R2 ISHLATILMAYDI (bepul tarif boshqa loyihalar bilan umumiy) — rasmlar DO SQLite'da.
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "opensales-kassa",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  "workers_dev": true,
+  // Asosiy manzil: posbot.opensales.uz (Cloudflare custom domain — DNS + sertifikat avtomatik). workers.dev ham ishlaydi.
+  "routes": [{ "pattern": "posbot.opensales.uz", "custom_domain": true }],
+  "preview_urls": false,
+  "assets": {
+    "directory": "./dist-web",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*", "/img/*", "/rimg/*", "/tg/*"]
+  },
+  "durable_objects": {
+    "bindings": [{ "name": "SHOP", "class_name": "ShopDO" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["ShopDO"] }],
+  // Workers AI — yordamchi (ovoz → matn: whisper-large-v3-turbo; matn → amal: llama-3.3-70b). Lokal dev ham
+  // haqiqiy (masofaviy) AI'ni chaqiradi — `wrangler login` kerak; testlar soxta AI beradi.
+  "ai": { "binding": "AI" },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "pos-registry",
+      "database_id": "1cbfc08b-aeca-47b8-8cc2-cd0c111b7d1c",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "vars": {
+    "BOT_USERNAME": "OpensalesPOSBot",
+    "APP_URL": "https://posbot.opensales.uz",
+    "ADMIN_CHAT_ID": "1360121104",
+    "TRIAL_DAYS": "7",
+    "AI_DAILY_LIMIT": "150",
+    "GEMINI_MODEL": "gemini-3.5-flash"
+  },
+  "observability": { "enabled": true, "head_sampling_rate": 1 }
+}

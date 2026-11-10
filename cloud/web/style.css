@@ -1,0 +1,1115 @@
+@import '../../src/style.css';
+
+/* Desktop sahifalar va bulut fayllari Tailwind uchun skanerlanadi. */
+@source '../../src';
+@source '.';
+
+/* ------------------------------------------------------------------ liquid glass
+   Telegram kassa — telefon uchun shisha uslub (hostel mini app'i va OpenSales Pro
+   retsepti). Faqat bulut build'ida: desktop src/style.css tokenlari o'zgarmaydi.
+
+   Qoidalar:
+   - Ranglar OQ-QORA (OpenSales brendi): fon sovuq kulrang + neytral porlash, faol element qora.
+   - Kartalar shaffof oq + yuqori yorug' chet + yumshoq soya, lekin BLURSIZ — zaif Android
+     webview'da har kartadagi backdrop-filter scroll'ni qotiradi. Haqiqiy blur faqat suzuvchi
+     qatlamlarda: sarlavha, pastki panel, "Ko'proq" varag'i.
+   - Ustma-ust chiqadigan yuzalar (modal, savat varag'i, sticky jadval qatorlari) QATTIQ:
+     shaffof bo'lsa ostidagi matn aralashib ko'rinadi.
+   - Qatlamsiz yozilgan — Tailwind utility'laridan ustun. */
+
+@theme {
+  --radius-xl: 1.125rem;
+  --radius-2xl: 1.5rem;
+  --radius-3xl: 1.75rem;
+}
+
+:root {
+  /* Telegram webview balandligi (klaviatura ochilganda o'zgaradi). */
+  --app-h: var(--tg-viewport-stable-height, 100dvh);
+
+  --radius: 0.875rem;
+  --background: #eef0f4;
+  --card: rgb(255 255 255 / 0.72);
+  --popover: #ffffff;
+  --muted: #e7e9ee;
+  --secondary: #e4e6eb;
+  --accent: rgb(16 24 40 / 0.05);
+  --border: rgb(16 24 40 / 0.08);
+  --input: rgb(16 24 40 / 0.1);
+
+  --glass-rim: rgb(255 255 255 / 0.85);
+  --glass-edge: rgb(255 255 255 / 0.95);
+  --glass-edge-low: rgb(255 255 255 / 0.3);
+  --glass-strong: rgb(246 247 250 / 0.78);
+  --glass-shadow: 0 1px 2px rgb(16 24 40 / 0.04), 0 8px 24px -12px rgb(16 24 40 / 0.16);
+  --glass-blur: blur(24px) saturate(180%);
+  --lens-fill: linear-gradient(180deg, rgb(255 255 255 / 0.95), rgb(255 255 255 / 0.55));
+  --glass-tint: rgb(22 23 27 / 0.82);
+  --glow-a: rgb(148 163 184 / 0.34);
+  --glow-b: rgb(203 213 225 / 0.5);
+  --glow-c: rgb(186 196 212 / 0.38);
+
+  --tabbar-h: 62px;
+  --tabbar-gap: 10px;
+  --tabbar-space: calc(var(--tabbar-h) + var(--tabbar-gap) + var(--safe-bottom));
+
+  /* Xavfsiz chekkalar. Telegram TO'LIQ EKRAN rejimida (Main App) ilova status bar va Telegram'ning
+     «Yopish / ⌄ / ⋮» tugmalari ostidan boshlanadi — o'lchamini SDK `--tg-safe-area-inset-*` (qurilma) va
+     `--tg-content-safe-area-inset-*` (Telegram tugmalari) da beradi; Android WebView'da env() doim 0
+     (2026-11-09: Kassa sarlavhasi «Yopish» tugmasi ostida qoldi). Oddiy rejimda hammasi 0. */
+  --safe-top: max(env(safe-area-inset-top), var(--tg-safe-area-inset-top, 0px));
+  --chrome-top: calc(var(--safe-top) + var(--tg-content-safe-area-inset-top, 0px));
+  --safe-bottom: max(env(safe-area-inset-bottom), calc(var(--tg-safe-area-inset-bottom, 0px) + var(--tg-content-safe-area-inset-bottom, 0px)));
+  /* Umumiy (desktop bilan) sahifalar shu o'zgaruvchilarni o'qiydi (desktop'da yo'q → env()). Tepadagi
+     joyni ilova ildizi (.app-shell) beradi — sahifa ikkinchi marta qo'shmasin. */
+  --page-safe-top: 0px;
+  --page-safe-bottom: var(--safe-bottom);
+}
+
+.app-shell {
+  padding-top: var(--chrome-top);
+}
+/* Ilova ustidagi oynalar (modal, skaner) ham Telegram tugmalari ostiga kirmasin. */
+.fixed.inset-0.items-start,
+.fixed.inset-0.items-center {
+  padding-top: calc(var(--chrome-top) + 0.75rem);
+  padding-bottom: calc(var(--safe-bottom) + 0.75rem);
+}
+
+.dark {
+  --background: #0c0d10;
+  --card: rgb(255 255 255 / 0.06);
+  --popover: #1a1c21;
+  --muted: #1d1f24;
+  --secondary: #23262c;
+  --accent: rgb(255 255 255 / 0.06);
+  --border: rgb(255 255 255 / 0.08);
+  --input: rgb(255 255 255 / 0.12);
+
+  --glass-rim: rgb(255 255 255 / 0.09);
+  --glass-edge: rgb(255 255 255 / 0.16);
+  --glass-edge-low: rgb(255 255 255 / 0.04);
+  --glass-strong: rgb(24 26 31 / 0.74);
+  --glass-shadow: 0 12px 32px -14px rgb(0 0 0 / 0.7);
+  --lens-fill: linear-gradient(180deg, rgb(255 255 255 / 0.2), rgb(255 255 255 / 0.08));
+  --glass-tint: rgb(255 255 255 / 0.17);
+  --glow-a: rgb(100 116 139 / 0.22);
+  --glow-b: rgb(71 85 105 / 0.2);
+  --glow-c: rgb(51 65 85 / 0.24);
+}
+
+/* Fon faqat html'da: body shaffof, aks holda porlash qatlamini yopadi. */
+html {
+  background: var(--background);
+}
+html,
+body {
+  overscroll-behavior: none;
+}
+body {
+  background: transparent;
+  -webkit-tap-highlight-color: transparent;
+}
+/* Fondan qaytganda majburiy qayta chizish (telegram.ts repaintOnResume): bir necha kadr butun sahifa yangi
+   kompozitsiya qatlamida — Android WebView yo'qolgan GPU qatlamlarini shu bilan qaytadan chizadi. */
+.os-repaint body {
+  opacity: 0.999;
+}
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(60vmax 50vmax at 100% 0%, var(--glow-a), transparent 60%),
+    radial-gradient(55vmax 45vmax at 0% 45%, var(--glow-b), transparent 60%),
+    radial-gradient(60vmax 50vmax at 80% 100%, var(--glow-c), transparent 60%);
+}
+
+/* ----------------------------------------------------------------- yuzalar */
+.bg-card.border,
+.os-list {
+  border-color: var(--glass-rim);
+  box-shadow: inset 0 1px 0 var(--glass-edge), var(--glass-shadow);
+}
+.os-list {
+  border-radius: 1.375rem;
+}
+/* Ustma-ust yuzalar qattiq (sabab tepada). */
+.fixed.bg-card,
+.fixed .bg-card,
+.sticky.bg-card {
+  background-color: var(--popover);
+}
+.fixed .bg-card {
+  box-shadow: none;
+}
+
+/* Sarlavha: orqa fonsiz (hostel kabi) — faqat katta nom va shisha tugmalar, sahifa bilan
+   birga aylanib ketadi. */
+.page-header {
+  position: relative;
+  border-bottom: 0;
+  background: transparent;
+}
+.page-header h1 {
+  overflow: hidden;
+  font-size: 1.5rem;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Dinamik nom (mijoz, tovar) — to'liq ko'rinsin, qatorga o'raladi. */
+.page-header h1.break-words {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+/* ------------------------------------------------------------- tugmalar
+   Hamma tugma — liquid glass. Neytral: chegarali (asboblar, chiplar) va ikonka tugmalari.
+   Tonlangan: asosiy (bg-primary/bg-foreground) va rangli — shaffof rang + yorug' chet + blur.
+   `[class^='bg-'], [class*=' bg-']` — `hover:bg-*` ni hisobga olmaslik uchun. */
+button.border:not(.glass-field) {
+  border-color: var(--glass-rim);
+  box-shadow:
+    inset 0 1px 0 var(--glass-edge),
+    0 1px 2px rgb(16 24 40 / 0.05),
+    0 6px 16px -10px rgb(16 24 40 / 0.28);
+}
+button.border:not(.glass-field):not([class^='bg-']):not([class*=' bg-']) {
+  background-color: var(--card);
+}
+button.border:is(.h-7, .h-8, .h-9, .h-10, .h-11, .h-12, .py-1, .py-1\.5, .py-2):not(.glass-field) {
+  border-radius: 9999px;
+}
+button:is(.p-1, .p-1\.5, .p-2):not(.border):not([class^='bg-']):not([class*=' bg-']) {
+  border-radius: 9999px;
+  background-color: var(--accent);
+  box-shadow: inset 0 1px 0 var(--glass-edge), inset 0 0 0 0.5px var(--glass-rim);
+}
+/* Modal/varaq ichida (qattiq oq yuza) — yengil to'ldirish. */
+.fixed button.border:not(.glass-field):not([class^='bg-']):not([class*=' bg-']) {
+  border-color: transparent;
+  background-color: var(--accent);
+  box-shadow: inset 0 1px 0 var(--glass-edge);
+}
+
+button.bg-primary,
+a.bg-primary,
+button.bg-foreground,
+.os-filter-btn[aria-expanded='true'],
+button:is(.bg-amber-500, .bg-amber-600, .bg-emerald-500, .bg-emerald-600, .bg-rose-500, .bg-rose-600, .bg-sky-500, .bg-sky-600, .bg-black) {
+  border-color: transparent;
+  border-radius: 9999px;
+  background-image: linear-gradient(180deg, rgb(255 255 255 / 0.22), rgb(255 255 255 / 0) 55%);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.32),
+    inset 0 0 0 0.5px rgb(255 255 255 / 0.14),
+    0 8px 20px -10px rgb(0 0 0 / 0.45);
+  -webkit-backdrop-filter: blur(14px) saturate(180%);
+  backdrop-filter: blur(14px) saturate(180%);
+}
+button.bg-primary,
+a.bg-primary,
+button.bg-foreground,
+.os-filter-btn[aria-expanded='true'] {
+  background-color: var(--glass-tint);
+  color: var(--on-tint, #fff);
+}
+button.bg-amber-500 { background-color: color-mix(in oklab, var(--color-amber-500) 84%, transparent); }
+button.bg-amber-600 { background-color: color-mix(in oklab, var(--color-amber-600) 84%, transparent); }
+button.bg-emerald-500 { background-color: color-mix(in oklab, var(--color-emerald-500) 84%, transparent); }
+button.bg-emerald-600 { background-color: color-mix(in oklab, var(--color-emerald-600) 84%, transparent); }
+button.bg-rose-500 { background-color: color-mix(in oklab, var(--color-rose-500) 84%, transparent); }
+button.bg-rose-600 { background-color: color-mix(in oklab, var(--color-rose-600) 84%, transparent); }
+button.bg-sky-500 { background-color: color-mix(in oklab, var(--color-sky-500) 84%, transparent); }
+button.bg-sky-600 { background-color: color-mix(in oklab, var(--color-sky-600) 84%, transparent); }
+button:disabled {
+  opacity: 0.5;
+}
+
+/* Matnli asbob tugmalari (CSV, "Orqaga" kabi, chegarasiz h-8/h-9) ham shisha kapsula. */
+button:is(.h-8, .h-9):not(.border):not([class^='bg-']):not([class*=' bg-']):not(.glass-field) {
+  border-radius: 9999px;
+  background-color: var(--card);
+  box-shadow: inset 0 1px 0 var(--glass-edge), inset 0 0 0 0.5px var(--glass-rim), var(--glass-shadow);
+}
+/* Sahifadagi matn maydonlari (modal tashqarisida) — shisha. */
+main :is(input.border, textarea.border):not(:is([type='checkbox'], [type='radio'], [type='file'], [type='range'])):not(.fixed *):not(.os-search *) {
+  border-color: var(--glass-rim);
+  background-color: var(--card);
+  box-shadow: inset 0 1px 0 var(--glass-edge), var(--glass-shadow);
+}
+main input.border:not(:is([type='checkbox'], [type='radio'], [type='file'], [type='range'])):not(.fixed *):not(.os-search *) {
+  border-radius: 9999px;
+}
+/* Ikonkali qidiruv maydonlarida (pl-9 / pl-10) chap chekinish saqlanadi — faqat oddiylariga. */
+main input.border:not(:is([type='checkbox'], [type='radio'], [type='file'], [type='range'])):not(.fixed *):not(.os-search *):not([class*='pl-']) {
+  padding-inline: 0.875rem;
+}
+
+/* Modal ✕ (build'da qo'shiladi — vite.config.ts → modalCloseInserts): o'ng yuqori burchak. */
+.os-modal-x {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  float: right;
+  display: grid;
+  place-items: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  margin: -0.375rem -0.375rem 0.25rem 0.75rem;
+  border-radius: 9999px;
+  background: var(--accent);
+  box-shadow: inset 0 1px 0 var(--glass-edge), inset 0 0 0 0.5px var(--glass-rim);
+  color: var(--foreground);
+}
+.flex-col > .os-modal-x {
+  position: absolute;
+  top: 0.625rem;
+  right: 0.75rem;
+  float: none;
+  margin: 0;
+}
+.flex-col:has(> .os-modal-x) {
+  position: relative;
+}
+.flex-col:has(> .os-modal-x) > .os-modal-x + * {
+  padding-right: 3.5rem;
+}
+
+/* Orqaga: ichki sahifalarda chap yuqorida suzuvchi shisha doira (sahifaning o'z tugmasi yashirin). */
+.os-back {
+  display: none !important;
+}
+.tg-back-wrap {
+  position: sticky;
+  top: 0;
+  z-index: 45;
+  height: 0;
+}
+.tg-back {
+  position: absolute;
+  top: 0.625rem;
+  left: 1rem;
+  display: grid;
+  place-items: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 9999px;
+  background: var(--glass-strong);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  backdrop-filter: blur(20px) saturate(180%);
+  box-shadow:
+    inset 0 1px 0 var(--glass-edge),
+    inset 0 0 0 0.5px var(--glass-rim),
+    0 8px 22px -10px rgb(0 0 0 / 0.35);
+  color: var(--foreground);
+}
+.tg-back svg {
+  margin-left: -2px;
+}
+.has-back .page-header {
+  padding-left: 4.5rem;
+}
+.tg-back-enter-active,
+.tg-back-leave-active {
+  transition:
+    opacity 0.22s ease,
+    transform 0.26s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.tg-back-enter-from,
+.tg-back-leave-to {
+  opacity: 0;
+  transform: translateX(-12px) scale(0.9);
+}
+
+/* Qidiruv va filtr tugmasi — shisha kapsula. */
+.os-search input,
+.os-filter-btn {
+  height: 2.5rem;
+  border-color: var(--glass-rim);
+  border-radius: 9999px;
+  background-color: var(--card);
+  box-shadow: inset 0 1px 0 var(--glass-edge), var(--glass-shadow);
+}
+
+/* POS: savat tugmasi suzuvchi panel ustida. */
+.os-cartbar {
+  bottom: calc(var(--tabbar-space) + 10px);
+}
+
+/* ------------------------------------------------- maydonlar (select / sana)
+   GlassSelect, GlassDate, SearchableSelect (cloud/web/components) — shisha kapsula. */
+.glass-field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  min-width: 0;
+  height: 2.5rem;
+  padding: 0 0.75rem 0 0.875rem;
+  border: 1px solid var(--glass-rim);
+  border-radius: 9999px;
+  background-color: var(--card);
+  box-shadow: inset 0 1px 0 var(--glass-edge), var(--glass-shadow);
+  color: var(--foreground);
+  font-size: 0.875rem;
+  text-align: left;
+}
+.glass-field-value {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.glass-field-value.unset {
+  color: var(--muted-foreground);
+}
+.glass-field-icon {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  opacity: 0.55;
+}
+/* Modal ichida — boshqa inputlar bilan bir xil (kulrang to'ldirish, to'rtburchak). */
+.fixed .glass-field {
+  border-color: var(--input);
+  border-radius: calc(var(--radius) - 2px);
+  background-color: var(--background);
+  box-shadow: none;
+}
+
+/* Pastdan varaq (GlassSheet). Teleport → body; qattiq-shisha, bitta blur qatlam. */
+.glass-sheet-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgb(0 0 0 / 0.32);
+}
+.glass-sheet {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 32rem;
+  max-height: 78vh;
+  padding-bottom: calc(var(--safe-bottom) + 0.75rem);
+  border-radius: 28px 28px 0 0;
+  background: var(--glass-strong);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  box-shadow:
+    inset 0 1px 0 var(--glass-edge),
+    0 -12px 40px -12px rgb(0 0 0 / 0.3);
+  color: var(--foreground);
+}
+.glass-sheet.tall {
+  height: 78vh;
+}
+.glass-sheet-grip {
+  flex: none;
+  width: 40px;
+  height: 5px;
+  margin: 8px auto 2px;
+  border-radius: 9999px;
+  background: rgb(127 127 127 / 0.35);
+}
+.glass-sheet-head {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 1rem 0.75rem 1.25rem;
+}
+.glass-sheet-head h2 {
+  font-size: 1.125rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.glass-sheet-head .sub {
+  margin-top: 1px;
+  color: var(--muted-foreground);
+  font-size: 0.8125rem;
+}
+.glass-sheet-close {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 9999px;
+  background: var(--accent);
+  box-shadow: inset 0 1px 0 var(--glass-edge), inset 0 0 0 0.5px var(--glass-rim);
+}
+.glass-sheet-search {
+  position: relative;
+  flex: none;
+  margin: 0 1rem 0.5rem;
+}
+.glass-sheet-search svg {
+  position: absolute;
+  top: 50%;
+  left: 0.875rem;
+  color: var(--muted-foreground);
+  transform: translateY(-50%);
+}
+.glass-sheet-search input {
+  width: 100%;
+  height: 2.75rem;
+  padding: 0 1rem 0 2.5rem;
+  border: 0;
+  border-radius: 9999px;
+  outline: none;
+  background: var(--accent);
+  box-shadow: inset 0 1px 0 var(--glass-edge), inset 0 0 0 0.5px var(--glass-rim);
+  font-size: 16px; /* iOS fokusda kattalashtirmasin */
+}
+.glass-options {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0.25rem 0.75rem 0.25rem;
+}
+.glass-option {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  width: 100%;
+  min-height: 3rem;
+  padding: 0 0.875rem;
+  border-radius: 0.875rem;
+  font-size: 1rem;
+  text-align: left;
+}
+.glass-option + .glass-option {
+  margin-top: 2px;
+}
+.glass-option:active,
+.glass-option.on {
+  background: var(--accent);
+}
+.glass-option.on {
+  font-weight: 600;
+}
+.glass-option.muted {
+  color: var(--muted-foreground);
+}
+.glass-option:disabled {
+  opacity: 0.4;
+}
+.glass-options-empty {
+  padding: 2rem 1rem;
+  color: var(--muted-foreground);
+  text-align: center;
+}
+.glass-sheet-enter-active,
+.glass-sheet-leave-active {
+  transition: opacity 0.2s ease;
+}
+.glass-sheet-enter-active .glass-sheet,
+.glass-sheet-leave-active .glass-sheet {
+  transition: transform 0.28s cubic-bezier(0.32, 0.72, 0, 1);
+}
+.glass-sheet-enter-from,
+.glass-sheet-leave-to {
+  opacity: 0;
+}
+.glass-sheet-enter-from .glass-sheet,
+.glass-sheet-leave-to .glass-sheet {
+  transform: translateY(100%);
+}
+
+/* Kalendar (GlassDate) — haftalar dushanbadan, tanlangan kun tonlangan shisha. */
+.glass-cal {
+  padding: 0 1rem 0.25rem;
+}
+.glass-cal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.5rem;
+}
+.glass-cal-nav {
+  display: grid;
+  place-items: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 9999px;
+  background: var(--accent);
+  box-shadow: inset 0 1px 0 var(--glass-edge), inset 0 0 0 0.5px var(--glass-rim);
+}
+.glass-cal-title {
+  padding: 0.375rem 0.875rem;
+  border-radius: 9999px;
+  font-size: 1.0625rem;
+  font-weight: 700;
+}
+.glass-cal-title.open,
+.glass-cal-title:active {
+  background: var(--accent);
+}
+.glass-cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px 4px;
+}
+.glass-cal-wd {
+  padding: 0.25rem 0;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-align: center;
+}
+.glass-cal-wd.weekend {
+  color: var(--color-rose-500);
+}
+.glass-cal-day {
+  display: grid;
+  place-items: center;
+  height: 2.75rem;
+  border-radius: 9999px;
+  font-size: 1rem;
+  font-variant-numeric: tabular-nums;
+}
+.glass-cal-day:active {
+  background: var(--accent);
+}
+.glass-cal-day.now {
+  font-weight: 700;
+  box-shadow: inset 0 0 0 1.5px var(--foreground);
+}
+.glass-cal-day.on,
+.glass-cal-month.on {
+  background-color: var(--glass-tint);
+  background-image: linear-gradient(180deg, rgb(255 255 255 / 0.22), rgb(255 255 255 / 0) 55%);
+  color: var(--on-tint, #fff);
+  font-weight: 700;
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.32),
+    0 6px 14px -6px rgb(0 0 0 / 0.5);
+}
+.glass-cal-day:disabled {
+  opacity: 0.28;
+}
+.glass-cal-months {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.5rem;
+}
+.glass-cal-month {
+  height: 3rem;
+  border-radius: 1rem;
+  background: var(--accent);
+  font-size: 0.9375rem;
+  font-weight: 500;
+}
+.glass-cal-month.now {
+  box-shadow: inset 0 0 0 1.5px var(--foreground);
+}
+.glass-cal-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 0.75rem;
+}
+.glass-cal-link {
+  padding: 0.5rem 0.875rem;
+  border-radius: 9999px;
+  font-size: 0.9375rem;
+  font-weight: 600;
+}
+.glass-cal-link:active {
+  background: var(--accent);
+}
+.glass-cal-link.danger {
+  color: var(--color-rose-500);
+}
+
+/* ----------------------------------------------------------- pastki panel
+   Suzuvchi kapsula, faol bo'lim orqasida siljiydigan shisha linza. */
+.tg-tabbar {
+  position: fixed;
+  right: 0;
+  bottom: calc(var(--tabbar-gap) + var(--safe-bottom));
+  left: 0;
+  z-index: 40;
+  padding: 0 1rem;
+  pointer-events: none;
+}
+.tg-tabbar nav {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(var(--tabs, 5), 1fr);
+  max-width: 28rem;
+  height: var(--tabbar-h);
+  margin: 0 auto;
+  padding: 6px;
+  border-radius: 9999px;
+  pointer-events: auto;
+  background: var(--glass-strong);
+  -webkit-backdrop-filter: blur(28px) saturate(200%);
+  backdrop-filter: blur(28px) saturate(200%);
+  box-shadow:
+    inset 0 1px 0 var(--glass-edge),
+    inset 0 -1px 1px var(--glass-edge-low),
+    inset 0 0 0 0.5px var(--glass-rim),
+    0 16px 40px -14px rgb(0 0 0 / 0.3),
+    0 2px 6px rgb(0 0 0 / 0.06);
+}
+.tg-tab {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-width: 0;
+  border-radius: 9999px;
+  color: var(--foreground);
+  font-size: 10.5px;
+  font-weight: 600;
+  opacity: 0.55;
+  transition: opacity 0.25s;
+}
+.tg-tab.on {
+  opacity: 1;
+}
+.tg-tab svg {
+  transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.tg-tab:active svg {
+  transform: scale(1.18);
+}
+.tg-tab span {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tg-lens {
+  position: absolute;
+  top: 6px;
+  bottom: 6px;
+  left: 6px;
+  width: calc((100% - 12px) / var(--tabs, 5));
+  border-radius: 9999px;
+  background: var(--lens-fill);
+  box-shadow:
+    inset 0 1px 0 var(--glass-edge),
+    inset 0 -1px 0 var(--glass-edge-low),
+    inset 0 0 0 0.5px var(--glass-rim),
+    0 4px 12px -4px rgb(0 0 0 / 0.18);
+  transform: translateX(calc(var(--i, 0) * 100%));
+  transition: transform 0.5s cubic-bezier(0.34, 1.32, 0.5, 1);
+}
+
+/* AI yordamchisi tugmasi — suzuvchi tonlangan shisha doira, pastki panel ustida o'ngda. */
+.ai-fab {
+  position: fixed;
+  right: 1rem;
+  bottom: calc(var(--tabbar-space) + 0.75rem);
+  z-index: 35;
+  display: grid;
+  place-items: center;
+  width: 3.5rem;
+  height: 3.5rem;
+  border-radius: 9999px;
+  background-color: var(--glass-tint);
+  background-image: linear-gradient(180deg, rgb(255 255 255 / 0.24), rgb(255 255 255 / 0) 55%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  backdrop-filter: blur(16px) saturate(180%);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.35),
+    inset 0 0 0 0.5px rgb(255 255 255 / 0.16),
+    0 12px 28px -10px rgb(0 0 0 / 0.5);
+  color: var(--on-tint, #fff);
+  animation: os-fade 0.3s ease backwards;
+}
+.ai-fab.high {
+  bottom: calc(var(--tabbar-space) + 4.75rem);
+}
+/* Keng ekranda (Telegram Desktop) kassaning o'ng tomoni — savat ustuni: tugma chapga. */
+@media (min-width: 1024px) {
+  .ai-fab.high {
+    right: auto;
+    bottom: calc(var(--tabbar-space) + 0.75rem);
+    left: 1rem;
+  }
+}
+
+/* "Ko'proq" varag'i — shisha, ichidagi plitkalar yengil (allaqachon shisha ustida). */
+.tg-sheet {
+  border-radius: 28px 28px 0 0;
+  background: var(--glass-strong);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  box-shadow:
+    inset 0 1px 0 var(--glass-edge),
+    0 -12px 40px -12px rgb(0 0 0 / 0.25);
+}
+.tg-sheet-item {
+  border-radius: 1.25rem;
+  background: var(--accent);
+}
+
+/* ------------------------------------------------------------------ harakat
+   Hamma narsa silliq: faqat opacity/transform (kompozitor), 0.2–0.3 s, iOS egri chizig'i.
+   Sahifa: yangisi paydo bo'ladi (nav.ts yo'nalish beradi). `backwards` — animatsiya tugagach
+   transform qolmaydi (aks holda fixed modallar sahifaga nisbatan joylashib qolardi). */
+/* Pastki panel uchun bo'shliq SAHIFA ICHIDA: o'sadigan sahifa (os-page, min-h-full) `h-full` o'ramdan oshib
+   chiqadi, main'ning padding'i esa o'ram tagiga qo'shiladi — kontent tagiga emas → oxirgi qator nav ostida qolardi.
+   Ichida aylanadigan (h-full) sahifada border-box padding ichki maydonni nav tepasigacha qisqartiradi. */
+.page-anim > :not(.fixed) {
+  padding-bottom: calc(var(--tabbar-space) + 0.75rem);
+}
+/* Kassa (telefon): mahsulotlar kategoriyalar qatori OSTIDAN shaffof o'tadi — qattiq kesilgan chegara yo'q.
+   Panjara kategoriyalar ostiga cho'ziladi (manfiy chekka = qator balandligi + flex gap), birinchi qator joyida
+   qoladi (padding), tepada sekin so'nadi. Chiplar ustida bosiladi, oradagi bo'shliqlar kartalarga o'tkazadi. */
+@media (max-width: 1023.98px) {
+  .os-pos-cats {
+    --cats-h: 2.375rem;
+    position: relative;
+    z-index: 2;
+    margin-bottom: calc(-1 * (var(--cats-h) + 0.75rem));
+    pointer-events: none;
+  }
+  .os-pos-cats > * {
+    pointer-events: auto;
+  }
+  .os-pos-grid {
+    padding-top: calc(2.375rem + 0.75rem);
+    -webkit-mask-image: linear-gradient(to bottom, rgb(0 0 0 / 0.08), #000 3.5rem);
+    mask-image: linear-gradient(to bottom, rgb(0 0 0 / 0.08), #000 3.5rem);
+  }
+}
+/* Miqdor stepperi (kassa savati): bitta yumshoq kapsula, ichida tekis −/+ (doira/soya yo'q — global shisha
+   tugma qoidasi bu yerda bekor), o'rtada qalin raqam. !important — global tugma qoidasining yuqori
+   o'ziga xosligi (:not zanjiri) ustidan. */
+.os-cart-step > div {
+  height: 2.5rem;
+  padding: 0 0.1875rem;
+  border: 0;
+  border-radius: 9999px;
+  background: var(--secondary);
+  box-shadow: inset 0 0 0 0.5px var(--glass-rim, transparent);
+}
+.os-cart-step > div > button {
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 9999px !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: var(--primary);
+  transition: background-color 0.15s, transform 0.12s;
+}
+.os-cart-step > div > button:active {
+  background: var(--accent) !important;
+  transform: scale(0.88);
+}
+.os-cart-step > div > button svg {
+  width: 1.125rem;
+  height: 1.125rem;
+  stroke-width: 2.5;
+}
+.os-cart-step > div > input {
+  width: 2.5rem !important;
+  height: 2.25rem;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--foreground);
+}
+
+/* Kassa savati (telefon): to'liq ekran, BITTA scroll (mijoz → tovarlar → to'lov), pastda doim ko'rinadigan
+   panel (jami + yakunlash). Desktop'dagi yon panel tegilmaydi (hammasi max-width ichida). */
+@media (max-width: 1023.98px) {
+  /* Yopiq savat (ekrandan pastga surilgan) umuman chizilmaydi: Android WebView fondan qaytganda uning
+     qatlamlarini (sticky pastki panel) ekran o'rtasida ko'rsatib qo'yardi. Ochilishda darhol ko'rinadi,
+     yopilishda — sirpanib tushgach yashirinadi. */
+  .os-cart {
+    visibility: visible;
+    transition-property: transform, translate, visibility;
+    transition-duration: 0.3s, 0.3s, 0s;
+    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+    transition-delay: 0s;
+  }
+  .os-cart.translate-y-full {
+    visibility: hidden;
+    transition-delay: 0s, 0s, 0.3s;
+  }
+  .os-cart {
+    top: 0;
+    height: var(--app-h, 100dvh);
+    max-height: none;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    border-top: 0;
+    border-radius: 0;
+    background: var(--background);
+    box-shadow: none;
+  }
+  .os-cart-head {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    padding: calc(var(--chrome-top) + 0.75rem) 1rem 0.75rem;
+    border-bottom: 0;
+    background: color-mix(in srgb, var(--background) 86%, transparent);
+    -webkit-backdrop-filter: var(--glass-blur);
+    backdrop-filter: var(--glass-blur);
+  }
+  .os-cart-head > div:first-child {
+    font-size: 1.125rem;
+  }
+  .os-cart-clear {
+    display: flex;
+  }
+  .os-cart-subhead,
+  .os-cart-unit,
+  .os-cart-total,
+  .os-cart-submit {
+    display: none;
+  }
+  .os-cart-cust {
+    border-bottom: 0;
+    padding: 0.25rem 1rem 0.75rem;
+  }
+  .os-cart-list {
+    flex: none;
+    min-height: auto;
+    overflow: visible;
+  }
+  .os-cart-list > ul {
+    margin: 0 1rem;
+    overflow: hidden;
+    border: 1px solid var(--glass-rim, var(--border));
+    border-radius: 1.25rem;
+    background: var(--card);
+    box-shadow: inset 0 1px 0 var(--glass-edge, transparent), var(--glass-shadow, none);
+  }
+  .os-cart-line {
+    padding: 0.75rem 0.875rem;
+  }
+  .os-cart-line > div:first-child > div:first-child {
+    font-size: 0.9375rem;
+    font-weight: 600;
+  }
+  /* Narx (kenglik bo'yicha) + miqdor bir qatorda; qator jami — ostida o'ngda. */
+  .os-cart-row {
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+  }
+  .os-cart-pricebox {
+    flex: 1 1 8rem;
+  }
+  input.os-cart-price {
+    height: 2.5rem;
+    border-radius: 9999px;
+    font-size: 1rem;
+  }
+  .os-cart-step {
+    flex-direction: row;
+  }
+  /* Oxirgi sotuv miqdori stepper yonida narx maydonini toraytiradi; oxirgi narx narx ostida baribir ko'rinadi. */
+  .os-cart-step > button {
+    display: none;
+  }
+  .os-cart-sum {
+    flex-basis: 100%;
+    height: auto;
+    font-size: 0.9375rem;
+  }
+  .os-cart-pay {
+    border-top: 0;
+    padding: 1rem 1rem 0.5rem;
+  }
+  .os-cart-quick {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .os-cart-quick::-webkit-scrollbar {
+    display: none;
+  }
+  .os-cart-quick > button {
+    flex: none;
+  }
+  .os-cart-foot {
+    position: sticky;
+    bottom: 0;
+    z-index: 3;
+    display: block;
+    margin-top: auto;
+    padding: 0.75rem 1rem calc(var(--safe-bottom) + 0.75rem);
+    background: color-mix(in srgb, var(--background) 86%, transparent);
+    box-shadow: 0 -1px 0 var(--border);
+    -webkit-backdrop-filter: var(--glass-blur);
+    backdrop-filter: var(--glass-blur);
+  }
+}
+/* Telefon ro'yxatlarida kesilgan (…) matn to'liq ko'rinsin: nomlar, izohlar qatorga o'raladi. Summalar
+   (tabular-nums) uzilmaydi — "so'm" keyingi qatorga tushmasin. */
+@media (max-width: 1023.98px) {
+  .os-list :is(.truncate, .line-clamp-1) {
+    overflow: visible;
+    -webkit-line-clamp: unset;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .os-list .tabular-nums {
+    white-space: nowrap;
+  }
+}
+.page-anim {
+  animation: os-page-fade 0.22s cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
+}
+.page-anim[data-nav='push'] {
+  animation: os-page-in-right 0.28s cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
+}
+.page-anim[data-nav='pop'] {
+  animation: os-page-in-left 0.28s cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
+}
+@keyframes os-page-fade {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes os-page-in-right {
+  from {
+    opacity: 0;
+    transform: translateX(36px);
+  }
+}
+@keyframes os-page-in-left {
+  from {
+    opacity: 0;
+    transform: translateX(-28px);
+  }
+}
+
+/* Modallar (build'da <Transition name="os-modal"> ga o'ralgan): fon so'nadi, oyna pastdan
+   ko'tarilib, ozgina kattalashib chiqadi; yopilishda teskari. Ikkalasi bir xil davomiylikda —
+   Vue ildiz transitionend'ini kutadi. */
+.os-modal-enter-active,
+.os-modal-leave-active {
+  transition: opacity 0.26s ease;
+}
+.os-modal-enter-active > *,
+.os-modal-leave-active > * {
+  transition:
+    transform 0.26s cubic-bezier(0.32, 0.72, 0, 1),
+    opacity 0.26s ease;
+}
+.os-modal-enter-from,
+.os-modal-leave-to {
+  opacity: 0;
+}
+.os-modal-enter-from > *,
+.os-modal-leave-to > * {
+  opacity: 0;
+  transform: translateY(24px) scale(0.97);
+}
+
+/* Filtrlar ochilganda, yoyilgan qator, yangi yuklangan qatorlar — yumshoq paydo bo'lish. */
+.os-filters.os-open > .os-more {
+  animation: os-drop 0.24s cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
+}
+.os-filters.os-open > .os-more:nth-of-type(3) { animation-delay: 0.02s; }
+.os-filters.os-open > .os-more:nth-of-type(4) { animation-delay: 0.04s; }
+.os-filters.os-open > .os-more:nth-of-type(5) { animation-delay: 0.06s; }
+.os-list > li {
+  animation: os-fade 0.24s ease backwards;
+}
+.os-list > li > div:not(:first-child) {
+  animation: os-drop 0.22s cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
+}
+.os-stats > * {
+  animation: os-fade 0.24s ease backwards;
+}
+@keyframes os-fade {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes os-drop {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+
+/* Bosilganda javob: tugma ozgina siqiladi (Telegram'dagi kabi), rang/soya silliq o'tadi. */
+button,
+a,
+.glass-field {
+  transition:
+    transform 0.14s cubic-bezier(0.2, 0.8, 0.2, 1),
+    background-color 0.2s ease,
+    color 0.2s ease,
+    box-shadow 0.2s ease,
+    opacity 0.2s ease;
+}
+button:active:not(:disabled):not(.w-full):not(.glass-option),
+.tg-sheet-item:active,
+.glass-field:active:not(:disabled) {
+  transform: scale(0.96);
+}
+button.w-full:active:not(:disabled),
+.glass-option:active {
+  transform: scale(0.99);
+}
+.tg-tab:active {
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-delay: 0s !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* iOS "kamroq shaffoflik" sozlamasi va backdrop-filter'siz dvigatellar — qattiq yuzalar. */
+@media (prefers-reduced-transparency: reduce) {
+  :root,
+  .dark {
+    --card: var(--popover);
+    --glass-strong: var(--popover);
+  }
+  body::before {
+    display: none;
+  }
+  * {
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+}
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  :root {
+    --glass-strong: rgb(246 247 250 / 0.97);
+  }
+  .dark {
+    --glass-strong: rgb(24 26 31 / 0.97);
+  }
+}
+
+/* Filial: tovar formasida katalog maydonlari (nom, narx, rasm, kategoriya) asosiy do'konda —
+   faqat qoldiq tahrirlanadi (Products.vue `catalog-locked`, saqlashda saveProduct chaqirilmaydi). */
+.catalog-locked > :not(.grid):not(p),
+.catalog-locked > .grid > :not(.stock-field) {
+  pointer-events: none;
+  opacity: 0.55;
+}
