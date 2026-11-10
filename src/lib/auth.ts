@@ -50,3 +50,10 @@ export function logout() {
   isAuthed.value = false
   sessionStorage.removeItem('authed')
 }
+
+// Huquqlar. Desktop'da bitta foydalanuvchi — hammasi ruxsat. Telegram mini app (kassir roli)
+// shu nomdagi funksiyalarni o'z modulida beradi; sahifalar shunga tayanadi.
+/** `catalogEdit` — bulut filialida katalog asosiy do'konda boshqariladi (desktop'da doim ruxsat). */
+export type Permission = 'editPrice' | 'discount' | 'returns' | 'debtPayment' | 'catalogEdit'
+export function can(_perm: Permission): boolean { return true }
+export function routeAllowed(_path: string): boolean { return true }

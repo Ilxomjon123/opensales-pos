@@ -1,16 +1,18 @@
 <script setup lang="ts">
 // Davr harakati (Panda WMS bilan bir xil): har mahsulot uchun boshlang'ich qoldiq, kirim,
 // chiqim va oxirgi qoldiq. Qatorni bosing — shu davrdagi hujjatlari (Mahsulot harakati).
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
-import { ArrowLeftRight, Search, FileSpreadsheet, Calendar, Boxes, Coins, Activity } from 'lucide-vue-next'
+import { ArrowLeftRight, Search, FileSpreadsheet, Calendar, Boxes, Coins, Activity, ChevronRight } from 'lucide-vue-next'
 import { stockMovementReport, type MovementRow } from '../lib/stock'
 import { exportMovement } from '../lib/exports'
 import { moneySum, translitMatch } from '../lib/format'
 import { fmtQty } from '../lib/returns'
 import { notify } from '../lib/notify'
 import { useRowCursor, storedRange, saveRange } from '../lib/rowCursor'
+import { useWide } from '../lib/useWide'
+import { scrollRoot } from '../lib/scroll'
 import type { ExportFormat } from '../lib/xlsx'
 
 const { t } = useI18n()
@@ -56,6 +58,24 @@ function open(productId: number) {
 }
 
 const tableRef = ref<HTMLElement | null>(null)
+const wide = useWide()
+
+// Telefon ro'yxati bo'laklab chiziladi (400+ tovar birdan — sahifa ochilishi qotardi).
+const PAGE = 40
+const shown = ref(PAGE)
+watch(visible, () => { shown.value = PAGE })
+const shownRows = computed(() => visible.value.slice(0, shown.value))
+const listEnd = ref<HTMLElement | null>(null)
+let listObserver: IntersectionObserver | null = null
+watch(listEnd, (el) => {
+  listObserver?.disconnect()
+  if (!el) return
+  listObserver = new IntersectionObserver((entries) => {
+    if (entries.some((e) => e.isIntersecting) && shown.value < visible.value.length) shown.value += PAGE
+  }, { root: scrollRoot(el), rootMargin: '600px' })
+  listObserver.observe(el)
+})
+onBeforeUnmount(() => listObserver?.disconnect())
 const cursor = useRowCursor(() => visible.value.map((r) => r.product_id), tableRef, open)
 
 const exporting = ref(false)
@@ -69,7 +89,7 @@ async function doExport(format: ExportFormat) {
 </script>
 
 <template>
-  <div class="flex h-full flex-col overflow-hidden">
+  <div class="os-page flex h-full flex-col overflow-hidden">
     <header class="page-header flex items-center justify-between gap-2">
       <div class="min-w-0">
         <h1 class="text-lg font-semibold">{{ $t('movement.title') }}</h1>
@@ -83,7 +103,7 @@ async function doExport(format: ExportFormat) {
       </div>
     </header>
 
-    <div class="grid grid-cols-2 gap-2.5 border-b px-4 py-3 sm:gap-3 sm:px-6 sm:py-4 lg:grid-cols-3">
+    <div class="os-stats grid grid-cols-2 gap-2.5 border-b px-4 py-3 sm:gap-3 sm:px-6 sm:py-4 lg:grid-cols-3">
       <div class="flex items-center gap-3 rounded-xl border bg-card p-3">
         <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary"><Boxes class="h-4.5 w-4.5" /></div>
         <div><div class="text-xs text-muted-foreground">{{ $t('movement.statProducts') }}</div><div class="text-lg font-bold tabular-nums">{{ stats.count }}</div></div>
@@ -98,7 +118,7 @@ async function doExport(format: ExportFormat) {
       </div>
     </div>
 
-    <div class="flex flex-wrap items-center gap-2 border-b px-4 py-3 sm:px-6">
+    <div class="os-filters flex flex-wrap items-center gap-2 border-b px-4 py-3 sm:px-6">
       <div class="flex w-full items-center gap-2 sm:w-auto">
         <Calendar class="h-4 w-4 shrink-0 text-muted-foreground" />
         <label class="text-sm text-muted-foreground" for="mv-from">{{ $t('movement.from') }}</label>
@@ -112,11 +132,31 @@ async function doExport(format: ExportFormat) {
       </div>
     </div>
 
-    <div ref="tableRef" class="flex-1 overflow-auto pb-[calc(env(safe-area-inset-bottom)+5rem)] lg:pb-0">
+    <div ref="tableRef" class="os-scroll flex-1 overflow-auto pb-[calc(env(safe-area-inset-bottom)+5rem)] lg:pb-0">
       <div v-if="!loading && visible.length === 0" class="px-4 py-16 text-center text-muted-foreground">
         <ArrowLeftRight class="mx-auto mb-2 h-8 w-8 opacity-40" /> {{ $t('movement.empty') }}
       </div>
-      <table v-else class="w-full min-w-[40rem] text-sm">
+      <template v-else>
+      <!-- Telefon: kartalar ro'yxati (jadval 640px, ekranga sig'maydi). -->
+      <ul v-if="!wide" class="os-list divide-y lg:hidden">
+        <li v-for="r in shownRows" :key="r.product_id" :class="r.is_active ? '' : 'opacity-60'">
+          <RouterLink :to="{ path: `/movement/${r.product_id}`, query: { from, to, src: 'movement' } }" class="flex items-center gap-3 px-4 py-3 active:bg-muted/40">
+            <div class="min-w-0 flex-1">
+              <div class="truncate font-medium">{{ r.name }}</div>
+              <div class="mt-0.5 flex flex-wrap gap-x-2.5 text-xs tabular-nums text-muted-foreground">
+                <span :class="r.opening < 0 ? 'text-rose-600' : ''">{{ $t('movement.colOpening') }} {{ fmtQty(r.opening) }}</span>
+                <span :class="r.income ? 'text-emerald-600' : ''">+{{ fmtQty(r.income) }}</span>
+                <span :class="r.outcome ? 'text-rose-600' : ''">−{{ fmtQty(r.outcome) }}</span>
+              </div>
+            </div>
+            <div class="shrink-0 text-right font-semibold tabular-nums" :class="r.closing < 0 ? 'text-rose-600' : ''">{{ fmtQty(r.closing) }} <span class="text-xs font-normal text-muted-foreground">{{ r.unit }}</span></div>
+            <ChevronRight class="h-4 w-4 shrink-0 text-muted-foreground/60" />
+          </RouterLink>
+        </li>
+        <li v-if="shown < visible.length" ref="listEnd" class="h-px" aria-hidden="true" />
+        <li class="flex justify-between bg-muted/40 px-4 py-3 text-sm font-semibold"><span>{{ $t('movement.totalCount', { count: visible.length }) }}</span><span class="tabular-nums">{{ moneySum(stats.value) }}</span></li>
+      </ul>
+      <table v-if="wide" class="hidden w-full min-w-[40rem] text-sm lg:table">
         <thead class="sticky top-0 z-10 border-b bg-muted text-left text-xs tracking-wide text-muted-foreground uppercase">
           <tr>
             <th class="px-4 py-3">{{ $t('movement.colProduct') }}</th>
@@ -151,7 +191,8 @@ async function doExport(format: ExportFormat) {
           </tr>
         </tfoot>
       </table>
-      <p v-if="visible.length" class="px-4 py-3 text-xs text-muted-foreground sm:px-6">{{ $t('movement.cursorHint') }}</p>
+      </template>
+      <p v-if="visible.length" class="px-4 py-3 text-xs text-muted-foreground max-lg:hidden sm:px-6">{{ $t('movement.cursorHint') }}</p>
     </div>
   </div>
 </template>

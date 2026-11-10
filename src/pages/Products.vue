@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch, defineAsyncComponent, onActivated, onDeactivated } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
-import { Plus, Pencil, Trash2, Search, Package, ImagePlus, X, Eye, EyeOff, Boxes, Coins, AlertTriangle, PackageX, Percent, ArrowUp, ArrowDown, Sparkles, Printer, ScanLine, FileSpreadsheet, ArrowLeftRight } from 'lucide-vue-next'
+import { Plus, Pencil, Trash2, Search, Package, ImagePlus, X, Eye, EyeOff, Boxes, Coins, AlertTriangle, PackageX, Percent, ArrowUp, ArrowDown, Sparkles, Printer, ScanLine, FileSpreadsheet, ArrowLeftRight, SlidersHorizontal } from 'lucide-vue-next'
 import {
   listProducts, listCategories, saveProduct, deleteProduct, setProductActive,
   bulkPricePreview, bulkAdjustPrices, type Product, type Category, type BulkPriceParams, type BulkPricePreviewRow,
@@ -10,13 +10,18 @@ import {
 import { moneySum, translitMatch } from '../lib/format'
 import SearchableSelect from '../components/SearchableSelect.vue'
 import QrScanButton from '../components/QrScanButton.vue'
-import QrScanner from '../components/QrScanner.vue'
+// Kamera skaneri (zxing ~460KB) faqat ochilganda yuklanadi.
+const QrScanner = defineAsyncComponent(() => import('../components/QrScanner.vue'))
 import { confirmDialog } from '../lib/confirm'
 import { notify } from '../lib/notify'
 import { generateUniqueBarcode, barcodeDataUrl } from '../lib/barcode'
 import { printLabel } from '../lib/print'
 import { adjustProductStock, stockErrorMessage } from '../lib/stock'
 import { exportProducts } from '../lib/exports'
+import { can } from '../lib/auth'
+import { scrollRoot } from '../lib/scroll'
+import { useWide } from '../lib/useWide'
+import PhotoPicker from '../components/PhotoPicker.vue'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -30,6 +35,8 @@ function openMovement(p: Product) { router.push({ path: `/movement/${p.id}`, que
 const catFilter = ref<number | null>(null)
 const stockFilter = ref<'all' | 'in' | 'low' | 'out'>('all')
 const statusFilter = ref<'all' | 'active' | 'inactive'>('all')
+const filtersOpen = ref(false)
+const filtersActive = computed(() => catFilter.value !== null || stockFilter.value !== 'all' || statusFilter.value !== 'all')
 const showForm = ref(false)
 const form = ref<Partial<Product>>({ name: '', price: 0, cost_price: 0, stock: 0, unit: 'dona', category_id: null, image: null, barcode: null, barcode_type: null })
 
@@ -59,6 +66,27 @@ const stats = computed(() => {
   }
 })
 const totalValue = computed(() => visible.value.reduce((s, p) => s + p.price * p.stock, 0))
+
+// Ro'yxat bo'laklab chiziladi: yuzlab qator (mobil ro'yxat + jadval) telefonda qotiradi.
+// Jami, eksport va qidiruv to'liq `visible` bilan ishlaydi; oxiri ko'rinsa keyingi bo'lak.
+const wide = useWide()
+// Telefonda birinchi ekran uchun 30 qator yetarli (qolgani scroll'da) — sahifa tezroq ochiladi.
+const PAGE = wide.value ? 80 : 30
+const shown = ref(PAGE)
+watch(visible, () => { shown.value = PAGE })
+const shownRows = computed(() => visible.value.slice(0, shown.value))
+const listBox = ref<HTMLElement | null>(null)
+const listEnd = ref<HTMLElement | null>(null)
+let listObserver: IntersectionObserver | null = null
+watch(listEnd, (el) => {
+  listObserver?.disconnect()
+  if (!el) return
+  listObserver = new IntersectionObserver((entries) => {
+    if (entries.some((e) => e.isIntersecting) && shown.value < visible.value.length) shown.value += PAGE
+  }, { root: scrollRoot(listBox.value), rootMargin: '600px' })
+  listObserver.observe(el)
+})
+onBeforeUnmount(() => listObserver?.disconnect())
 function pickStock(v: 'all' | 'in' | 'low' | 'out') { stockFilter.value = stockFilter.value === v ? 'all' : v }
 const catItems = computed(() => categories.value.map((c) => ({ value: c.id, label: c.name })))
 function catName(id: number | null) { return categories.value.find((c) => c.id === id)?.name ?? '—' }
@@ -92,10 +120,14 @@ function compressImage(file: File): Promise<string> {
 
 async function onImage(e: Event) {
   const file = (e.target as HTMLInputElement).files?.[0]
-  if (!file) return
+  if (file) await onImageFile(file)
+}
+async function onImageFile(file: File) {
   try { form.value.image = await compressImage(file) }
   catch { notify(t('products.imageReadFailed'), 'error') }
 }
+// Bulut filialida katalog asosiy do'konda: qo'shish/narx/o'chirish yo'q, formada faqat qoldiq (desktop'da doim true).
+const catalogEdit = can('catalogEdit')
 function openNew() { form.value = { name: '', price: 0, cost_price: 0, stock: 0, unit: 'dona', category_id: categories.value[0]?.id ?? null, image: null, barcode: null, barcode_type: null }; showForm.value = true }
 function openEdit(p: Product) { form.value = { ...p }; showForm.value = true }
 
@@ -145,6 +177,9 @@ function onGlobalKey(e: KeyboardEvent) {
 }
 onMounted(() => window.addEventListener('keydown', onGlobalKey))
 onBeforeUnmount(() => window.removeEventListener('keydown', onGlobalKey))
+// Bulutda sahifalar xotirada saqlanadi (KeepAlive) — boshqa sahifada skaner shu yerga yozmasin.
+onActivated(() => window.addEventListener('keydown', onGlobalKey))
+onDeactivated(() => window.removeEventListener('keydown', onGlobalKey))
 // --- Shtrix kod: generatsiya, ko'rish, yorliq chop etish ---
 const genBusy = ref(false)
 const labelCopies = ref(1)
@@ -175,7 +210,7 @@ async function save() {
   const isNew = !form.value.id
   const before = isNew ? 0 : products.value.find((p) => p.id === form.value.id)?.stock
   try {
-    const id = await saveProduct(form.value as any)
+    const id = catalogEdit || isNew ? await saveProduct(form.value as any) : form.value.id!
     // Qoldiq yozilmay qolsa, qayta "Saqlash" ikkinchi mahsulot yaratmasin — endi bu tahrir.
     form.value.id = id
     if (stock !== before) await adjustProductStock(id, stock, isNew ? 'initial' : 'manual')
@@ -242,7 +277,7 @@ async function applyBulk() {
 </script>
 
 <template>
-  <div class="flex h-full flex-col overflow-hidden">
+  <div class="os-page flex h-full flex-col overflow-hidden">
     <header class="page-header flex items-center justify-between gap-2">
       <div class="min-w-0">
         <h1 class="text-lg font-semibold">{{ $t('products.title') }}</h1>
@@ -251,13 +286,13 @@ async function applyBulk() {
       <div class="flex shrink-0 items-center gap-2">
         <button @click="showScanner = true" :title="$t('products.scanCode')" class="flex h-9 items-center gap-1.5 rounded-lg border px-3 text-sm font-medium transition hover:bg-muted"><ScanLine class="h-4 w-4" /> <span class="hidden sm:inline">{{ $t('products.scanner') }}</span></button>
         <button @click="doExport" :disabled="exporting || visible.length === 0" :title="$t('products.exportHint')" class="flex h-9 items-center gap-1.5 rounded-lg border px-3 text-sm font-medium transition hover:bg-muted disabled:opacity-50"><FileSpreadsheet class="h-4 w-4 text-emerald-600" /> <span class="hidden sm:inline">Excel</span></button>
-        <button @click="openBulk" class="flex h-9 items-center gap-1.5 rounded-lg border px-3 text-sm font-medium transition hover:bg-muted"><Percent class="h-4 w-4" /> <span class="hidden sm:inline">{{ $t('products.prices') }}</span></button>
-        <button @click="openNew" class="flex h-9 items-center gap-1.5 rounded-lg bg-primary px-3.5 text-sm font-medium text-primary-foreground transition hover:bg-primary/90"><Plus class="h-4 w-4" /> {{ $t('products.new') }}</button>
+        <button v-if="catalogEdit" @click="openBulk" class="flex h-9 items-center gap-1.5 rounded-lg border px-3 text-sm font-medium transition hover:bg-muted"><Percent class="h-4 w-4" /> <span class="hidden sm:inline">{{ $t('products.prices') }}</span></button>
+        <button v-if="catalogEdit" @click="openNew" class="flex h-9 items-center gap-1.5 rounded-lg bg-primary px-3.5 text-sm font-medium text-primary-foreground transition hover:bg-primary/90"><Plus class="h-4 w-4" /> <span class="max-sm:hidden">{{ $t('products.new') }}</span></button>
       </div>
     </header>
 
     <!-- Stat kartalar -->
-    <div class="grid grid-cols-2 gap-2.5 border-b px-4 py-3 sm:gap-3 sm:px-6 sm:py-4 lg:grid-cols-4">
+    <div class="os-stats grid grid-cols-2 gap-2.5 border-b px-4 py-3 sm:gap-3 sm:px-6 sm:py-4 lg:grid-cols-4">
       <div class="flex items-center gap-3 rounded-xl border bg-card p-3">
         <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary"><Boxes class="h-4.5 w-4.5" /></div>
         <div><div class="text-xs text-muted-foreground">{{ $t('products.title') }}</div><div class="text-lg font-bold tabular-nums">{{ stats.count }}</div></div>
@@ -277,65 +312,62 @@ async function applyBulk() {
     </div>
 
     <!-- Filtrlar -->
-    <div class="flex flex-wrap items-center gap-2 border-b px-4 py-3 sm:px-6">
-      <div class="relative w-full sm:min-w-48 sm:flex-1">
+    <div class="os-filters flex flex-wrap items-center gap-2 border-b px-4 py-3 sm:px-6" :class="{ 'os-open': filtersOpen }">
+      <div class="os-search relative w-full sm:min-w-48 sm:flex-1">
         <Search class="absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <input v-model="search" @keyup.enter="onSearchEnter" :placeholder="$t('products.searchPlaceholder')" class="h-9 w-full rounded-lg border bg-background pl-9 pr-3 text-sm focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none" />
       </div>
-      <div class="w-full sm:w-52"><SearchableSelect v-model="catFilter" :items="catItems" :placeholder="$t('products.allCategories')" :search-placeholder="$t('products.categorySearch')" clearable /></div>
-      <select v-model="stockFilter" class="h-9 flex-1 rounded-lg border bg-card px-3 text-sm sm:flex-none">
+      <button type="button" class="os-filter-btn" :class="{ on: filtersActive }" :aria-expanded="filtersOpen" @click="filtersOpen = !filtersOpen"><SlidersHorizontal class="h-4 w-4" /><span>{{ $t('common.filters') }}</span></button>
+      <div class="os-more w-full sm:w-52"><SearchableSelect v-model="catFilter" :items="catItems" :placeholder="$t('products.allCategories')" :search-placeholder="$t('products.categorySearch')" clearable /></div>
+      <select v-model="stockFilter" class="os-more h-9 flex-1 rounded-lg border bg-card px-3 text-sm sm:flex-none">
         <option value="all">{{ $t('products.allStock') }}</option>
         <option value="in">{{ $t('products.enough') }}</option>
         <option value="low">{{ $t('products.lowFilter', { n: '≤' + LOW }) }}</option>
         <option value="out">{{ $t('products.outOfStock') }}</option>
       </select>
-      <select v-model="statusFilter" class="h-9 flex-1 rounded-lg border bg-card px-3 text-sm sm:flex-none">
+      <select v-model="statusFilter" class="os-more h-9 flex-1 rounded-lg border bg-card px-3 text-sm sm:flex-none">
         <option value="all">{{ $t('common.all') }}</option>
         <option value="active">{{ $t('products.statusActive') }}</option>
         <option value="inactive">{{ $t('products.statusInactive') }}</option>
       </select>
     </div>
 
-    <div class="flex-1 overflow-auto pb-[calc(env(safe-area-inset-bottom)+5rem)] lg:pb-0">
+    <div ref="listBox" class="os-scroll flex-1 overflow-auto pb-[calc(env(safe-area-inset-bottom)+5rem)] lg:pb-0">
       <!-- Mobil: kartalar ro'yxati -->
-      <ul class="divide-y lg:hidden">
-        <li v-for="p in visible" :key="p.id" class="flex items-center gap-3 px-4 py-3" :class="p.is_active ? '' : 'opacity-50'">
-          <img v-if="p.image" :src="p.image" class="h-12 w-12 shrink-0 rounded-lg border object-cover" />
+      <ul v-if="!wide" class="os-list divide-y lg:hidden">
+        <!-- Telefon: qator bosilsa — tahrirlash; narx va qoldiq bir qatorda (sinmaydi). -->
+        <li v-for="p in shownRows" :key="p.id" class="flex items-center gap-3 px-4 py-3" :class="p.is_active ? '' : 'opacity-50'">
+          <img v-if="p.image" :src="p.image" loading="lazy" decoding="async" class="h-12 w-12 shrink-0 rounded-lg border object-cover" />
           <div v-else class="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg border bg-muted text-muted-foreground"><Package class="h-5 w-5" /></div>
-          <div class="min-w-0 flex-1">
+          <button type="button" class="min-w-0 flex-1 text-left" @click="openEdit(p)">
             <div class="flex items-center gap-1.5">
               <span class="truncate font-medium">{{ p.name }}</span>
               <span v-if="!p.is_active" class="shrink-0 rounded bg-rose-500/15 px-1.5 py-0.5 text-[10px] font-medium tracking-wide text-rose-600 uppercase">{{ $t('products.inactive') }}</span>
             </div>
-            <div class="mt-0.5 truncate text-xs text-muted-foreground">{{ catName(p.category_id) }}</div>
-            <div class="mt-1 flex items-center gap-2 text-sm">
-              <span class="font-semibold tabular-nums">{{ moneySum(p.price) }}</span>
-              <span class="tabular-nums" :class="p.stock <= 0 ? 'text-rose-500' : p.stock <= LOW ? 'text-amber-600' : 'text-muted-foreground'">· {{ p.stock }} {{ p.unit }}</span>
+            <div class="mt-0.5 truncate text-xs text-muted-foreground">
+              <span class="tabular-nums" :class="p.stock <= 0 ? 'text-rose-500' : p.stock <= LOW ? 'text-amber-600' : ''">{{ p.stock }} {{ p.unit }}</span> · {{ catName(p.category_id) }}
             </div>
-          </div>
-          <div class="flex shrink-0 flex-col items-end gap-1.5">
-            <div class="flex items-center gap-0.5">
-              <button @click="openMovement(p)" :title="$t('products.movement')" class="rounded p-2 text-muted-foreground hover:bg-muted hover:text-foreground"><ArrowLeftRight class="h-4 w-4" /></button>
-              <button @click="openEdit(p)" class="rounded p-2 text-muted-foreground hover:bg-muted hover:text-foreground"><Pencil class="h-4 w-4" /></button>
-              <button @click="toggle(p)" class="rounded p-2 text-muted-foreground hover:bg-muted hover:text-foreground"><component :is="p.is_active ? EyeOff : Eye" class="h-4 w-4" /></button>
-              <button @click="remove(p)" class="rounded p-2 text-muted-foreground hover:bg-rose-500/10 hover:text-rose-600"><Trash2 class="h-4 w-4" /></button>
-            </div>
-            <span class="text-xs text-muted-foreground tabular-nums">{{ moneySum(p.price * p.stock) }}</span>
+            <div class="mt-1 text-sm font-semibold whitespace-nowrap tabular-nums">{{ moneySum(p.price) }}</div>
+          </button>
+          <div class="flex shrink-0 items-center">
+            <button @click="openMovement(p)" :title="$t('products.movement')" class="rounded-full p-2 text-muted-foreground hover:bg-muted hover:text-foreground"><ArrowLeftRight class="h-4 w-4" /></button>
+            <button v-if="catalogEdit" @click="toggle(p)" class="rounded-full p-2 text-muted-foreground hover:bg-muted hover:text-foreground"><component :is="p.is_active ? EyeOff : Eye" class="h-4 w-4" /></button>
+            <button v-if="catalogEdit" @click="remove(p)" class="rounded-full p-2 text-muted-foreground hover:bg-rose-500/10 hover:text-rose-600"><Trash2 class="h-4 w-4" /></button>
           </div>
         </li>
         <li v-if="visible.length === 0" class="px-4 py-16 text-center text-muted-foreground"><Package class="mx-auto mb-2 h-8 w-8 opacity-40" /> {{ $t('products.notFound') }}</li>
         <li v-if="visible.length" class="flex justify-between bg-muted/40 px-4 py-3 text-sm font-semibold"><span>{{ $t('products.totalCount', { count: visible.length }) }}</span><span class="tabular-nums">{{ moneySum(totalValue) }}</span></li>
       </ul>
 
-      <table class="hidden w-full text-sm lg:table">
+      <table v-if="wide" class="hidden w-full text-sm lg:table">
         <thead class="sticky top-0 z-10 border-b bg-muted text-left text-xs tracking-wide text-muted-foreground uppercase">
           <tr><th class="px-4 py-3">{{ $t('products.colName') }}</th><th class="px-4 py-3">{{ $t('products.category') }}</th><th class="px-4 py-3 text-right">{{ $t('products.price') }}</th><th class="px-4 py-3 text-right">{{ $t('products.stock') }}</th><th class="px-4 py-3 text-right">{{ $t('products.value') }}</th><th class="px-4 py-3"></th></tr>
         </thead>
         <tbody class="divide-y">
-          <tr v-for="p in visible" :key="p.id" class="hover:bg-muted/40" :class="p.is_active ? '' : 'opacity-50'">
+          <tr v-for="p in shownRows" :key="p.id" class="hover:bg-muted/40" :class="p.is_active ? '' : 'opacity-50'">
             <td class="px-4 py-3 font-medium">
               <div class="flex items-center gap-2.5">
-                <img v-if="p.image" :src="p.image" class="h-9 w-9 rounded-md border object-cover" />
+                <img v-if="p.image" :src="p.image" loading="lazy" decoding="async" class="h-9 w-9 rounded-md border object-cover" />
                 <div v-else class="flex h-9 w-9 items-center justify-center rounded-md border bg-muted text-muted-foreground"><Package class="h-4 w-4" /></div>
                 <span class="flex items-center gap-2">{{ p.name }}<span v-if="!p.is_active" class="rounded bg-rose-500/15 px-1.5 py-0.5 text-[10px] font-medium tracking-wide text-rose-600 uppercase">{{ $t('products.inactive') }}</span></span>
               </div>
@@ -348,8 +380,8 @@ async function applyBulk() {
               <div class="flex items-center justify-end gap-0.5">
                 <button @click="openMovement(p)" :title="$t('products.movement')" class="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"><ArrowLeftRight class="h-4 w-4" /></button>
                 <button @click="openEdit(p)" :title="$t('common.edit')" class="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"><Pencil class="h-4 w-4" /></button>
-                <button @click="toggle(p)" :title="p.is_active ? $t('products.deactivate') : $t('products.activate')" class="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"><component :is="p.is_active ? EyeOff : Eye" class="h-4 w-4" /></button>
-                <button @click="remove(p)" :title="$t('common.delete')" class="rounded p-1.5 text-muted-foreground hover:bg-rose-500/10 hover:text-rose-600"><Trash2 class="h-4 w-4" /></button>
+                <button v-if="catalogEdit" @click="toggle(p)" :title="p.is_active ? $t('products.deactivate') : $t('products.activate')" class="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"><component :is="p.is_active ? EyeOff : Eye" class="h-4 w-4" /></button>
+                <button v-if="catalogEdit" @click="remove(p)" :title="$t('common.delete')" class="rounded p-1.5 text-muted-foreground hover:bg-rose-500/10 hover:text-rose-600"><Trash2 class="h-4 w-4" /></button>
               </div>
             </td>
           </tr>
@@ -363,13 +395,17 @@ async function applyBulk() {
           </tr>
         </tfoot>
       </table>
+      <div v-if="shown < visible.length" ref="listEnd" class="h-px" />
     </div>
 
     <div v-if="showForm" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
       <div class="max-h-[90vh] w-full max-w-md overflow-auto rounded-xl border bg-card p-5 shadow-xl">
         <div class="mb-4 text-lg font-semibold">{{ form.id ? $t('common.edit') : $t('products.newProduct') }}</div>
-        <div class="space-y-3">
-          <div class="flex items-center gap-3">
+        <p v-if="!catalogEdit" class="mb-3 rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">{{ $t('cloud.shops.catalogLocked') }}</p>
+        <div class="space-y-3" :class="{ 'catalog-locked': !catalogEdit }">
+          <!-- Telefon: hostel kabi — rasm plitkasi + Kamera/Galereya. Desktop: pastdagi eski blok. -->
+          <PhotoPicker class="lg:hidden" :image="form.image" @file="onImageFile" @clear="form.image = null" />
+          <div class="hidden items-center gap-3 lg:flex">
             <div class="relative h-16 w-16 shrink-0">
               <img v-if="form.image" :src="form.image" class="h-16 w-16 rounded-lg border object-cover" />
               <div v-else class="flex h-16 w-16 items-center justify-center rounded-lg border bg-muted text-muted-foreground"><Package class="h-6 w-6" /></div>
@@ -421,7 +457,7 @@ async function applyBulk() {
           <div class="grid grid-cols-2 gap-3">
             <div><label class="mb-1 block text-sm font-medium">{{ $t('products.price') }}</label><input v-model.number="form.price" type="number" min="0" class="h-10 w-full rounded-md border bg-background px-3 text-sm tabular-nums" /></div>
             <div><label class="mb-1 block text-sm font-medium">{{ $t('products.costPrice') }}</label><input v-model.number="form.cost_price" type="number" min="0" class="h-10 w-full rounded-md border bg-background px-3 text-sm tabular-nums" /></div>
-            <div><label class="mb-1 block text-sm font-medium">{{ $t('products.stock') }}</label><input v-model.number="form.stock" type="number" min="0" step="any" class="h-10 w-full rounded-md border bg-background px-3 text-sm tabular-nums" /></div>
+            <div class="stock-field"><label class="mb-1 block text-sm font-medium">{{ $t('products.stock') }}</label><input v-model.number="form.stock" type="number" min="0" step="any" class="h-10 w-full rounded-md border bg-background px-3 text-sm tabular-nums" /></div>
             <div><label class="mb-1 block text-sm font-medium">{{ $t('products.unit') }}</label><select v-model="form.unit" class="h-10 w-full rounded-md border bg-background px-3 text-sm"><option value="dona">{{ $t('products.unitPiece') }}</option><option value="kg">{{ $t('products.unitKg') }}</option><option value="litr">{{ $t('products.unitLiter') }}</option></select></div>
           </div>
           <p class="text-xs text-muted-foreground">{{ form.id ? $t('products.stockEditHint') : $t('products.stockNewHint') }}</p>

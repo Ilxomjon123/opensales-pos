@@ -28,12 +28,14 @@ const CYR: Record<string, string> = {
   с: 's', т: 't', у: 'u', ў: 'o', ф: 'f', х: 'x', ҳ: 'h', ц: 'ts', ч: 'ch', ш: 'sh',
   щ: 'sh', ъ: '', ы: 'i', ь: '', э: 'e', ю: 'yu', я: 'ya',
 }
-function key(s: string): string {
+// Qidiruv kaliti (kichik harf, kirill → lotin, apostroflarsiz). Ro'yxatlar uni bir marta
+// hisoblab saqlashi mumkin — har harfda barcha nomni qayta o'girmaslik uchun.
+export function translitKey(s: string): string {
   let out = ''
   for (const ch of s.toLowerCase()) out += CYR[ch] ?? ch
   return out.replace(/[ʻʼ'`‘’]/g, '')
 }
 export function translitMatch(text: string, query: string): boolean {
-  const q = key(query.trim())
-  return q === '' ? true : key(text).includes(q)
+  const q = translitKey(query.trim())
+  return q === '' ? true : translitKey(text).includes(q)
 }

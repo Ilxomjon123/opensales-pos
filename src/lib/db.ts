@@ -230,6 +230,14 @@ export async function findProductByBarcode(code: string): Promise<Product | null
   const r = await d.select<Product[]>('SELECT * FROM products WHERE barcode = ? AND is_active = 1 LIMIT 1', [c])
   return r[0] ?? null
 }
+// Mahsulot + kategoriya nomi (Mahsulot harakati kartochkasi uchun). Topilmasa null.
+export async function getProductWithCategory(id: number): Promise<(Product & { category: string | null }) | null> {
+  const d = await db()
+  const r = await d.select<(Product & { category: string | null })[]>(
+    'SELECT p.*, c.name category FROM products p LEFT JOIN categories c ON c.id = p.category_id WHERE p.id = ?', [id],
+  )
+  return r[0] ?? null
+}
 export async function setProductActive(id: number, active: boolean): Promise<void> {
   const d = await db()
   await d.execute('UPDATE products SET is_active = ? WHERE id = ?', [active ? 1 : 0, id])
@@ -390,6 +398,19 @@ export async function closeShift(shiftId: number, closingCash: number): Promise<
     closingCash,
     shiftId,
   ])
+}
+// Smenalar ro'yxati (oxirgi 200) — har biriga sotuvlar soni/summasi va vozvratlar. Bitta so'rov
+// (ilgari Shifts.vue har smenaga alohida so'rov yuborardi).
+export type ShiftListRow = Shift & { sales_count: number; total_sales: number; returns_total: number }
+export async function listShifts(): Promise<ShiftListRow[]> {
+  const d = await db()
+  return d.select<ShiftListRow[]>(
+    `SELECT sh.*,
+            (SELECT COUNT(*) FROM sales s WHERE s.shift_id = sh.id) sales_count,
+            (SELECT COALESCE(SUM(s.total),0) FROM sales s WHERE s.shift_id = sh.id) total_sales,
+            (SELECT COALESCE(SUM(r.amount),0) FROM sale_returns r WHERE r.shift_id = sh.id) returns_total
+     FROM shifts sh ORDER BY sh.id DESC LIMIT 200`,
+  )
 }
 export async function shiftStats(shiftId: number): Promise<{
   sales_count: number

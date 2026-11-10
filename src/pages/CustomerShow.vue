@@ -100,9 +100,9 @@ async function saveBal() {
   <div class="flex h-full flex-col overflow-hidden">
     <header class="page-header flex items-center justify-between gap-2">
       <div class="flex min-w-0 items-center gap-2 sm:gap-3">
-        <button @click="router.back()" class="shrink-0 rounded-lg p-2 hover:bg-muted"><ArrowLeft class="h-5 w-5" /></button>
+        <button @click="router.back()" class="os-back shrink-0 rounded-lg p-2 hover:bg-muted"><ArrowLeft class="h-5 w-5" /></button>
         <div class="min-w-0">
-          <h1 class="truncate text-lg font-semibold">{{ displayName }}</h1>
+          <h1 class="break-words text-lg font-semibold leading-tight lg:truncate">{{ displayName }}</h1>
           <p class="truncate text-sm text-muted-foreground">{{ customer?.phone ?? $t('customerShow.noPhone') }}</p>
         </div>
       </div>
@@ -145,16 +145,16 @@ async function saveBal() {
                 <component :is="r.kind === 'payment' ? Wallet : r.kind === 'opening' ? History : r.kind === 'return' ? RotateCcw : Receipt" class="h-4 w-4" />
               </div>
               <div class="min-w-0 flex-1">
-                <div class="flex items-center gap-1.5">
-                  <span class="truncate text-sm font-medium">{{ r.label }}</span>
+                <div class="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+                  <span class="max-w-full break-words text-sm font-medium">{{ r.label }}</span>
                   <span v-if="r.status" class="shrink-0 rounded-full px-1.5 py-0.5 text-[10px]" :class="statusStyles[r.status]">{{ statusLabels[r.status] ?? r.status }}</span>
                 </div>
-                <div class="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
+                <div class="mt-0.5 text-xs text-muted-foreground">
                   <span>{{ r.kind === 'opening' ? $t('customerShow.beforeSystem') : formatDateTime(r.date) }}</span>
                   <span v-if="r.sale" class="text-muted-foreground/70">· {{ $t('customerShow.itemsCount', { count: r.sale.items.length }) }}</span>
                 </div>
               </div>
-              <div class="shrink-0 text-right">
+              <div class="shrink-0 whitespace-nowrap text-right">
                 <div v-if="r.kind === 'sale'" class="font-semibold tabular-nums">{{ moneySum(r.total) }}</div>
                 <div v-else-if="r.kind === 'return'" class="font-semibold tabular-nums text-amber-600">− {{ moneySum(-r.total) }}</div>
                 <div v-if="r.debt > 0" class="text-xs tabular-nums text-rose-500">{{ $t('customerShow.debtPrefix') }} {{ moneySum(r.debt) }}</div>
@@ -165,10 +165,13 @@ async function saveBal() {
             <!-- Yoyilgan: tovarlar + to'lov tafsiloti -->
             <div v-if="r.sale && expanded.has(r.sale.id)" class="border-t bg-muted/20 px-4 py-3">
               <ul class="space-y-1.5">
-                <li v-for="it in r.sale.items" :key="it.id" class="flex items-baseline justify-between gap-2 text-sm">
-                  <span class="min-w-0 flex-1 truncate">{{ it.product_name }}</span>
-                  <span class="shrink-0 text-xs text-muted-foreground tabular-nums">{{ it.qty }} {{ it.unit }} × {{ moneySum(it.price) }}</span>
-                  <span class="w-24 shrink-0 text-right font-medium tabular-nums">{{ moneySum(it.subtotal) }}</span>
+                <!-- Nom to'liq (kesilmaydi), ostida miqdor × narx va summa. -->
+                <li v-for="it in r.sale.items" :key="it.id" class="text-sm">
+                  <div class="break-words">{{ it.product_name }}</div>
+                  <div class="mt-0.5 flex items-baseline justify-between gap-2">
+                    <span class="text-xs text-muted-foreground tabular-nums">{{ it.qty }} {{ it.unit }} × {{ moneySum(it.price) }}</span>
+                    <span class="shrink-0 whitespace-nowrap font-medium tabular-nums">{{ moneySum(it.subtotal) }}</span>
+                  </div>
                 </li>
               </ul>
               <div class="mt-2 space-y-0.5 border-t pt-2 text-xs">

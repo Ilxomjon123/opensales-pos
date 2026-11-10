@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
+import { can } from '../lib/auth'
 import { useI18n } from 'vue-i18n'
 import { Plus, Pencil, Trash2, FolderTree, Boxes, Coins, Search } from 'lucide-vue-next'
 import { listCategories, saveCategory, deleteCategory, listProducts, type Category } from '../lib/db'
@@ -39,6 +40,8 @@ const stats = computed(() => ({
 }))
 const visValue = computed(() => visible.value.reduce((s, c) => s + (counts.value[c.id]?.sum ?? 0), 0))
 
+// Bulut filialida kategoriyalar asosiy do'konda (desktop'da doim true).
+const catalogEdit = can('catalogEdit')
 function openNew() { name.value = ''; editId.value = undefined; showForm.value = true }
 function openEdit(c: Category) { name.value = c.name; editId.value = c.id; showForm.value = true }
 async function save() { if (!name.value.trim()) return; await saveCategory(name.value.trim(), editId.value); showForm.value = false; await load(); notify(t('categories.saved'), 'success') }
@@ -50,17 +53,17 @@ async function remove(c: Category) {
 </script>
 
 <template>
-  <div class="flex h-full flex-col overflow-hidden">
+  <div class="os-page flex h-full flex-col overflow-hidden">
     <header class="page-header flex items-center justify-between gap-2">
       <div class="min-w-0">
         <h1 class="text-lg font-semibold">{{ $t('categories.title') }}</h1>
         <p class="truncate text-sm text-muted-foreground">{{ $t('categories.headerSummary', { count: stats.count, products: stats.products }) }}</p>
       </div>
-      <button @click="openNew" class="flex h-9 shrink-0 items-center gap-1.5 rounded-lg bg-primary px-3.5 text-sm font-medium text-primary-foreground transition hover:bg-primary/90"><Plus class="h-4 w-4" /> {{ $t('categories.new') }}</button>
+      <button v-if="catalogEdit" @click="openNew" class="flex h-9 shrink-0 items-center gap-1.5 rounded-lg bg-primary px-3.5 text-sm font-medium text-primary-foreground transition hover:bg-primary/90"><Plus class="h-4 w-4" /> {{ $t('categories.new') }}</button>
     </header>
 
     <!-- Stat kartalar -->
-    <div class="grid grid-cols-3 gap-2.5 border-b px-4 py-3 sm:gap-3 sm:px-6 sm:py-4">
+    <div class="os-stats grid grid-cols-3 gap-2.5 border-b px-4 py-3 sm:gap-3 sm:px-6 sm:py-4">
       <div class="flex items-center gap-3 rounded-xl border bg-card p-3">
         <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary"><FolderTree class="h-4.5 w-4.5" /></div>
         <div><div class="text-xs text-muted-foreground">{{ $t('categories.title') }}</div><div class="text-lg font-bold tabular-nums">{{ stats.count }}</div></div>
@@ -76,16 +79,16 @@ async function remove(c: Category) {
     </div>
 
     <!-- Filtrlar -->
-    <div class="flex flex-wrap items-center gap-2 border-b px-4 py-3 sm:px-6">
+    <div class="os-filters flex flex-wrap items-center gap-2 border-b px-4 py-3 sm:px-6">
       <div class="relative w-full flex-1">
         <Search class="absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <input v-model="search" :placeholder="$t('categories.searchPlaceholder')" class="h-9 w-full rounded-lg border bg-background pl-9 pr-3 text-sm focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none" />
       </div>
     </div>
 
-    <div class="flex-1 overflow-auto pb-[calc(env(safe-area-inset-bottom)+5rem)] lg:pb-0">
+    <div class="os-scroll flex-1 overflow-auto pb-[calc(env(safe-area-inset-bottom)+5rem)] lg:pb-0">
       <!-- Mobil: kartalar ro'yxati -->
-      <ul class="divide-y lg:hidden">
+      <ul class="os-list divide-y lg:hidden">
         <li v-for="c in visible" :key="c.id" class="flex items-center gap-3 px-4 py-3">
           <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary"><FolderTree class="h-5 w-5" /></div>
           <div class="min-w-0 flex-1">
@@ -93,8 +96,8 @@ async function remove(c: Category) {
             <div class="mt-0.5 text-xs text-muted-foreground tabular-nums">{{ $t('categories.itemCount', { count: counts[c.id]?.n ?? 0 }) }} · {{ moneySum(counts[c.id]?.sum ?? 0) }}</div>
           </div>
           <div class="flex shrink-0 items-center gap-0.5">
-            <button @click="openEdit(c)" :title="$t('common.edit')" class="rounded p-2 text-muted-foreground hover:bg-muted hover:text-foreground"><Pencil class="h-4 w-4" /></button>
-            <button @click="remove(c)" :title="$t('common.delete')" class="rounded p-2 text-muted-foreground hover:bg-rose-500/10 hover:text-rose-600"><Trash2 class="h-4 w-4" /></button>
+            <button v-if="catalogEdit" @click="openEdit(c)" :title="$t('common.edit')" class="rounded p-2 text-muted-foreground hover:bg-muted hover:text-foreground"><Pencil class="h-4 w-4" /></button>
+            <button v-if="catalogEdit" @click="remove(c)" :title="$t('common.delete')" class="rounded p-2 text-muted-foreground hover:bg-rose-500/10 hover:text-rose-600"><Trash2 class="h-4 w-4" /></button>
           </div>
         </li>
         <li v-if="visible.length === 0" class="px-4 py-16 text-center text-muted-foreground"><FolderTree class="mx-auto mb-2 h-8 w-8 opacity-40" /> {{ $t('categories.notFound') }}</li>
@@ -117,8 +120,8 @@ async function remove(c: Category) {
             <td class="px-4 py-3 text-right tabular-nums text-muted-foreground">{{ moneySum(counts[c.id]?.sum ?? 0) }}</td>
             <td class="px-4 py-3">
               <div class="flex items-center justify-end gap-0.5">
-                <button @click="openEdit(c)" :title="$t('common.edit')" class="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"><Pencil class="h-4 w-4" /></button>
-                <button @click="remove(c)" :title="$t('common.delete')" class="rounded p-1.5 text-muted-foreground hover:bg-rose-500/10 hover:text-rose-600"><Trash2 class="h-4 w-4" /></button>
+                <button v-if="catalogEdit" @click="openEdit(c)" :title="$t('common.edit')" class="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"><Pencil class="h-4 w-4" /></button>
+                <button v-if="catalogEdit" @click="remove(c)" :title="$t('common.delete')" class="rounded p-1.5 text-muted-foreground hover:bg-rose-500/10 hover:text-rose-600"><Trash2 class="h-4 w-4" /></button>
               </div>
             </td>
           </tr>

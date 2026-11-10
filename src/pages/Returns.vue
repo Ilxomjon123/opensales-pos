@@ -4,7 +4,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink, useRoute } from 'vue-router'
-import { RotateCcw, ChevronDown, Search, Printer, Coins, CreditCard, Wallet, Plus } from 'lucide-vue-next'
+import { RotateCcw, ChevronDown, Search, Printer, Coins, CreditCard, Wallet, Plus, SlidersHorizontal } from 'lucide-vue-next'
 import { listReturns, listProducts, listCustomers, type ReturnListRow, type ReturnMethod, type Product, type Customer } from '../lib/db'
 import { moneySum, formatDateTime, translitMatch } from '../lib/format'
 import { printReturnReceipt, fmtQty } from '../lib/returns'
@@ -27,6 +27,8 @@ const productId = ref<number | null>(null)
 const customerId = ref<number | null>(null)
 const dateFrom = ref('')
 const dateTo = ref('')
+const filtersOpen = ref(false)
+const filtersActive = computed(() => !!(customerId.value || productId.value || dateFrom.value || dateTo.value || method.value))
 
 // Yangi vozvrat oqimi: tanlash oynasi → chek yoki mijoz oynasi.
 const showNew = ref(false)
@@ -91,7 +93,7 @@ function onPickCustomer(id: number, label: string) { showNew.value = false; cust
 </script>
 
 <template>
-  <div class="flex h-full flex-col overflow-hidden">
+  <div class="os-page flex h-full flex-col overflow-hidden">
     <header class="page-header flex items-center justify-between gap-2">
       <div class="min-w-0">
         <h1 class="text-lg font-semibold">{{ $t('returnsPage.title') }}</h1>
@@ -103,7 +105,7 @@ function onPickCustomer(id: number, label: string) { showNew.value = false; cust
     </header>
 
     <!-- Stat kartalar (usul kartalari bosilsa — filter) -->
-    <div class="grid grid-cols-2 gap-2.5 border-b px-4 py-3 sm:gap-3 sm:px-6 sm:py-4 lg:grid-cols-4">
+    <div class="os-stats grid grid-cols-2 gap-2.5 border-b px-4 py-3 sm:gap-3 sm:px-6 sm:py-4 lg:grid-cols-4">
       <div class="flex items-center gap-3 rounded-xl border bg-card p-3">
         <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-amber-500/10 text-amber-600"><RotateCcw class="h-4.5 w-4.5" /></div>
         <div><div class="text-xs text-muted-foreground">{{ $t('returnsPage.title') }} · {{ totals.count }}</div><div class="text-lg font-bold tabular-nums">{{ moneySum(totals.amount) }}</div></div>
@@ -123,19 +125,20 @@ function onPickCustomer(id: number, label: string) { showNew.value = false; cust
     </div>
 
     <!-- Filtrlar -->
-    <div class="flex flex-wrap items-center gap-2 border-b px-4 py-3 sm:px-6">
-      <div class="relative w-full sm:min-w-48 sm:flex-1">
+    <div class="os-filters flex flex-wrap items-center gap-2 border-b px-4 py-3 sm:px-6" :class="{ 'os-open': filtersOpen }">
+      <div class="os-search relative w-full sm:min-w-48 sm:flex-1">
         <Search class="absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <input v-model="search" :placeholder="$t('returnsPage.searchPlaceholder')" class="h-9 w-full rounded-md border bg-background pl-9 pr-2 text-sm" />
       </div>
-      <div class="w-full sm:w-52"><SearchableSelect v-model="customerId" :items="customerItems" :placeholder="$t('sales.allCustomers')" :search-placeholder="$t('sales.customerSearchPlaceholder')" clearable /></div>
-      <div class="w-full sm:w-52"><SearchableSelect v-model="productId" :items="productItems" :placeholder="$t('sales.allProducts')" :search-placeholder="$t('sales.productSearchPlaceholder')" clearable /></div>
-      <div class="flex w-full items-center gap-2 sm:w-auto">
+      <button type="button" class="os-filter-btn" :class="{ on: filtersActive }" :aria-expanded="filtersOpen" @click="filtersOpen = !filtersOpen"><SlidersHorizontal class="h-4 w-4" /><span>{{ $t('common.filters') }}</span></button>
+      <div class="os-more w-full sm:w-52"><SearchableSelect v-model="customerId" :items="customerItems" :placeholder="$t('sales.allCustomers')" :search-placeholder="$t('sales.customerSearchPlaceholder')" clearable /></div>
+      <div class="os-more w-full sm:w-52"><SearchableSelect v-model="productId" :items="productItems" :placeholder="$t('sales.allProducts')" :search-placeholder="$t('sales.productSearchPlaceholder')" clearable /></div>
+      <div class="os-more flex w-full items-center gap-2 sm:w-auto">
         <input v-model="dateFrom" type="date" class="h-9 min-w-0 flex-1 rounded-md border bg-background px-2 text-sm sm:flex-none" />
         <span class="text-muted-foreground">—</span>
         <input v-model="dateTo" type="date" class="h-9 min-w-0 flex-1 rounded-md border bg-background px-2 text-sm sm:flex-none" />
       </div>
-      <select v-model="method" class="h-9 w-full rounded-md border bg-card px-3 text-sm sm:w-auto">
+      <select v-model="method" class="os-more h-9 w-full rounded-md border bg-card px-3 text-sm sm:w-auto">
         <option value="">{{ $t('returnsPage.allMethods') }}</option>
         <option value="cash">{{ $t('returns.refundCash') }}</option>
         <option value="card">{{ $t('returns.refundCard') }}</option>
@@ -143,9 +146,9 @@ function onPickCustomer(id: number, label: string) { showNew.value = false; cust
       </select>
     </div>
 
-    <div class="flex-1 overflow-auto pb-[calc(env(safe-area-inset-bottom)+5rem)] lg:pb-0">
+    <div class="os-scroll flex-1 overflow-auto pb-[calc(env(safe-area-inset-bottom)+5rem)] lg:pb-0">
       <!-- Mobil: kartalar -->
-      <ul class="divide-y lg:hidden">
+      <ul class="os-list divide-y lg:hidden">
         <li v-for="r in visible" :key="r.id">
           <button type="button" class="flex w-full items-center gap-3 px-4 py-3 text-left" @click="toggle(r.id)">
             <div class="min-w-0 flex-1">

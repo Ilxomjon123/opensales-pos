@@ -2,7 +2,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
-import { Receipt, ChevronDown, Search, Printer, Coins, Wallet, HandCoins, RotateCcw } from 'lucide-vue-next'
+import { Receipt, ChevronDown, Search, Printer, Coins, Wallet, HandCoins, RotateCcw, SlidersHorizontal } from 'lucide-vue-next'
 import { listSales, listProducts, listCustomers, type SaleListItem, type SaleReturnFull, type Product, type Customer } from '../lib/db'
 import { moneySum, formatDateTime, translitMatch } from '../lib/format'
 import SearchableSelect from '../components/SearchableSelect.vue'
@@ -63,6 +63,8 @@ const productId = ref<number | null>(null)
 const customerId = ref<number | null>(null)
 const dateFrom = ref('')
 const dateTo = ref('')
+const filtersOpen = ref(false)
+const filtersActive = computed(() => !!(customerId.value || productId.value || dateFrom.value || dateTo.value || status.value))
 
 const statusLabels = computed<Record<string, string>>(() => ({
   paid: t('sales.statusPaid'), partial: t('sales.statusPartial'), debt: t('sales.statusDebt'), unpaid: t('sales.statusUnpaid'),
@@ -103,14 +105,14 @@ function itemQtyUnit(i: SaleListItem) { return `${i.qty} ${i.unit}` }
 </script>
 
 <template>
-  <div class="flex h-full flex-col overflow-hidden">
+  <div class="os-page flex h-full flex-col overflow-hidden">
     <header class="page-header">
       <h1 class="text-lg font-semibold">{{ $t('sales.title') }}</h1>
       <p class="truncate text-sm text-muted-foreground">{{ $t('sales.headerSummary', { count: totals.count, total: moneySum(totals.total), debt: moneySum(totals.debt) }) }}</p>
     </header>
 
     <!-- Stat kartalar -->
-    <div class="grid grid-cols-2 gap-2.5 border-b px-4 py-3 sm:gap-3 sm:px-6 sm:py-4 lg:grid-cols-4">
+    <div class="os-stats grid grid-cols-2 gap-2.5 border-b px-4 py-3 sm:gap-3 sm:px-6 sm:py-4 lg:grid-cols-4">
       <div class="flex items-center gap-3 rounded-xl border bg-card p-3">
         <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary"><Receipt class="h-4.5 w-4.5" /></div>
         <div><div class="text-xs text-muted-foreground">{{ $t('sales.title') }}</div><div class="text-lg font-bold tabular-nums">{{ totals.count }}</div></div>
@@ -129,19 +131,20 @@ function itemQtyUnit(i: SaleListItem) { return `${i.qty} ${i.unit}` }
       </button>
     </div>
 
-    <div class="flex flex-wrap items-center gap-2 border-b px-4 py-3 sm:px-6">
-      <div class="relative w-full sm:min-w-48 sm:flex-1">
+    <div class="os-filters flex flex-wrap items-center gap-2 border-b px-4 py-3 sm:px-6" :class="{ 'os-open': filtersOpen }">
+      <div class="os-search relative w-full sm:min-w-48 sm:flex-1">
         <Search class="absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <input v-model="search" :placeholder="$t('sales.receiptNumberPlaceholder')" class="h-9 w-full rounded-md border bg-background pl-9 pr-2 text-sm" />
       </div>
-      <div class="w-full sm:w-52"><SearchableSelect v-model="customerId" :items="customerItems" :placeholder="$t('sales.allCustomers')" :search-placeholder="$t('sales.customerSearchPlaceholder')" clearable /></div>
-      <div class="w-full sm:w-52"><SearchableSelect v-model="productId" :items="productItems" :placeholder="$t('sales.allProducts')" :search-placeholder="$t('sales.productSearchPlaceholder')" clearable /></div>
-      <div class="flex w-full items-center gap-2 sm:w-auto">
+      <button type="button" class="os-filter-btn" :class="{ on: filtersActive }" :aria-expanded="filtersOpen" @click="filtersOpen = !filtersOpen"><SlidersHorizontal class="h-4 w-4" /><span>{{ $t('common.filters') }}</span></button>
+      <div class="os-more w-full sm:w-52"><SearchableSelect v-model="customerId" :items="customerItems" :placeholder="$t('sales.allCustomers')" :search-placeholder="$t('sales.customerSearchPlaceholder')" clearable /></div>
+      <div class="os-more w-full sm:w-52"><SearchableSelect v-model="productId" :items="productItems" :placeholder="$t('sales.allProducts')" :search-placeholder="$t('sales.productSearchPlaceholder')" clearable /></div>
+      <div class="os-more flex w-full items-center gap-2 sm:w-auto">
         <input v-model="dateFrom" type="date" class="h-9 min-w-0 flex-1 rounded-md border bg-background px-2 text-sm sm:flex-none" />
         <span class="text-muted-foreground">—</span>
         <input v-model="dateTo" type="date" class="h-9 min-w-0 flex-1 rounded-md border bg-background px-2 text-sm sm:flex-none" />
       </div>
-      <select v-model="status" class="h-9 w-full rounded-md border bg-card px-3 text-sm sm:w-auto">
+      <select v-model="status" class="os-more h-9 w-full rounded-md border bg-card px-3 text-sm sm:w-auto">
         <option value="">{{ $t('sales.allStatuses') }}</option>
         <option value="paid">{{ $t('sales.statusPaid') }}</option>
         <option value="partial">{{ $t('sales.statusPartial') }}</option>
@@ -150,14 +153,14 @@ function itemQtyUnit(i: SaleListItem) { return `${i.qty} ${i.unit}` }
       </select>
     </div>
 
-    <div class="flex-1 overflow-auto pb-[calc(env(safe-area-inset-bottom)+5rem)] lg:pb-0">
+    <div class="os-scroll flex-1 overflow-auto pb-[calc(env(safe-area-inset-bottom)+5rem)] lg:pb-0">
       <!-- Mobil: kartalar ro'yxati -->
-      <ul class="divide-y lg:hidden">
+      <ul class="os-list divide-y lg:hidden">
         <li v-for="s in visible" :key="s.id">
           <button type="button" class="flex w-full items-center gap-3 px-4 py-3 text-left" @click="toggle(s.id)">
             <div class="min-w-0 flex-1">
-              <div class="flex items-center gap-2">
-                <span class="inline-flex items-center gap-1 truncate font-medium text-primary"><Receipt class="h-3.5 w-3.5 shrink-0" />{{ s.receipt_number }}</span>
+              <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
+                <span class="inline-flex shrink-0 items-center gap-1 font-medium text-primary"><Receipt class="h-3.5 w-3.5 shrink-0" />{{ s.receipt_number }}</span>
                 <span class="shrink-0 rounded-full px-2 py-0.5 text-[11px]" :class="statusStyles[s.payment_status]">{{ statusLabels[s.payment_status] }}</span>
                 <span v-if="returnState(s)" class="shrink-0 rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] text-amber-700 dark:text-amber-400">{{ returnState(s) === 'full' ? $t('returns.fullyReturned') : $t('returns.partiallyReturned') }}</span>
               </div>

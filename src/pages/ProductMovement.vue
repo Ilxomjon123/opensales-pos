@@ -11,7 +11,7 @@ import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { ArrowLeft, ArrowDownUp, FileSpreadsheet, X } from 'lucide-vue-next'
-import { db, listProducts, type Product } from '../lib/db'
+import { getProductWithCategory, listProducts, type Product } from '../lib/db'
 import { productMoves, moveSummary, type ProductMove, type MoveKind } from '../lib/stock'
 import { exportProductMoves } from '../lib/exports'
 import { moneySum, money, formatDateTime, translitMatch } from '../lib/format'
@@ -51,10 +51,7 @@ async function load() {
   loading.value = true
   missing.value = false
   try {
-    const d = await db()
-    const p = (await d.select<(Product & { category: string | null })[]>(
-      'SELECT p.*, c.name category FROM products p LEFT JOIN categories c ON c.id = p.category_id WHERE p.id = ?', [id],
-    ))[0]
+    const p = await getProductWithCategory(id)
     if (!p) { missing.value = true; product.value = null; moves.value = []; return }
     const ms = await productMoves(id, t('common.walkInCustomer'))
     if (id !== productId.value) return // boshqa mahsulotga o'tib ketildi
@@ -224,14 +221,14 @@ const dateOnly = (iso: string) => iso.split('-').reverse().join('.')
 </script>
 
 <template>
-  <div class="flex h-full flex-col overflow-hidden">
+  <div class="os-page flex h-full flex-col overflow-hidden">
     <header class="page-header flex items-center justify-between gap-2">
       <div class="min-w-0">
         <h1 class="truncate text-lg font-semibold" :title="product?.name">{{ product?.name ?? $t('movement.cardTitle') }}</h1>
         <p class="truncate text-sm text-muted-foreground">{{ $t('movement.cardSubtitle') }}</p>
       </div>
       <div class="flex shrink-0 items-center gap-1.5">
-        <RouterLink v-if="back" :to="back.to" class="flex h-9 items-center gap-1.5 rounded-lg px-2.5 text-sm text-muted-foreground transition hover:bg-muted hover:text-foreground">
+        <RouterLink v-if="back" :to="back.to" class="os-back flex h-9 items-center gap-1.5 rounded-lg px-2.5 text-sm text-muted-foreground transition hover:bg-muted hover:text-foreground">
           <ArrowLeft class="h-4 w-4" /> <span class="hidden sm:inline">{{ back.label }}</span>
         </RouterLink>
         <button @click="doExport('xlsx')" :disabled="!product || exporting" class="flex h-9 items-center gap-1.5 rounded-lg border px-3 text-sm font-medium transition hover:bg-muted disabled:opacity-50">
@@ -243,7 +240,7 @@ const dateOnly = (iso: string) => iso.split('-').reverse().join('.')
 
     <div v-if="missing" class="flex-1 px-4 py-16 text-center text-muted-foreground">{{ $t('movement.notFound') }}</div>
 
-    <div v-else ref="tableRef" class="flex-1 space-y-3 overflow-auto px-4 py-3 pb-[calc(env(safe-area-inset-bottom)+5.5rem)] sm:px-6 sm:py-4 lg:pb-6">
+    <div v-else ref="tableRef" class="os-scroll flex-1 space-y-3 overflow-auto px-4 py-3 pb-[calc(env(safe-area-inset-bottom)+5.5rem)] sm:px-6 sm:py-4 lg:pb-6">
       <!-- Mahsulot: kod, birlik, narx, hozirgi qoldiq; boshqasiga o'tish -->
       <section v-if="product" class="flex flex-wrap items-start justify-between gap-4 rounded-xl border bg-card p-4">
         <div class="min-w-0 space-y-1 text-sm">
@@ -325,7 +322,34 @@ const dateOnly = (iso: string) => iso.split('-').reverse().join('.')
         </template>
       </p>
 
-      <div v-if="product" class="overflow-x-auto rounded-xl border">
+      <!-- Telefon: harakatlar kartalari (jadval 832px, ekranga sig'maydi). Bosilsa — hujjat. -->
+      <ul v-if="product" class="os-list os-list-flush divide-y overflow-hidden rounded-xl border lg:hidden">
+        <li class="flex justify-between gap-3 bg-muted/30 px-4 py-2.5 text-sm text-muted-foreground">
+          <span>{{ topEdge.label }}</span>
+          <span class="font-medium tabular-nums" :class="topEdge.value < 0 ? 'text-rose-600' : 'text-foreground'">{{ fmtQty(topEdge.value) }}</span>
+        </li>
+        <li v-if="!loading && filtered.length === 0" class="px-4 py-6 text-center text-sm text-muted-foreground">{{ narrowed ? $t('movement.noRowsFiltered') : $t('movement.noRows') }}</li>
+        <li v-for="m in filtered" :key="m.key">
+          <button type="button" class="flex w-full items-center gap-3 px-4 py-3 text-left active:bg-muted/40" @click="openDoc(m.key)">
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center gap-1.5">
+                <span class="font-medium tabular-nums">{{ m.number }}</span>
+                <span class="rounded px-1.5 py-0.5 text-[11px] font-medium" :class="tone(m).badge">{{ kindLabel(m) }}</span>
+              </div>
+              <div class="mt-0.5 truncate text-xs text-muted-foreground">{{ formatDateTime(m.at) }}<template v-if="m.party"> · {{ m.party }}</template></div>
+            </div>
+            <div class="shrink-0 text-right">
+              <div class="font-semibold tabular-nums" :class="m.delta >= 0 ? 'text-emerald-600' : 'text-rose-600'">{{ m.delta >= 0 ? '+' : '−' }}{{ fmtQty(Math.abs(m.delta)) }}</div>
+              <div class="text-xs tabular-nums text-muted-foreground" :class="m.balance < 0 ? '!text-rose-600' : ''">{{ $t('movement.colBalance') }} {{ fmtQty(m.balance) }}</div>
+            </div>
+          </button>
+        </li>
+        <li class="flex justify-between gap-3 bg-muted/30 px-4 py-2.5 text-sm text-muted-foreground">
+          <span>{{ bottomEdge.label }}</span>
+          <span class="font-medium tabular-nums" :class="bottomEdge.value < 0 ? 'text-rose-600' : 'text-foreground'">{{ fmtQty(bottomEdge.value) }}</span>
+        </li>
+      </ul>
+      <div v-if="product" class="overflow-x-auto rounded-xl border max-lg:hidden">
         <table class="w-full min-w-[52rem] text-sm">
           <thead class="bg-muted text-left text-xs tracking-wide text-muted-foreground uppercase">
             <tr>
@@ -374,7 +398,7 @@ const dateOnly = (iso: string) => iso.split('-').reverse().join('.')
         </table>
       </div>
 
-      <p v-if="filtered.length" class="text-xs text-muted-foreground">
+      <p v-if="filtered.length" class="text-xs text-muted-foreground max-lg:hidden">
         {{ $t('movement.hintClick') }}
         <kbd class="rounded border px-1 font-sans">↑</kbd> <kbd class="rounded border px-1 font-sans">↓</kbd> {{ $t('movement.hintArrows') }}
         <kbd class="rounded border px-1 font-sans">PgUp</kbd> <kbd class="rounded border px-1 font-sans">PgDn</kbd> {{ $t('movement.hintPage') }}

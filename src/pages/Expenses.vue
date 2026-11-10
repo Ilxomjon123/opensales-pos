@@ -69,7 +69,7 @@ async function remove(e: Expense) {
 </script>
 
 <template>
-  <div class="flex h-full flex-col overflow-hidden">
+  <div class="os-page flex h-full flex-col overflow-hidden">
     <header class="page-header flex items-center justify-between gap-2">
       <div class="min-w-0">
         <h1 class="text-lg font-semibold">{{ $t('expenses.title') }}</h1>
@@ -79,7 +79,7 @@ async function remove(e: Expense) {
     </header>
 
     <!-- Stat kartalar -->
-    <div class="grid grid-cols-2 gap-2.5 border-b px-4 py-3 sm:gap-3 sm:px-6 sm:py-4 lg:grid-cols-3">
+    <div class="os-stats grid grid-cols-2 gap-2.5 border-b px-4 py-3 sm:gap-3 sm:px-6 sm:py-4 lg:grid-cols-3">
       <div class="flex items-center gap-3 rounded-xl border bg-card p-3">
         <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-rose-500/10 text-rose-600"><Wallet class="h-4.5 w-4.5" /></div>
         <div><div class="text-xs text-muted-foreground">{{ $t('expenses.totalExpense') }}</div><div class="text-lg font-bold tabular-nums text-rose-600">{{ moneySum(total) }}</div></div>
@@ -95,7 +95,7 @@ async function remove(e: Expense) {
     </div>
 
     <!-- Filtrlar -->
-    <div class="space-y-2 border-b px-4 py-3 sm:flex sm:flex-wrap sm:items-center sm:gap-2 sm:space-y-0 sm:px-6">
+    <div class="os-filters space-y-2 border-b px-4 py-3 sm:flex sm:flex-wrap sm:items-center sm:gap-2 sm:space-y-0 sm:px-6">
       <div class="flex items-center gap-2">
         <Calendar class="h-4 w-4 shrink-0 text-muted-foreground" />
         <input v-model="dateFrom" type="date" class="h-9 min-w-0 flex-1 rounded-lg border bg-background px-2 text-sm sm:flex-none" />
@@ -114,9 +114,9 @@ async function remove(e: Expense) {
       </select>
     </div>
 
-    <div class="flex-1 overflow-auto pb-[calc(env(safe-area-inset-bottom)+5rem)] lg:pb-0">
+    <div class="os-scroll flex-1 overflow-auto pb-[calc(env(safe-area-inset-bottom)+5rem)] lg:pb-0">
       <!-- Mobil -->
-      <ul class="divide-y lg:hidden">
+      <ul class="os-list divide-y lg:hidden">
         <li v-for="e in visible" :key="e.id" class="flex items-center gap-3 px-4 py-3">
           <div class="min-w-0 flex-1">
             <div class="flex items-center gap-1.5">

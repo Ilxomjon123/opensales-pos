@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch, defineAsyncComponent, nextTick, onActivated, onDeactivated } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Search, Plus, Minus, Trash2, Package, ShoppingCart, X, ClipboardList, LogOut, Magnet, ChevronUp, History, ScanLine } from 'lucide-vue-next'
 import {
@@ -7,10 +7,12 @@ import {
   shiftStats, createSale, getSetting, productCustomerHistory, findProductByBarcode,
   type Product, type Category, type Customer, type Shift, type CartLine, type ProductCustomerHistoryRow,
 } from '../lib/db'
-import { money, moneySum, currencySymbol, translitMatch, formatDateTime } from '../lib/format'
+import { money, moneySum, currencySymbol, translitKey, formatDateTime } from '../lib/format'
+import { can } from '../lib/auth'
 import SearchableSelect from '../components/SearchableSelect.vue'
-import QrScanner from '../components/QrScanner.vue'
-import { printReceipt } from '../lib/print'
+// Og'ir modullar (zxing ~460KB, chop etish + bwip-js ~940KB) faqat kerak bo'lganda yuklanadi —
+// kassa sahifasi telefonda tez ochilsin.
+const QrScanner = defineAsyncComponent(() => import('../components/QrScanner.vue'))
 import { beepOk, beepFail, unlockAudio } from '../lib/beep'
 
 const { t } = useI18n()
@@ -99,6 +101,8 @@ type Receipt = {
   paid_card: number
   change: number
   debt: number
+  balance_before?: number
+  balance_after?: number
 }
 const receipt = ref<Receipt | null>(null)
 
@@ -150,16 +154,53 @@ function persistCart() {
   localStorage.setItem(CART_KEY, JSON.stringify(cart.value))
   localStorage.setItem(CART_CUST_KEY, String(customerId.value))
 }
-watch([cart, customerId], persistCart, { deep: true })
+// Har bosishda localStorage'ga yozmaslik uchun — qisqa kechikish bilan.
+let persistTimer: ReturnType<typeof setTimeout> | undefined
+watch([cart, customerId], () => { clearTimeout(persistTimer); persistTimer = setTimeout(persistCart, 250) }, { deep: true })
+onBeforeUnmount(() => { clearTimeout(persistTimer); persistCart() })
+// Bulut (KeepAlive): sahifa yo'q qilinmaydi — "Savatni eslab qolish" o'chiq bo'lsa, desktop'dagidek
+// bo'limdan chiqqanda savat tozalanadi.
+onDeactivated(() => {
+  if (keepCart.value) return
+  clearCart()
+  cartOpen.value = false
+  customerId.value = customers.value.find((c) => c.is_walk_in)?.id ?? customers.value[0]?.id ?? 0
+})
 
+// Qidiruv: nom kalitlari bir marta hisoblanadi (har harfda barcha nomni qayta o'girmaslik
+// uchun), so'rov qisqa kechikish bilan qo'llanadi. Natija translitMatch bilan bir xil.
+const nameKeys = computed(() => new Map(products.value.map((p) => [p.id, translitKey(p.name)])))
+const searchQ = ref('')
+let searchTimer: ReturnType<typeof setTimeout> | undefined
+watch(search, (v) => { clearTimeout(searchTimer); searchTimer = setTimeout(() => { searchQ.value = v }, 120) })
+function flushSearch() { clearTimeout(searchTimer); searchQ.value = search.value }
 const filtered = computed(() => {
   let list = products.value
   // Ostatkasiz sotish o'chiq bo'lsa — qoldig'i 0 mahsulot umuman ko'rinmaydi.
   if (!allowNegative.value) list = list.filter((p) => p.stock > 0)
   if (activeCat.value) list = list.filter((p) => p.category_id === activeCat.value)
-  if (search.value.trim()) list = list.filter((p) => translitMatch(p.name, search.value))
+  const q = translitKey(searchQ.value.trim())
+  if (q) list = list.filter((p) => (nameKeys.value.get(p.id) ?? '').includes(q))
   return list
 })
+// Grid bo'laklab chiziladi: yuzlab plitkani birdaniga chizish telefonda qotiradi. Ro'yxat
+// oxiri ko'rinsa keyingi bo'lak qo'shiladi.
+const PAGE = 60
+const shown = ref(PAGE)
+watch(filtered, () => { shown.value = PAGE })
+const visible = computed(() => filtered.value.slice(0, shown.value))
+const gridBox = ref<HTMLElement | null>(null)
+const gridEnd = ref<HTMLElement | null>(null)
+let gridObserver: IntersectionObserver | null = null
+watch(gridEnd, (el) => {
+  gridObserver?.disconnect()
+  if (!el) return
+  gridObserver = new IntersectionObserver((entries) => {
+    if (entries.some((e) => e.isIntersecting) && shown.value < filtered.value.length) shown.value += PAGE
+  }, { root: gridBox.value, rootMargin: '600px' })
+  gridObserver.observe(el)
+})
+onBeforeUnmount(() => gridObserver?.disconnect())
 
 const customerItems = computed(() => customers.value.map((c) => {
   const name = customerLabel(c)
@@ -217,6 +258,8 @@ async function handleScan(code: string): Promise<boolean> {
 function onCameraScan(code: string) { handleScan(code) }
 // Qidiruv maydonida Enter: avval shtrix kod, topilmasa — yagona natija bo'lsa o'shani qo'shadi.
 async function onSearchEnter() {
+  flushSearch()
+  await nextTick()
   const q = search.value.trim()
   if (!q) return
   if (await handleScan(q)) { search.value = ''; return }
@@ -244,6 +287,9 @@ function onGlobalKey(e: KeyboardEvent) {
 }
 onMounted(() => window.addEventListener('keydown', onGlobalKey))
 onBeforeUnmount(() => window.removeEventListener('keydown', onGlobalKey))
+// Bulutda sahifalar xotirada saqlanadi (KeepAlive) — boshqa sahifada skaner shu yerga yozmasin.
+onActivated(() => window.addEventListener('keydown', onGlobalKey))
+onDeactivated(() => window.removeEventListener('keydown', onGlobalKey))
 
 const quickCash = computed(() => {
   const t = total.value
@@ -258,6 +304,9 @@ async function submit() {
   submitting.value = true
   try {
     const items = cart.value.map((l) => ({ name: l.name, qty: l.qty, unit: l.unit, price: l.price, subtotal: lineTotal(l) }))
+    // Aniq mijoz — chekda oldingi va yangi saldo (sotuvdan OLDIN olinadi: keyin ro'yxat yangilanadi).
+    const cust = selectedCustomer.value
+    const balances = cust && !cust.is_walk_in ? { balance_before: curBalance.value, balance_after: balanceAfter.value } : {}
     const sale = await createSale({
       shiftId: shift.value.id,
       customerId: customerId.value,
@@ -278,6 +327,7 @@ async function submit() {
       paid_card: sale.paid_card,
       change: change.value,
       debt: sale.debt_amount,
+      ...balances,
     }
     clearCart()
     cartOpen.value = false
@@ -290,7 +340,11 @@ async function submit() {
   }
 }
 
-function doPrint() { if (receipt.value) printReceipt(receipt.value) }
+async function doPrint() {
+  if (!receipt.value) return
+  const { printReceipt } = await import('../lib/print')
+  await printReceipt(receipt.value)
+}
 
 async function doOpenShift() {
   shift.value = await openShift(openCashInput.value || 0)
@@ -331,7 +385,7 @@ async function doCloseShift() {
   <!-- Terminal -->
   <div v-else class="flex h-full" :class="dragging ? 'select-none' : ''">
     <!-- Chap: mahsulotlar -->
-    <div class="flex min-w-0 flex-1 flex-col gap-3 overflow-hidden p-4 pt-[calc(env(safe-area-inset-top)+1rem)] lg:pt-4">
+    <div class="flex min-w-0 flex-1 flex-col gap-3 overflow-hidden p-4 pt-[calc(var(--page-safe-top,env(safe-area-inset-top))+1rem)] lg:pt-4">
       <div class="flex flex-wrap items-center gap-2 rounded-xl border bg-card p-2.5 sm:gap-3 sm:p-3">
         <div class="flex items-center gap-2 text-sm">
           <div class="flex h-9 w-9 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-600">
@@ -360,7 +414,7 @@ async function doCloseShift() {
       </div>
 
       <!-- Kategoriya tablar -->
-      <div class="flex gap-2 overflow-x-auto pb-1">
+      <div class="os-pos-cats flex gap-2 overflow-x-auto pb-1">
         <button @click="activeCat = null"
           class="shrink-0 rounded-full border px-4 py-1.5 text-sm font-medium"
           :class="activeCat === null ? 'border-primary bg-primary text-primary-foreground' : 'bg-card hover:bg-muted'">
@@ -374,15 +428,15 @@ async function doCloseShift() {
       </div>
 
       <!-- Grid -->
-      <div class="grid flex-1 auto-rows-max grid-cols-[repeat(auto-fill,minmax(140px,1fr))] items-start gap-2.5 overflow-y-auto pb-20 sm:gap-3 lg:pb-0">
+      <div ref="gridBox" class="os-pos-grid grid flex-1 auto-rows-max grid-cols-[repeat(auto-fill,minmax(140px,1fr))] items-start gap-2.5 overflow-y-auto pb-20 sm:gap-3 lg:pb-0">
         <!-- Plitka va hisoblagich QO'SHNI: tugma ichida tugma bo'lolmaydi, "−"
              bosilishi esa plitkaga o'tib +1 bo'lib ketmasligi kerak. -->
-        <div v-for="p in filtered" :key="p.id" class="relative">
+        <div v-for="p in visible" :key="p.id" class="relative">
         <button type="button" :disabled="!allowNegative && p.stock <= 0" @click="addProduct(p)"
           class="group flex w-full flex-col overflow-hidden rounded-xl border bg-card text-left transition hover:border-primary/40 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-50"
           :class="cartLineByProduct.has(p.id) ? 'border-primary/60 ring-1 ring-primary/30' : ''">
           <div class="relative h-28 w-full shrink-0 bg-muted">
-            <img v-if="p.image" :src="p.image" class="h-full w-full object-cover" />
+            <img v-if="p.image" :src="p.image" loading="lazy" decoding="async" class="h-full w-full object-cover" />
             <div v-else class="flex h-full w-full items-center justify-center text-muted-foreground"><Package class="h-10 w-10" /></div>
             <div v-if="p.stock <= 0" class="absolute inset-0 flex items-center justify-center bg-rose-500/85 text-sm font-semibold text-white">{{ $t('pos.soldOut') }}</div>
           </div>
@@ -402,13 +456,14 @@ async function doCloseShift() {
           </div>
           <button type="button" @click="tileStepDown(p)"
             :aria-label="(cartLineByProduct.get(p.id)?.qty ?? 0) <= 1 ? $t('pos.removeFromCart') : $t('pos.decreaseQty')"
-            class="absolute top-1.5 left-1.5 flex h-9 w-9 items-center justify-center rounded-full bg-background/95 text-foreground shadow-md ring-1 ring-border backdrop-blur-sm transition hover:bg-muted active:scale-90">
+            class="absolute top-1.5 left-1.5 flex h-9 w-9 items-center justify-center rounded-full bg-background text-foreground shadow-md ring-1 ring-border transition hover:bg-muted active:scale-90">
             <Trash2 v-if="(cartLineByProduct.get(p.id)?.qty ?? 0) <= 1" class="h-4 w-4 text-rose-600" />
             <Minus v-else class="h-4 w-4" />
           </button>
         </template>
         </div>
         <div v-if="filtered.length === 0" class="col-span-full rounded-xl border border-dashed bg-muted/30 p-12 text-center text-muted-foreground">{{ $t('pos.noProductsFound') }}</div>
+        <div v-else-if="shown < filtered.length" ref="gridEnd" class="col-span-full h-px" />
       </div>
     </div>
 
@@ -418,21 +473,26 @@ async function doCloseShift() {
     </div>
 
     <!-- Mobil savat backdrop -->
-    <div v-if="cartOpen" class="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm lg:hidden" @click="cartOpen = false"></div>
+    <div v-if="cartOpen" class="fixed inset-0 z-40 bg-black/40 lg:hidden" @click="cartOpen = false"></div>
 
     <!-- O'ng: savat. Desktop'da yon panel, mobil'da pastdan ko'tariladigan sheet. -->
     <aside
       :style="{ '--cart-w': cartW + 'px' }"
-      class="fixed inset-x-0 bottom-0 z-50 flex max-h-[90vh] flex-col rounded-t-2xl border-t bg-card shadow-2xl transition-transform duration-300 lg:static lg:z-auto lg:max-h-none lg:w-[var(--cart-w)] lg:translate-y-0 lg:rounded-none lg:border-t-0 lg:border-l lg:shadow-none"
+      class="os-cart fixed inset-x-0 bottom-0 z-50 flex max-h-[90vh] flex-col rounded-t-2xl border-t bg-card shadow-2xl transition-transform duration-300 lg:static lg:z-auto lg:max-h-none lg:w-[var(--cart-w)] lg:translate-y-0 lg:rounded-none lg:border-t-0 lg:border-l lg:shadow-none"
       :class="cartOpen ? 'translate-y-0' : 'translate-y-full lg:translate-y-0'"
     >
       <!-- Mobil sheet sarlavhasi -->
-      <div class="flex shrink-0 items-center justify-between border-b px-4 py-2.5 lg:hidden">
-        <div class="flex items-center gap-2 text-sm font-semibold"><ShoppingCart class="h-4 w-4" /> {{ $t('pos.cart') }} · {{ cart.length }}</div>
-        <button @click="cartOpen = false" class="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted"><X class="h-4 w-4" /></button>
+      <div class="os-cart-head flex shrink-0 items-center justify-between gap-2 border-b px-4 py-2.5 lg:hidden">
+        <div class="flex min-w-0 items-center gap-2 text-sm font-semibold"><ShoppingCart class="h-4 w-4 shrink-0" /> {{ $t('pos.cart') }} · {{ cart.length }}</div>
+        <div class="flex items-center gap-1">
+          <button v-if="cart.length" @click="clearCart" class="os-cart-clear hidden h-8 items-center gap-1 rounded-md px-2 text-xs text-muted-foreground hover:text-destructive">
+            <Trash2 class="h-3.5 w-3.5" /> {{ $t('pos.clear') }}
+          </button>
+          <button @click="cartOpen = false" class="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted"><X class="h-4 w-4" /></button>
+        </div>
       </div>
       <!-- Mijoz -->
-      <div class="shrink-0 space-y-2 border-b p-4">
+      <div class="os-cart-cust shrink-0 space-y-2 border-b p-4">
         <span class="text-xs font-semibold tracking-wide text-muted-foreground uppercase">{{ $t('pos.customer') }}</span>
         <SearchableSelect v-model="customerId" :items="customerItems" :placeholder="$t('pos.selectCustomer')" :search-placeholder="$t('pos.nameOrPhone')" />
         <div v-if="selectedCustomer && !selectedCustomer.is_walk_in" class="flex items-center justify-between text-xs">
@@ -446,7 +506,7 @@ async function doCloseShift() {
       </div>
 
       <!-- Savat header -->
-      <div class="flex shrink-0 items-center justify-between border-b px-4 py-2.5">
+      <div class="os-cart-subhead flex shrink-0 items-center justify-between border-b px-4 py-2.5">
         <span class="text-xs font-semibold tracking-wide text-muted-foreground uppercase">{{ $t('pos.cart') }}</span>
         <div class="flex items-center gap-2">
           <span class="text-xs text-muted-foreground">{{ $t('pos.itemsCount', { count: cart.length }) }}</span>
@@ -457,30 +517,31 @@ async function doCloseShift() {
       </div>
 
       <!-- Savat ro'yxati -->
-      <div class="min-h-0 flex-1 overflow-auto">
+      <div class="os-cart-list min-h-0 flex-1 overflow-auto">
         <div v-if="cart.length === 0" class="flex flex-col items-center px-4 py-12 text-center text-muted-foreground">
           <div class="mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-muted"><ShoppingCart class="h-7 w-7 opacity-50" /></div>
           <div class="text-sm font-medium">{{ $t('pos.cartEmpty') }}</div>
         </div>
         <ul v-else class="divide-y">
-          <li v-for="l in cart" :key="l.product_id" class="group px-3 py-1.5 hover:bg-muted/40">
+          <li v-for="l in cart" :key="l.product_id" class="os-cart-line group px-3 py-1.5 hover:bg-muted/40">
             <div class="flex items-center gap-2">
               <div class="line-clamp-1 min-w-0 flex-1 text-[13px] font-medium leading-tight">{{ l.name }}</div>
               <button @click="removeLine(l)" class="flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground/70 hover:bg-rose-500/10 hover:text-rose-600"><Trash2 class="h-3.5 w-3.5" /></button>
             </div>
-            <div class="mt-1 flex items-start gap-2">
-              <div class="min-w-0 flex-1">
+            <div class="os-cart-row mt-1 flex items-start gap-2">
+              <div class="os-cart-pricebox min-w-0 flex-1">
                 <div class="flex items-center gap-1.5 text-xs text-muted-foreground">
-                  <input v-model.number="l.price" type="number" min="0" @blur="normalizePrice(l)" :style="{ width: numW(l.price, 84) }"
-                    class="h-8 rounded-md border bg-background px-2 text-sm text-foreground tabular-nums [appearance:textfield] focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none" />
-                  <span>{{ currencySymbol }} /{{ l.unit }}</span>
+                  <!-- data-money: bulut build'ida telefon uchun formatlangan pul maydoni (MoneyInput); desktop'da o'zgarmaydi. -->
+                  <input v-model.number="l.price" type="number" min="0" :readonly="!can('editPrice')" @blur="normalizePrice(l)" :style="{ width: numW(l.price, 84) }" data-money
+                    class="os-cart-price h-8 w-full rounded-md border bg-background px-2 text-sm text-foreground tabular-nums [appearance:textfield] focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none" />
+                  <span class="os-cart-unit">{{ currencySymbol }} /{{ l.unit }}</span>
                 </div>
                 <button v-if="lastSold(l.product_id)" type="button" @click="openHistory(l)"
                   class="mt-1 flex items-center gap-1 text-left text-[11px] leading-tight text-muted-foreground hover:text-primary">
                   <History class="h-3 w-3 shrink-0" /> {{ $t('pos.lastSoldPrice', { price: moneySum(lastSold(l.product_id)!.price) }) }}
                 </button>
               </div>
-              <div class="flex shrink-0 flex-col items-center gap-1">
+              <div class="os-cart-step flex shrink-0 flex-col items-center gap-1">
                 <div class="inline-flex items-center rounded-md border bg-background">
                   <button @click="dec(l)" class="flex h-8 w-8 items-center justify-center text-muted-foreground hover:bg-muted"><Minus class="h-3.5 w-3.5" /></button>
                   <input v-model.number="l.qty" type="number" min="0" :max="l.stock" :style="{ width: numW(l.qty, 44) }" class="h-8 border-0 bg-transparent px-0 text-center text-sm tabular-nums [appearance:textfield] focus:outline-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none" />
@@ -491,21 +552,21 @@ async function doCloseShift() {
                   {{ lastSold(l.product_id)!.qty }} {{ l.unit }}
                 </button>
               </div>
-              <div class="flex h-8 shrink-0 items-center justify-end whitespace-nowrap pl-1 text-right text-[13px] font-semibold tabular-nums">{{ moneySum(lineTotal(l)) }}</div>
+              <div class="os-cart-sum flex h-8 shrink-0 items-center justify-end whitespace-nowrap pl-1 text-right text-[13px] font-semibold tabular-nums">{{ moneySum(lineTotal(l)) }}</div>
             </div>
           </li>
         </ul>
       </div>
 
       <!-- To'lov -->
-      <div class="shrink-0 space-y-3 border-t p-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] lg:pb-4">
-        <div class="flex items-center justify-between rounded-lg bg-muted/40 px-3 py-2">
+      <div class="os-cart-pay shrink-0 space-y-3 border-t p-4 pb-[calc(var(--page-safe-bottom,env(safe-area-inset-bottom))+1rem)] lg:pb-4">
+        <div class="os-cart-total flex items-center justify-between rounded-lg bg-muted/40 px-3 py-2">
           <span class="text-sm font-medium text-muted-foreground">{{ $t('pos.totalUpper') }}</span>
           <span class="text-2xl font-bold tabular-nums">{{ moneySum(total) }}</span>
         </div>
 
         <div class="grid grid-cols-2 gap-2">
-          <div>
+          <div v-if="can('discount')">
             <label class="mb-1 block text-xs text-muted-foreground">{{ $t('pos.discount') }}</label>
             <input v-model.number="discount" type="number" min="0" class="h-9 w-full rounded-md border bg-background px-2 text-sm tabular-nums" />
           </div>
@@ -518,7 +579,7 @@ async function doCloseShift() {
           </div>
         </div>
 
-        <div class="flex flex-wrap gap-1.5">
+        <div class="os-cart-quick flex flex-wrap gap-1.5">
           <button v-for="q in quickCash" :key="q" @click="paidCash = q" class="rounded-md border px-2.5 py-1 text-xs font-medium hover:bg-muted">{{ money(q) }}</button>
         </div>
 
@@ -540,7 +601,22 @@ async function doCloseShift() {
         <div v-if="debtBlocked" class="rounded-md bg-rose-500/10 px-3 py-2 text-center text-xs font-medium text-rose-600">{{ $t('pos.noDebtForWalkIn') }}</div>
 
         <button :disabled="!canSubmit || submitting" @click="submit"
-          class="h-12 w-full rounded-lg bg-primary text-base font-semibold text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50">
+          class="os-cart-submit h-12 w-full rounded-lg bg-primary text-base font-semibold text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50">
+          {{ $t('pos.finishSale') }}
+        </button>
+      </div>
+
+      <!-- Telefon (bulut): doim ko'rinadigan pastki panel — jami + yakunlash; yuqoridagi ikkalasi telefonda yashirin. -->
+      <div class="os-cart-foot hidden">
+        <div class="flex items-baseline justify-between gap-3">
+          <span class="text-xs font-semibold tracking-wide text-muted-foreground uppercase">{{ $t('pos.totalUpper') }} · {{ cart.length }}</span>
+          <span class="text-2xl font-bold tabular-nums">{{ moneySum(total) }}</span>
+        </div>
+        <div v-if="debtBlocked" class="mt-1.5 text-center text-xs font-medium text-rose-600">{{ $t('pos.noDebtForWalkIn') }}</div>
+        <div v-else-if="debt > 0" class="mt-1.5 flex justify-between text-xs text-rose-600"><span>{{ $t('pos.debtThisSale') }}</span><span class="font-semibold tabular-nums">{{ moneySum(debt) }}</span></div>
+        <div v-else-if="change > 0" class="mt-1.5 flex justify-between text-xs"><span class="text-muted-foreground">{{ $t('pos.change') }}</span><span class="font-semibold tabular-nums">{{ moneySum(change) }}</span></div>
+        <button :disabled="!canSubmit || submitting" @click="submit"
+          class="mt-2.5 h-12 w-full rounded-lg bg-primary text-base font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50">
           {{ $t('pos.finishSale') }}
         </button>
       </div>
@@ -551,7 +627,7 @@ async function doCloseShift() {
       v-if="!cartOpen"
       type="button"
       @click="cartOpen = true"
-      class="fixed inset-x-3 bottom-[calc(env(safe-area-inset-bottom)+4.6rem)] z-30 flex items-center gap-3 rounded-2xl border border-border/50 bg-primary px-4 py-3 text-primary-foreground shadow-lg backdrop-blur-xl active:scale-[0.98] lg:hidden"
+      class="os-cartbar fixed inset-x-3 bottom-[calc(var(--page-safe-bottom,env(safe-area-inset-bottom))+4.6rem)] z-30 flex items-center gap-3 rounded-2xl border border-border/50 bg-primary px-4 py-3 text-primary-foreground shadow-lg active:scale-[0.98] lg:hidden"
     >
       <div class="relative">
         <ShoppingCart class="h-5 w-5" />

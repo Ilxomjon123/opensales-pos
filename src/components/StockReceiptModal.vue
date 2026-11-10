@@ -12,11 +12,14 @@ import { confirmDialog } from '../lib/confirm'
 import { notify } from '../lib/notify'
 import { beepOk, beepFail } from '../lib/beep'
 import SearchableSelect from './SearchableSelect.vue'
+import { can } from '../lib/auth'
 import QrScanButton from './QrScanButton.vue'
 
 const emit = defineEmits<{ close: []; done: [r: CreatedReceipt] }>()
 const { t } = useI18n()
 
+// Bulut filialida narx asosiy do'konda (desktop'da doim true).
+const catalogEdit = can('catalogEdit')
 type Line = { productId: number; name: string; unit: string; stock: number; oldCost: number; oldPrice: number; qty: number; cost: number; salePrice: number }
 
 const today = new Date().toISOString().slice(0, 10)
@@ -200,7 +203,7 @@ async function close() {
               </label>
               <label class="block min-w-0">
                 <span class="mb-0.5 block text-[11px] text-muted-foreground lg:hidden">{{ $t('stock.colSalePrice') }}</span>
-                <input v-model.number="l.salePrice" type="number" min="0" class="h-9 w-full rounded-md border bg-background px-2 text-right tabular-nums"
+                <input v-model.number="l.salePrice" type="number" min="0" :readonly="!catalogEdit" class="h-9 w-full rounded-md border bg-background px-2 text-right tabular-nums"
                   :class="!okNum(l.salePrice, 0) ? 'border-rose-500' : priceChanged(l) ? 'border-amber-500 bg-amber-500/5' : ''" />
               </label>
               <div class="min-w-0 text-right">

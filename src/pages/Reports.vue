@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { ref, onMounted, watch } from 'vue'
 import { TrendingUp, Receipt, Coins, Boxes, Calendar, Wallet, CircleDollarSign } from 'lucide-vue-next'
-import { db, expensesTotal } from '../lib/db'
+import { expensesTotal } from '../lib/db'
+import { reportSummary, firstSaleDate } from '../lib/reports'
 import { moneySum } from '../lib/format'
 
 function iso(d: Date) { return d.toISOString().slice(0, 10) }
@@ -25,68 +26,22 @@ async function preset(kind: 'today' | 'week' | 'month' | 'quarter' | 'year' | 'a
   else if (kind === 'year') { dateFrom.value = iso(new Date(t.getFullYear(), 0, 1)); dateTo.value = iso(t) }
   else {
     // Ilk sotuv kunidan bugungacha
-    const d = await db()
-    const r = await d.select<{ first: string | null }[]>("SELECT date(MIN(created_at)) first FROM sales")
-    dateFrom.value = r[0]?.first ?? iso(t)
+    dateFrom.value = (await firstSaleDate()) ?? iso(t)
     dateTo.value = iso(t)
   }
 }
 
 async function load() {
-  const d = await db()
   const from = dateFrom.value, to = dateTo.value
-  const t = await d.select<any[]>(
-    `SELECT COUNT(*) count, COALESCE(SUM(total),0) total, COALESCE(SUM(paid_cash),0) cash,
-            COALESCE(SUM(paid_card),0) card, COALESCE(SUM(debt_amount),0) debt
-     FROM sales WHERE date(created_at) BETWEEN ? AND ?`, [from, to],
-  )
-  const p = await d.select<any[]>(
-    // Tannarx sotuvda muzlatiladi (si.cost_price). Eski sotuvlarda u 0 — o'shanda joriy
-    // mahsulot tannarxiga qaytamiz (eski hisobotlar buzilmasin).
-    `SELECT COALESCE(SUM((si.price - COALESCE(NULLIF(si.cost_price,0), pr.cost_price, 0)) * si.qty),0) profit
-     FROM sale_items si LEFT JOIN products pr ON pr.id = si.product_id
-     JOIN sales s ON s.id = si.sale_id
-     WHERE date(s.created_at) BETWEEN ? AND ?`, [from, to],
-  )
-  // Vozvrat qaytarilgan KUNI hisoblanadi (pul o'sha kuni chiqqan). Foyda sotuvdagi formulaning
-  // aynan teskarisi — to'liq qaytgan sotuv hisobotda nol foyda beradi.
-  const r = await d.select<{ amount: number; cash: number; card: number }[]>(
-    `SELECT COALESCE(SUM(amount),0) amount, COALESCE(SUM(refund_cash),0) cash, COALESCE(SUM(refund_card),0) card
-     FROM sale_returns WHERE date(created_at) BETWEEN ? AND ?`, [from, to],
-  )
-  const rp = await d.select<{ profit: number }[]>(
-    `SELECT COALESCE(SUM((ri.price - COALESCE(NULLIF(ri.cost_price,0), pr.cost_price, 0)) * ri.qty),0) profit
-     FROM sale_return_items ri LEFT JOIN products pr ON pr.id = ri.product_id
-     JOIN sale_returns r ON r.id = ri.return_id
-     WHERE date(r.created_at) BETWEEN ? AND ?`, [from, to],
-  )
-  const ret = r[0] ?? { amount: 0, cash: 0, card: 0 }
-  const grossProfit = (p[0]?.profit ?? 0) - (rp[0]?.profit ?? 0)
-  const s = t[0]
+  const r = await reportSummary(from, to)
   // Savdo natijalarini darhol o'rnatamiz — xarajat jadvali bo'lmasa ham hisobot ko'rinadi.
-  period.value = {
-    count: s.count, gross: s.total, total: s.total - ret.amount, cash: s.cash - ret.cash, card: s.card - ret.card,
-    debt: s.debt, returns: ret.amount, profit: grossProfit, expenses: 0, net: grossProfit,
-  }
+  period.value = { ...r.period, expenses: 0, net: r.period.profit }
   try {
     const exp = await expensesTotal(from, to)
-    period.value = { ...period.value, expenses: exp, net: grossProfit - exp }
+    period.value = { ...period.value, expenses: exp, net: r.period.profit - exp }
   } catch (e) { console.error('expensesTotal:', e) /* xarajat o'qilmadi — 0, lekin log qoldiramiz */ }
-  // Sof sotuv: sotilgan − qaytarilgan (davr ichida). To'liq qaytganlar ro'yxatga chiqmaydi.
-  topProducts.value = await d.select(
-    `SELECT name, SUM(qty) qty, SUM(total) total FROM (
-       SELECT si.product_name name, si.qty qty, si.subtotal total
-       FROM sale_items si JOIN sales s ON s.id = si.sale_id
-       WHERE date(s.created_at) BETWEEN ? AND ?
-       UNION ALL
-       SELECT ri.product_name, -ri.qty, -ri.subtotal
-       FROM sale_return_items ri JOIN sale_returns r ON r.id = ri.return_id
-       WHERE date(r.created_at) BETWEEN ? AND ?
-     ) GROUP BY name HAVING SUM(qty) > 0.000001 ORDER BY total DESC LIMIT 8`, [from, to, from, to],
-  )
-  lowStock.value = await d.select(
-    `SELECT name, stock, unit FROM products WHERE is_active = 1 AND stock <= 10 ORDER BY stock LIMIT 10`,
-  )
+  topProducts.value = r.topProducts
+  lowStock.value = r.lowStock
 }
 onMounted(load)
 watch([dateFrom, dateTo], load)

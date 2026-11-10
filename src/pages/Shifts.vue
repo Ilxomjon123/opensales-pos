@@ -1,27 +1,14 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { Clock, DoorOpen, Receipt, Coins } from 'lucide-vue-next'
-import { db, type Shift } from '../lib/db'
+import { listShifts, type ShiftListRow } from '../lib/db'
 import { moneySum, formatDateTime } from '../lib/format'
 
-type Row = Shift & { sales_count: number; total_sales: number; returns_total: number }
-const shifts = ref<Row[]>([])
+const shifts = ref<ShiftListRow[]>([])
 const statusFilter = ref<'all' | 'open' | 'closed'>('all')
 
 onMounted(async () => {
-  const d = await db()
-  const rows = await d.select<Shift[]>('SELECT * FROM shifts ORDER BY id DESC LIMIT 200')
-  const out: Row[] = []
-  for (const s of rows) {
-    const r = await d.select<{ c: number; t: number; rt: number }[]>(
-      `SELECT COUNT(*) c, COALESCE(SUM(total),0) t,
-              (SELECT COALESCE(SUM(amount),0) FROM sale_returns WHERE shift_id = ?) rt
-       FROM sales WHERE shift_id = ?`,
-      [s.id, s.id],
-    )
-    out.push({ ...s, sales_count: r[0]?.c ?? 0, total_sales: r[0]?.t ?? 0, returns_total: r[0]?.rt ?? 0 })
-  }
-  shifts.value = out
+  shifts.value = await listShifts()
 })
 
 const visible = computed(() => {
@@ -40,14 +27,14 @@ function pickStatus(v: 'open' | 'closed') { statusFilter.value = statusFilter.va
 </script>
 
 <template>
-  <div class="flex h-full flex-col overflow-hidden">
+  <div class="os-page flex h-full flex-col overflow-hidden">
     <header class="page-header">
       <h1 class="text-lg font-semibold">{{ $t('shifts.title') }}</h1>
       <p class="truncate text-sm text-muted-foreground">{{ $t('shifts.headerSummary', { count: stats.count, open: stats.open }) }}</p>
     </header>
 
     <!-- Stat kartalar -->
-    <div class="grid grid-cols-2 gap-2.5 border-b px-4 py-3 sm:gap-3 sm:px-6 sm:py-4 lg:grid-cols-4">
+    <div class="os-stats grid grid-cols-2 gap-2.5 border-b px-4 py-3 sm:gap-3 sm:px-6 sm:py-4 lg:grid-cols-4">
       <div class="flex items-center gap-3 rounded-xl border bg-card p-3">
         <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary"><Clock class="h-4.5 w-4.5" /></div>
         <div><div class="text-xs text-muted-foreground">{{ $t('shifts.title') }}</div><div class="text-lg font-bold tabular-nums">{{ stats.count }}</div></div>
@@ -67,7 +54,7 @@ function pickStatus(v: 'open' | 'closed') { statusFilter.value = statusFilter.va
     </div>
 
     <!-- Filtrlar -->
-    <div class="flex flex-wrap items-center gap-2 border-b px-4 py-3 sm:px-6">
+    <div class="os-filters flex flex-wrap items-center gap-2 border-b px-4 py-3 sm:px-6">
       <select v-model="statusFilter" class="h-9 w-full rounded-lg border bg-card px-3 text-sm sm:w-auto">
         <option value="all">{{ $t('shifts.allShifts') }}</option>
         <option value="open">{{ $t('shifts.statusOpen') }}</option>
@@ -75,9 +62,9 @@ function pickStatus(v: 'open' | 'closed') { statusFilter.value = statusFilter.va
       </select>
     </div>
 
-    <div class="flex-1 overflow-auto pb-[calc(env(safe-area-inset-bottom)+5rem)] lg:pb-0">
+    <div class="os-scroll flex-1 overflow-auto pb-[calc(env(safe-area-inset-bottom)+5rem)] lg:pb-0">
       <!-- Mobil: kartalar ro'yxati -->
-      <ul class="divide-y lg:hidden">
+      <ul class="os-list divide-y lg:hidden">
         <li v-for="s in visible" :key="s.id" class="flex items-center gap-3 px-4 py-3">
           <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary font-semibold tabular-nums">#{{ s.id }}</div>
           <div class="min-w-0 flex-1">

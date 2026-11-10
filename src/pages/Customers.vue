@@ -2,7 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
-import { Plus, UserCircle2, Search, ChevronRight, Pencil, Trash2, Eye, EyeOff, Users, HandCoins, Wallet } from 'lucide-vue-next'
+import { Plus, UserCircle2, Search, ChevronRight, Pencil, Trash2, Eye, EyeOff, Users, HandCoins, Wallet, SlidersHorizontal } from 'lucide-vue-next'
 import { listCustomers, saveCustomer, setCustomerActive, deleteCustomer, setCustomerBalance, type Customer } from '../lib/db'
 import { moneySum, translitMatch } from '../lib/format'
 import { confirmDialog } from '../lib/confirm'
@@ -14,6 +14,8 @@ const customers = ref<Customer[]>([])
 const search = ref('')
 const balFilter = ref<'all' | 'debt' | 'credit'>('all')
 const statusFilter = ref<'all' | 'active' | 'inactive'>('all')
+const filtersOpen = ref(false)
+const filtersActive = computed(() => balFilter.value !== 'all' || statusFilter.value !== 'all')
 const showForm = ref(false)
 const editId = ref<number | undefined>()
 const name = ref('')
@@ -74,7 +76,7 @@ async function remove(c: Customer) {
 </script>
 
 <template>
-  <div class="flex h-full flex-col overflow-hidden">
+  <div class="os-page flex h-full flex-col overflow-hidden">
     <header class="page-header flex items-center justify-between gap-2">
       <div class="min-w-0">
         <h1 class="text-lg font-semibold">{{ $t('customers.title') }}</h1>
@@ -84,7 +86,7 @@ async function remove(c: Customer) {
     </header>
 
     <!-- Stat kartalar -->
-    <div class="grid grid-cols-2 gap-2.5 border-b px-4 py-3 sm:gap-3 sm:px-6 sm:py-4 lg:grid-cols-4">
+    <div class="os-stats grid grid-cols-2 gap-2.5 border-b px-4 py-3 sm:gap-3 sm:px-6 sm:py-4 lg:grid-cols-4">
       <div class="flex items-center gap-3 rounded-xl border bg-card p-3">
         <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary"><Users class="h-4.5 w-4.5" /></div>
         <div><div class="text-xs text-muted-foreground">{{ $t('customers.title') }}</div><div class="text-lg font-bold tabular-nums">{{ stats.count }}</div></div>
@@ -104,26 +106,27 @@ async function remove(c: Customer) {
     </div>
 
     <!-- Filtrlar -->
-    <div class="flex flex-wrap items-center gap-2 border-b px-4 py-3 sm:px-6">
-      <div class="relative w-full sm:min-w-48 sm:flex-1">
+    <div class="os-filters flex flex-wrap items-center gap-2 border-b px-4 py-3 sm:px-6" :class="{ 'os-open': filtersOpen }">
+      <div class="os-search relative w-full sm:min-w-48 sm:flex-1">
         <Search class="absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <input v-model="search" :placeholder="$t('customers.searchPlaceholder')" class="h-9 w-full rounded-lg border bg-background pl-9 pr-3 text-sm focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none" />
       </div>
-      <select v-model="balFilter" class="h-9 flex-1 rounded-lg border bg-card px-3 text-sm sm:flex-none">
+      <button type="button" class="os-filter-btn" :class="{ on: filtersActive }" :aria-expanded="filtersOpen" @click="filtersOpen = !filtersOpen"><SlidersHorizontal class="h-4 w-4" /><span>{{ $t('common.filters') }}</span></button>
+      <select v-model="balFilter" class="os-more h-9 flex-1 rounded-lg border bg-card px-3 text-sm sm:flex-none">
         <option value="all">{{ $t('customers.allBalances') }}</option>
         <option value="debt">{{ $t('customers.debtors') }}</option>
         <option value="credit">{{ $t('customers.creditors') }}</option>
       </select>
-      <select v-model="statusFilter" class="h-9 flex-1 rounded-lg border bg-card px-3 text-sm sm:flex-none">
+      <select v-model="statusFilter" class="os-more h-9 flex-1 rounded-lg border bg-card px-3 text-sm sm:flex-none">
         <option value="all">{{ $t('common.all') }}</option>
         <option value="active">{{ $t('customers.active') }}</option>
         <option value="inactive">{{ $t('customers.inactive') }}</option>
       </select>
     </div>
 
-    <div class="flex-1 overflow-auto pb-[calc(env(safe-area-inset-bottom)+5rem)] lg:pb-0">
+    <div class="os-scroll flex-1 overflow-auto pb-[calc(env(safe-area-inset-bottom)+5rem)] lg:pb-0">
       <!-- Mobil: kartalar ro'yxati -->
-      <ul class="divide-y lg:hidden">
+      <ul class="os-list divide-y lg:hidden">
         <li v-for="c in visible" :key="c.id" class="flex items-center gap-3 px-4 py-3" :class="c.is_active ? '' : 'opacity-50'" @click="go(c)">
           <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary"><UserCircle2 class="h-5 w-5" /></div>
           <div class="min-w-0 flex-1" @click="go(c)">

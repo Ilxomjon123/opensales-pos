@@ -1,4 +1,4 @@
-import { nextTick, onBeforeUnmount, onMounted, ref, watch, type Ref } from 'vue'
+import { nextTick, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref, watch, type Ref } from 'vue'
 
 // Jadvalda belgilangan qator — sverka uchun (Panda WMS useRowCursor porti): odam qog'oz
 // yoki boshqa fayl bilan solishtirib borayotganda qaysi qatorda turganini yo'qotmaydi.
@@ -75,6 +75,9 @@ export function useRowCursor<K extends string | number>(
 
   onMounted(() => window.addEventListener('keydown', onKeydown))
   onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
+  // KeepAlive (bulut): yashirin sahifaning kursori klaviaturani tutmasin.
+  onActivated(() => window.addEventListener('keydown', onKeydown))
+  onDeactivated(() => window.removeEventListener('keydown', onKeydown))
 
   return { selected, select, clear, isSelected }
 }

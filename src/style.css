@@ -217,3 +217,98 @@ input[type='number']::-webkit-inner-spin-button {
   appearance: none;
   margin: 0;
 }
+
+/* --- Telefon tartibi (<1024px) ---
+   Desktop oynasi minWidth 1024 (tauri.conf.json) → Mac/Windows'ga ta'sir qilmaydi; telefon
+   (Telegram kassa, Android build) uchun. Qatlamsiz — Tailwind utility'larini ustidan yozadi.
+   Bo'lim sahifalari: butun sahifa `main` bilan aylanadi (sarlavha sticky qoladi), stat kartalar
+   gorizontal lenta, qo'shimcha filtrlar "Filtr" tugmasi ortida, mobil ro'yxat — guruhlangan karta.
+   Hook klasslar: os-page, os-stats, os-filters (+os-search/os-more/os-filter-btn), os-scroll, os-list. */
+.os-filter-btn {
+  display: none;
+}
+@media (max-width: 1023.98px) {
+  .os-page {
+    height: auto;
+    min-height: 100%;
+    overflow: visible;
+  }
+  .os-scroll {
+    flex: none;
+    overflow: visible;
+    padding-bottom: 1rem;
+  }
+  .os-stats {
+    display: flex;
+    gap: 0.625rem;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scroll-snap-type: x proximity;
+    scroll-padding-inline: 1rem;
+    scrollbar-width: none;
+    border-bottom: 0;
+    padding: 0.75rem 1rem;
+  }
+  .os-stats::-webkit-scrollbar {
+    display: none;
+  }
+  .os-stats > * {
+    flex: 0 0 auto;
+    min-width: 46%;
+    scroll-snap-align: start;
+  }
+  .os-stats .text-lg {
+    white-space: nowrap;
+  }
+  .os-filters {
+    border-bottom: 0;
+    padding: 0 1rem 0.75rem;
+  }
+  .os-filters > .os-search {
+    flex: 1 1 0%;
+    width: auto;
+    min-width: 0;
+  }
+  .os-filters:not(.os-open) > .os-more {
+    display: none;
+  }
+  .os-filter-btn {
+    position: relative;
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    gap: 0.375rem;
+    height: 2.25rem;
+    padding: 0 0.875rem;
+    border: 1px solid var(--border);
+    border-radius: 9999px;
+    background: var(--card);
+    font-size: 0.875rem;
+    font-weight: 500;
+  }
+  .os-filter-btn[aria-expanded='true'] {
+    border-color: var(--primary);
+    background: var(--primary);
+    color: var(--primary-foreground);
+  }
+  .os-filter-btn.on::after {
+    content: '';
+    position: absolute;
+    top: 0.3rem;
+    right: 0.35rem;
+    width: 0.45rem;
+    height: 0.45rem;
+    border-radius: 9999px;
+    background: var(--color-rose-500);
+  }
+  .os-list {
+    margin: 0 1rem;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: 1rem;
+    background: var(--card);
+  }
+  .os-list-flush {
+    margin: 0;
+  }
+}
