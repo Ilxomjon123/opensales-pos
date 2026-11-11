@@ -3,7 +3,7 @@ import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Store, Send, UserX, RefreshCw } from 'lucide-vue-next'
 import logo from '../../../src/assets/logo-dark.svg'
-import { session, start, onboard } from '../session'
+import { session, start, onboard, allowBotMessages } from '../session'
 import { haptic } from '../telegram'
 
 // Kirish ekrani: yuklanish, Telegram'dan tashqarida ochilganda, yangi foydalanuvchi
@@ -23,6 +23,9 @@ async function submit() {
   try {
     await onboard(name)
     haptic('success')
+    // Do'kon ochildi — eng mos payt: bot unga yoza olmasa (ilova reklamadan to'g'ridan ochilgan), Telegram
+    // "xabar yozishga ruxsat" oynasini so'raymiz. Rad etsa — "Boshlash" kartasida tugma qoladi.
+    if (session.pm === false) void allowBotMessages()
   } catch (e) {
     formError.value = t(e instanceof Error ? e.message : 'cloud.errors.internal')
     haptic('error')

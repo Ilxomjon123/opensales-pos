@@ -20,6 +20,7 @@ import type { ApplyOutcome, Draft } from './shop/assistant'
 import type { Guarded, PlanLine, TransferRow } from './shop/transfers'
 
 import { CATALOG_FANOUT_OPS, copyCatalog, shopStub, syncBranchesOf, syncCatalog } from './catalog'
+import { canMessage, cleanSrc, funnelReport, markWriteAccess, parseOutreach, quietly, runFunnelCron, sendOutreach, setNudgesEnabled, trackOpen, trackShop, type Who } from './funnel'
 
 export { ShopDO } from './shop/ShopDO'
 
@@ -83,11 +84,17 @@ function shopsView(all: MemberWithTenant[]) {
 }
 
 /** Kirish javobi: token + do'kon holati (bitta so'rovda — ilova darhol ochilsin). */
-async function sessionResponse(env: Env, m: MemberWithTenant, abs?: number): Promise<Response> {
+/**
+ * `initPm` — initData'da `allows_write_to_pm` (faqat initData bilan kirishda ma'lum). Javobdagi `pm` — bot egaga
+ * yoza oladimi (eslatma, Excel, kassir qo'shildi xabari); `false` bo'lsa ilova ruxsat so'raydi. Kassirga — null.
+ */
+async function sessionResponse(env: Env, m: MemberWithTenant, abs?: number, initPm = false): Promise<Response> {
   const token = await signSession({ t: m.tenant_id, u: m.uid, r: m.role, n: m.name, abs }, env.SESSION_KEY, nowSec())
   // Filial: ochilishda katalog asosiy do'kondan yangilanadi (o'zgarish bo'lmasa — bitta arzon so'rov).
   if (m.tenant.catalog_of) await syncCatalog(env, m.tenant.catalog_of, m.tenant_id).catch((e) => console.error('catalog sync', e))
-  const [boot, all] = await Promise.all([shop(env, m.tenant_id).bootstrap({ uid: m.uid, role: m.role, name: m.name }), listMemberships(env.DB, m.uid)])
+  const pmOf = async (): Promise<boolean | null> =>
+    m.role !== 'owner' ? null : initPm || canMessage(env.DB, m.uid).catch(() => null)
+  const [boot, all, pm] = await Promise.all([shop(env, m.tenant_id).bootstrap({ uid: m.uid, role: m.role, name: m.name }), listMemberships(env.DB, m.uid), pmOf()])
   const shops = shopsView(all)
   const current = shops.find((x) => x.id === m.tenant_id)
   return json({
@@ -100,6 +107,7 @@ async function sessionResponse(env: Env, m: MemberWithTenant, abs?: number): Pro
     bot: env.BOT_USERNAME,
     admin: isAdminUid(env.ADMIN_CHAT_ID, m.uid),
     ai: m.tenant.ai_enabled !== 0,
+    pm,
     ...boot,
   })
 }
@@ -269,9 +277,31 @@ async function handleSession(req: Request, env: Env, ctx: ExecutionContext): Pro
       }
     }
   }
+  // Varonka: yangi odam yoki ega (kassir va taklif bilan kirgan — emas). Xato kirishni buzmaydi.
+  if (!invite && (!member || member.role === 'owner')) {
+    ctx.waitUntil(quietly(trackOpen(env.DB, whoOf(init), cleanSrc(init.startParam), new Date().toISOString()), 'open'))
+  }
   if (!member) return json({ ok: true, status: 'new', user: { uid: user.uid, name: user.name } })
   if (!member.active) return fail(403, 'cloud.errors.memberRevoked')
-  return sessionResponse(env, member)
+  return sessionResponse(env, member, undefined, init.user.allows_write_to_pm === true)
+}
+
+function whoOf(init: VerifiedInitData): Who {
+  return { uid: init.user.id, name: displayName(init.user), username: init.user.username ?? null, lang: init.user.language_code ?? null, pm: init.user.allows_write_to_pm === true }
+}
+
+/**
+ * Ilovadagi Telegram oynasida "xabar yozishga ruxsat" berildi (`requestWriteAccess` → allowed). initData bilan
+ * (yangi odamda token yo'q). Faqat o'z varonka qatoriga belgi qo'yiladi — eslatmalar endi unga ham boradi.
+ */
+async function handleWriteAccess(req: Request, env: Env): Promise<Response> {
+  const body = await readJson(req)
+  if (!body) return fail(400, 'cloud.errors.invalidInput', { field: 'body' })
+  const init = await initDataFrom(body, env)
+  if (!init) return fail(401, 'cloud.errors.badInitData')
+  if (body.allowed !== true) return fail(400, 'cloud.errors.invalidInput', { field: 'allowed' })
+  await markWriteAccess(env.DB, init.user.id, new Date().toISOString())
+  return json({ ok: true })
 }
 
 async function notifyOwner(env: Env, m: MemberWithTenant) {
@@ -294,6 +324,7 @@ async function handleOnboard(req: Request, env: Env, ctx: ExecutionContext): Pro
   const r = await createTenant(env.DB, { uid: init.user.id, name: displayName(init.user), username: init.user.username ?? null, shopName, trialDays: trialDays(env.TRIAL_DAYS), now: new Date() })
   if (!r) return fail(409, 'cloud.errors.alreadyCashier')
   const m = r.member
+  if (r.created) ctx.waitUntil(quietly(trackShop(env.DB, whoOf(init), m.tenant_id, new Date().toISOString()), 'shop'))
   // Takror chaqiruv ham xavfsiz (oldingi urinishda DO init yiqilgan bo'lsa tuzaladi).
   await shop(env, m.tenant_id).init({
     tenantId: m.tenant_id, shopName: m.tenant.name, owner: { uid: m.uid, name: m.name }, subscription: subscriptionOf(m.tenant),
@@ -306,7 +337,7 @@ async function handleOnboard(req: Request, env: Env, ctx: ExecutionContext): Pro
       parse_mode: 'HTML',
     }))
   }
-  return sessionResponse(env, m)
+  return sessionResponse(env, m, undefined, init.user.allows_write_to_pm === true)
 }
 
 async function handleRefresh(req: Request, env: Env): Promise<Response> {
@@ -445,7 +476,11 @@ async function handleExport(req: Request, env: Env): Promise<Response> {
   form.set('chat_id', String(s.u))
   form.set('document', new File([bytes], name, { type }))
   const r = await tgCall(env, 'sendDocument', form)
-  if (!r.ok) return fail(r.status === 403 ? 409 : 502, r.status === 403 ? 'cloud.errors.botBlocked' : 'cloud.errors.telegramFailed')
+  // Bot yoza olmaydi: bloklagan (403) yoki botni hech ochmagan ("chat not found") — ilova ruxsat so'rab qayta urinadi.
+  if (!r.ok) {
+    const blocked = r.status === 403 || /chat not found/i.test(r.description)
+    return fail(blocked ? 409 : 502, blocked ? 'cloud.errors.botBlocked' : 'cloud.errors.telegramFailed')
+  }
   return json({ ok: true })
 }
 
@@ -554,6 +589,16 @@ async function handleAdmin(req: Request, env: Env, action: string): Promise<Resp
   })
   if (action === 'tenants') {
     return json({ ok: true, data: (await listTenants(env.DB, 500)).map(view) })
+  }
+  if (action === 'funnel' || action === 'nudges') {
+    const body = await readJson(req)
+    if (action === 'nudges') {
+      if (typeof body?.enabled !== 'boolean') return fail(400, 'cloud.errors.invalidInput', { field: 'enabled' })
+      await setNudgesEnabled(env.DB, body.enabled)
+    }
+    const days = body?.days === undefined ? 30 : Number(body.days)
+    if (!Number.isSafeInteger(days) || days < 0 || days > 3650) return fail(400, 'cloud.errors.invalidInput', { field: 'days' })
+    return json({ ok: true, data: await funnelReport(env, days, new Date()) })
   }
   const body = await readJson(req)
   const id = typeof body?.id === 'string' && /^[a-f0-9]{32}$/.test(body.id) ? body.id : null
@@ -708,20 +753,23 @@ async function handleSetup(req: Request, env: Env): Promise<Response> {
   const hook = await tgCall(env, 'setWebhook', {
     url: `${app}/tg/webhook`,
     secret_token: env.TG_WEBHOOK_SECRET,
-    allowed_updates: ['message', 'callback_query'],
+    // widget_query — HTML widget kartalari (Bot API 10.4); ro'yxatda bo'lmasa karta tugmalari jim ishlamaydi.
+    allowed_updates: ['message', 'callback_query', 'widget_query'],
     max_connections: 40,
   })
   const menu = await tgCall(env, 'setChatMenuButton', { menu_button: { type: 'web_app', text: 'Kassa', web_app: { url: `${app}/` } } })
-  const cmds = await tgCall(env, 'setMyCommands', { commands: [{ command: 'start', description: 'Kassani ochish' }, { command: 'dokon', description: "Yordamchi uchun do'konni tanlash" }] })
-  const cmdsRu = await tgCall(env, 'setMyCommands', { commands: [{ command: 'start', description: 'Открыть кассу' }, { command: 'dokon', description: 'Выбрать магазин для помощника' }], language_code: 'ru' })
+  const cmds = await tgCall(env, 'setMyCommands', { commands: [{ command: 'start', description: 'Kassani ochish' }, { command: 'hisobot', description: 'Savdo kartasi (egaga)' }, { command: 'dokon', description: "Yordamchi uchun do'konni tanlash" }] })
+  const cmdsRu = await tgCall(env, 'setMyCommands', { commands: [{ command: 'start', description: 'Открыть кассу' }, { command: 'hisobot', description: 'Карточка продаж (владельцу)' }, { command: 'dokon', description: 'Выбрать магазин для помощника' }], language_code: 'ru' })
   // Admin chatida — admin buyruqlari ham menyuda (boshqalarga ko'rinmaydi).
   const adminCmds = await Promise.all((env.ADMIN_CHAT_ID ?? '').split(',').map((x) => x.trim()).filter(Boolean).map((chat) => tgCall(env, 'setMyCommands', {
     scope: { type: 'chat', chat_id: Number(chat) },
     commands: [
       { command: 'start', description: 'Kassani ochish' },
+      { command: 'hisobot', description: 'Savdo kartasi (egaga)' },
       { command: 'dokon', description: "Yordamchi uchun do'konni tanlash" },
       { command: 'admin', description: 'Admin paneli (ilovada)' },
       { command: 'tenants', description: "Do'konlar ro'yxati" },
+      { command: 'varonka', description: '[1|7|30|0] — varonka (jonli karta)' },
       { command: 'extend', description: '<id> YYYY-MM-DD — obunani uzaytirish' },
       { command: 'block', description: "<id> — do'konni bloklash" },
       { command: 'unblock', description: '<id> — blokdan chiqarish' },
@@ -740,6 +788,41 @@ async function handleSetup(req: Request, env: Env): Promise<Response> {
 }
 
 /** AI tekshiruvi (admin, `X-Setup-Key`): Gemini kaliti/modeli/regioni ishlaydimi — sinov so'rovi + mavjud flash modellar. */
+/** Asoschi xabari (admin, `X-Setup-Key`): ro'yxatdagi odamga bot orqali bitta xabar — bir martalik (funnel.ts). */
+async function handleOutreach(req: Request, env: Env): Promise<Response> {
+  const key = req.headers.get('X-Setup-Key') ?? ''
+  if (!env.TG_WEBHOOK_SECRET || !timingSafeEqual(key, env.TG_WEBHOOK_SECRET)) return new Response('Forbidden', { status: 403 })
+  const o = parseOutreach(await readJson(req))
+  if (typeof o === 'string') return fail(400, 'cloud.errors.invalidInput', { field: o })
+  const r = await sendOutreach(env, o, new Date())
+  if (!r) return fail(404, 'cloud.errors.notFound', { what: 'user' })
+  console.log(JSON.stringify({ evt: 'outreach', uid: o.uid, key: o.key, status: r.status }))
+  return json({ ok: true, data: r })
+}
+
+/**
+ * Asoschi xabariga botning o'ziga yozilgan javoblarni tiklash (relay ishga tushgunga qadar AI'ga ketganlar).
+ * Faqat setup kaliti bilan; faqat `since` dan keyin asoschi xabari (manual:*) yetgan odamlar; faqat bot chati.
+ */
+async function handleReplies(req: Request, env: Env): Promise<Response> {
+  const key = req.headers.get('X-Setup-Key') ?? ''
+  if (!env.TG_WEBHOOK_SECRET || !timingSafeEqual(key, env.TG_WEBHOOK_SECRET)) return new Response('Forbidden', { status: 403 })
+  const body = await readJson(req)
+  const since = typeof body?.since === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?Z$/.test(body.since) ? body.since : null
+  if (!since) return fail(400, 'cloud.errors.invalidInput', { field: 'since' })
+  const people = (await env.DB.prepare(
+    `SELECT DISTINCT n.uid, f.username, f.name FROM nudges n LEFT JOIN funnel_users f ON f.uid = n.uid
+     WHERE n.kind LIKE 'manual:%' AND n.status = 'sent' AND n.at >= ? LIMIT 50`,
+  ).bind(since).all<{ uid: number; username: string | null; name: string | null }>()).results
+  const out = await Promise.all(people.map(async (p) => {
+    const m = await defaultMembership(env.DB, p.uid)
+    if (!m) return { ...p, shop: null, messages: [] }
+    const messages = await shop(env, m.tenant_id).botTranscripts(p.uid, since).catch(() => [])
+    return { ...p, shop: m.tenant.name, messages }
+  }))
+  return json({ ok: true, data: out })
+}
+
 async function handleAiCheck(req: Request, env: Env): Promise<Response> {
   const key = req.headers.get('X-Setup-Key') ?? ''
   if (!env.TG_WEBHOOK_SECRET || !timingSafeEqual(key, env.TG_WEBHOOK_SECRET)) return new Response('Forbidden', { status: 403 })
@@ -796,6 +879,7 @@ export async function route(req: Request, env: Env, ctx: ExecutionContext): Prom
     }
     if (p === '/api/session') return handleSession(req, env, ctx)
     if (p === '/api/onboard') return handleOnboard(req, env, ctx)
+    if (p === '/api/write-access') return handleWriteAccess(req, env)
     if (p === '/api/session/refresh') return handleRefresh(req, env)
     if (p === '/api/session/switch') return handleSwitch(req, env)
     if (p === '/api/shops/create') return handleCreateShop(req, env, ctx)
@@ -810,6 +894,8 @@ export async function route(req: Request, env: Env, ctx: ExecutionContext): Prom
     if (p === '/tg/webhook') return handleWebhook(req, env, ctx)
     if (p === '/tg/setup') return handleSetup(req, env)
     if (p === '/tg/ai-check') return handleAiCheck(req, env)
+    if (p === '/tg/outreach') return handleOutreach(req, env)
+    if (p === '/tg/replies') return handleReplies(req, env)
   }
   if (req.method === 'GET') {
     const ri = /^\/rimg\/([a-f0-9]{32})\/([a-f0-9]{32})\.jpg$/.exec(p)
@@ -828,6 +914,11 @@ export async function route(req: Request, env: Env, ctx: ExecutionContext): Prom
 }
 
 export default {
+  // Har 15 daqiqa: varonka (do'konlar holati) + avtomatik eslatmalar (admin yoqqan bo'lsa).
+  async scheduled(_c: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+    ctx.waitUntil(runFunnelCron(env, new Date(), trialDays(env.TRIAL_DAYS))
+      .then((r) => console.log(JSON.stringify({ evt: 'funnel_cron', ...r })), (e) => console.error('funnel cron:', e)))
+  },
   async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     try {
       return await route(req, env, ctx)

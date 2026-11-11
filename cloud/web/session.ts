@@ -1,5 +1,5 @@
 import { reactive } from 'vue'
-import { tg } from './telegram'
+import { tg, requestWriteAccess } from './telegram'
 
 // Kirish holati. initData faqat kirishda yuboriladi; keyin qisqa muddatli token
 // (sessionStorage — Telegram oynasi yopilsa o'chadi). Token muddati tugashiga yaqin
@@ -49,7 +49,13 @@ export const session = reactive({
   ai: true,
   /** Platforma admini boshqa do'konni KO'RISH rejimida (faqat o'qish; server yozishni rad etadi). */
   view: null as null | { owner: string },
+  /** Do'kon boshlang'ich holati (tovar/sotuv/smena soni) — "Boshlash" kartasi va birinchi smena. */
+  progress: null as null | ShopProgress,
+  /** Bot egaga yoza oladimi (false — ruxsat so'raladi; null — noma'lum yoki kassir, so'ralmaydi). */
+  pm: null as null | boolean,
 })
+
+export type ShopProgress = { products: number; sales: number; shifts: number; firstSaleAt: string | null; lastSaleAt: string | null; day2At: string | null }
 
 const TOKEN_KEY = 'kassa:token'
 
@@ -82,6 +88,11 @@ function apply(r: SessionResponse) {
   session.ai = (r as unknown as { ai?: unknown }).ai !== false
   const view = (r as unknown as { view?: { owner?: unknown } }).view
   session.view = view && typeof view === 'object' ? { owner: typeof view.owner === 'string' ? view.owner : '' } : null
+  const pr = (r as unknown as { progress?: ShopProgress | null }).progress
+  session.progress = pr && typeof pr === 'object' && typeof pr.products === 'number' ? pr : null
+  const pm = (r as unknown as { pm?: unknown }).pm
+  // Token bilan yangilashda ham server javob beradi; bu klientda allaqachon ruxsat berilgan bo'lsa — o'zgarmaydi.
+  session.pm = session.pm === true ? true : typeof pm === 'boolean' ? pm : null
   session.status = 'ok'
 }
 
@@ -159,6 +170,19 @@ export async function onboard(shopName: string): Promise<void> {
   const r = await postJson('/api/onboard', { initData: data, shopName })
   if (r.json?.ok) apply(r.json)
   else throw new Error(r.json?.error?.code ?? 'cloud.errors.internal')
+}
+
+/**
+ * Bot xabarlariga ruxsat (Telegram oynasi). Berilsa serverga aytiladi — eslatmalar va hisobotlar endi yetadi.
+ * Qaytaradi: ruxsat bormi (null — bu klientda so'rab bo'lmaydi).
+ */
+export async function allowBotMessages(): Promise<boolean | null> {
+  const granted = await requestWriteAccess()
+  if (!granted) return granted
+  session.pm = true
+  const data = await initData()
+  if (data) await postJson('/api/write-access', { initData: data, allowed: true }).catch(() => undefined)
+  return true
 }
 
 let refreshing: Promise<void> | null = null

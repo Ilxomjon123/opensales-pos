@@ -97,8 +97,16 @@ export const customerMovements: typeof D.customerMovements = (id) => rpc('custom
 export const setCustomerBalance: typeof D.setCustomerBalance = (id, target) => rpc('setCustomerBalance', id, target)
 
 // ---- Smena ----
-export const activeShift: typeof D.activeShift = () => rpc('activeShift')
 export const openShift: typeof D.openShift = (cash) => rpc('openShift', cash)
+// Yangi do'kon (hali bitta ham smena ochilmagan): birinchi smena o'zi ochiladi, boshlang'ich naqd 0 —
+// birinchi sotuvgacha "smena ochish" to'sig'i bo'lmasin. Keyingilari odatdagidek. Ko'rish rejimida emas.
+let firstShift: Promise<D.Shift | null> | null = null
+export const activeShift: typeof D.activeShift = async () => {
+  const s = await rpc<D.Shift | null>('activeShift')
+  if (s || session.view || !session.progress || session.progress.shifts > 0) return s
+  firstShift ??= openShift(0).then((x) => { if (session.progress) session.progress.shifts = 1; return x }, () => null).finally(() => { firstShift = null })
+  return firstShift
+}
 export const closeShift: typeof D.closeShift = (id, cash) => rpc('closeShift', id, cash)
 export const listShifts: typeof D.listShifts = () => rpc('listShifts')
 export const shiftStats: typeof D.shiftStats = (id) => rpc('shiftStats', id)

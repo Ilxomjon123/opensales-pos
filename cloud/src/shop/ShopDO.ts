@@ -5,6 +5,8 @@ import { migrate } from './schema'
 import { dispatch, memberRole, type Actor, type Ctx, type RpcResult } from './rpc'
 import { DomainError } from './errors'
 import { OPS } from './ops'
+import { shopProgress, type ShopProgress } from './progress'
+import { settingOf, weekSeries, type CardStats } from './cardStats'
 import { aiEnabled, getMeta, initShop, isSubscriptionActive, readSubscription, setAiEnabled, setSubscription, syncMember, type MemberSync, type Subscription } from './init'
 import { ownOpenShift } from './ops/shifts'
 import { PUBLIC_SETTINGS } from './ops/settings'
@@ -158,6 +160,10 @@ export class ShopDO extends DurableObject<Env> {
   /** Onboarding / yangi do'kon. Takror chaqirilsa zarar yo'q. `catalogOf` — filial (katalog manbai). */
   async init(p: { tenantId: string; shopName: string; owner: { uid: number; name: string }; subscription: Subscription; catalogOf?: string | null }): Promise<void> {
     initShop(this.sql, p, new Date().toISOString())
+    // Bulut (2026-11-10, varonka): qoldiqsiz sotish standart YOQIQ — yangi tovar qoldig'i 0 bo'ladi va kassa uni
+    // yashirardi ("Mahsulot topilmadi" → odam ketardi). Ega o'chirsa — saqlanadi (IGNORE). initShop (desktop
+    // paritet testlari) o'zgarmaydi.
+    this.sql.run("INSERT OR IGNORE INTO settings(key, value) VALUES('allow_negative_stock', '1')")
     await this.ensureAlarm()
   }
 
@@ -296,7 +302,44 @@ export class ShopDO extends DurableObject<Env> {
       subscription: sub ? { ...sub, active: isSubscriptionActive(sub, now) } : null,
       settings,
       shift: m && m.active ? ownOpenShift({ sql: this.sql, actor, now: () => now, setting: () => '', imageUrl: this.imageUrl }) : null,
+      progress: shopProgress(this.sql),
     }
+  }
+
+  /**
+   * Bot "Savdo" kartasi (telegram/salesCard.ts): davr [from, to] (UTC kun) + oxirgi 7 kun. Faqat faol EGA
+   * (rol D1'dan emas, shu DO'dagi members nusxasidan — op'lar kabi); aks holda null.
+   */
+  async salesCard(actor: Actor, from: string, to: string, today: string): Promise<CardStats | null> {
+    const a = this.actorOf(actor)
+    if (!a || a.role !== 'owner') return null
+    const sum = await this.rpc('businessSummary', [from, to], a, null)
+    const rep = await this.rpc('reportSummary', [from, to], a, null)
+    if (!sum.ok || !rep.ok) return null
+    const p = sum.data as Record<string, number>
+    const top = (rep.data as { topProducts: { name: string; total: number }[] }).topProducts.slice(0, 3)
+    return {
+      shop: this.shopName(),
+      currency: settingOf(this.sql, 'currency_symbol', "so'm"),
+      total: p.total, count: p.count, profit: p.profit, cash: p.cash, card: p.card, debt: p.debt, returns: p.returns,
+      expenses: p.expenses, receivable: p.receivable, debtors: p.debtors,
+      week: weekSeries(this.sql, today),
+      top: top.map((x) => ({ name: x.name, total: x.total })),
+    }
+  }
+
+  /** Varonka (cron, admin paneli): faqat o'qish. */
+  async progress(): Promise<ShopProgress> {
+    return shopProgress(this.sql)
+  }
+
+  /**
+   * Asoschi yozishmasi: odam BOT chatiga (ilova chati emas) `since` dan keyin yozgan/aytgan matnlari — AI'ga ketib
+   * asoschiga yetmagan javoblarni tiklash uchun (`/tg/replies`, faqat setup kaliti bilan, faqat outreach olganlar).
+   */
+  async botTranscripts(uid: number, since: string): Promise<{ transcript: string; kind: string; created_at: string }[]> {
+    return this.sql.all<{ transcript: string; kind: string; created_at: string }>(
+      'SELECT transcript, kind, created_at FROM assistant_drafts WHERE uid = ? AND chat_id IS NULL AND created_at >= ? ORDER BY created_at LIMIT 50', uid, since)
   }
 
   /** Chek rasmi (JPEG) — ulashish uchun; id tasodifiy 128 bit (manzilni taxmin qilib bo'lmaydi). */

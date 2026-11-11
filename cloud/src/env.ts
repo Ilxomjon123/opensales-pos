@@ -30,4 +30,6 @@ export interface Env {
   GEMINI_FALLBACK_MODEL?: string
   /** Do'kon boshiga kunlik AI chaqiruvlari (standart 150). */
   AI_DAILY_LIMIT?: string
+  /** Obuna/to'lov bo'yicha yoziladigan Telegram username (@siz). Bo'sh bo'lsa sinov tugashi eslatmasi yuborilmaydi. */
+  SUPPORT_USERNAME?: string
 }

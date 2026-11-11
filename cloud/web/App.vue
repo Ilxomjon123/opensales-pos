@@ -13,6 +13,7 @@ import Gate from './pages/Gate.vue'
 import { session, isOwner, ownedShops, exitView } from './session'
 import { notify } from '../../src/lib/notify'
 import ShopSheet from './components/ShopSheet.vue'
+import FirstSteps from './components/FirstSteps.vue'
 import { routeAllowed } from './lib/auth'
 import { ROOT_TABS } from './router'
 import { setBackButton, openTelegramLink, haptic } from './telegram'
@@ -161,6 +162,7 @@ function contact() {
       <button v-if="isOwner()" @click="contact" class="shrink-0 rounded-md border border-current/30 px-2 py-1">{{ $t('cloud.contact') }}</button>
     </div>
 
+    <FirstSteps />
     <main class="min-h-0 flex-1 overflow-auto">
       <!-- Sticky, balandligi 0: tugma main tepasida (banner ostida) turadi, scroll'da ham, joy egallamaydi. -->
       <div class="tg-back-wrap">

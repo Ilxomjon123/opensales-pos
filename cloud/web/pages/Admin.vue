@@ -6,6 +6,7 @@ import GlassSheet from '../components/GlassSheet.vue'
 import GlassDate from '../components/GlassDate.vue'
 import { api, RpcError } from '../rpc'
 import { viewShop } from '../session'
+import AdminFunnel from '../components/AdminFunnel.vue'
 import { haptic } from '../telegram'
 import { notify } from '../../../src/lib/notify'
 import { confirmDialog } from '../../../src/lib/confirm'
@@ -21,6 +22,14 @@ type Tenant = {
 type Filter = 'all' | 'active' | 'expired' | 'blocked'
 
 const { t } = useI18n()
+// Bo'lim: do'konlar (obuna) yoki varonka. Ko'rish rejimidan qaytganda o'sha bo'lim ochilsin.
+const TAB_KEY = 'kassa:adminTab'
+const tab = ref<'shops' | 'funnel'>((() => { try { return sessionStorage.getItem(TAB_KEY) === 'funnel' ? 'funnel' : 'shops' } catch { return 'shops' } })())
+function setTab(x: 'shops' | 'funnel') {
+  tab.value = x
+  haptic('select')
+  try { sessionStorage.setItem(TAB_KEY, x) } catch { /* */ }
+}
 const rows = ref<Tenant[]>([])
 const loading = ref(true)
 const q = ref('')
@@ -137,6 +146,12 @@ const BADGE: Record<State, string> = {
     </header>
 
     <div class="mx-auto max-w-xl space-y-3 p-4">
+      <div class="adm-seg" role="tablist">
+        <button type="button" role="tab" :aria-selected="tab === 'shops'" :class="{ on: tab === 'shops' }" @click="setTab('shops')">{{ $t('cloud.admin.tabShops') }}</button>
+        <button type="button" role="tab" :aria-selected="tab === 'funnel'" :class="{ on: tab === 'funnel' }" @click="setTab('funnel')">{{ $t('cloud.admin.tabFunnel') }}</button>
+      </div>
+      <AdminFunnel v-if="tab === 'funnel'" />
+      <template v-else>
       <!-- Holat bo'yicha filtr: soni bilan -->
       <div class="adm-chips">
         <button v-for="f in (['all', 'active', 'expired', 'blocked'] as const)" :key="f" type="button"
@@ -177,6 +192,7 @@ const BADGE: Record<State, string> = {
       </section>
 
       <p class="px-1 text-center text-xs text-muted-foreground">{{ $t('cloud.admin.botHint') }}</p>
+      </template>
     </div>
 
     <GlassSheet :open="!!picked" :title="picked?.name" :sub="picked ? `${picked.id.slice(0, 8)} · ${$t(`cloud.admin.state.${picked.state}`)}` : ''" @close="picked = null">

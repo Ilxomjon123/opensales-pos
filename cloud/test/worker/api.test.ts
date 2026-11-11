@@ -306,7 +306,7 @@ describe('telegram webhook and admin', () => {
     const r = await call('/tg/setup', { body: {}, headers: { 'X-Setup-Key': 'test-webhook-secret' } })
     expect(r.status).toBe(200)
     const hook = tgCalls.find((c) => c.method === 'setWebhook')!
-    expect(hook.body).toMatchObject({ url: 'https://kassa.test/tg/webhook', secret_token: 'test-webhook-secret', allowed_updates: ['message', 'callback_query'] })
+    expect(hook.body).toMatchObject({ url: 'https://kassa.test/tg/webhook', secret_token: 'test-webhook-secret', allowed_updates: ['message', 'callback_query', 'widget_query'] })
     expect(tgCalls.find((c) => c.method === 'setChatMenuButton')!.body.menu_button.web_app.url).toBe('https://kassa.test/')
     expect(JSON.stringify(r.json)).not.toContain('test-webhook-secret')
   })
@@ -464,10 +464,10 @@ describe('admin panel in the app', () => {
     await call('/tg/setup', { body: {}, headers: { 'X-Setup-Key': 'test-webhook-secret' } })
     const scoped = tgCalls.find((c) => c.method === 'setMyCommands' && c.body.scope)
     expect(scoped?.body.scope).toEqual({ type: 'chat', chat_id: 777 })
-    expect(scoped?.body.commands.map((c: { command: string }) => c.command)).toEqual(['start', 'dokon', 'admin', 'tenants', 'extend', 'block', 'unblock'])
-    // Hammaga ko'rinadigan menyuda /start va /dokon — admin buyruqlari oshkor bo'lmaydi.
+    expect(scoped?.body.commands.map((c: { command: string }) => c.command)).toEqual(['start', 'hisobot', 'dokon', 'admin', 'tenants', 'varonka', 'extend', 'block', 'unblock'])
+    // Hammaga ko'rinadigan menyuda /start, /hisobot, /dokon — admin buyruqlari oshkor bo'lmaydi.
     for (const c of tgCalls.filter((x) => x.method === 'setMyCommands' && !x.body.scope)) {
-      expect(c.body.commands.map((x: { command: string }) => x.command)).toEqual(['start', 'dokon'])
+      expect(c.body.commands.map((x: { command: string }) => x.command)).toEqual(['start', 'hisobot', 'dokon'])
     }
   })
 

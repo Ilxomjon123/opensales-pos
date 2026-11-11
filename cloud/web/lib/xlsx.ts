@@ -1,4 +1,5 @@
 import { upload, RpcError } from '../rpc'
+import { allowBotMessages } from '../session'
 import { t } from './i18n'
 import { buildCsv, buildXlsx, safeName, type ExportFormat, type XlsxSheet } from '../../../src/lib/xlsxBuild'
 
@@ -14,8 +15,13 @@ function stamp(): string {
 
 async function send(baseName: string, ext: 'xlsx' | 'csv', bytes: Uint8Array): Promise<string> {
   const name = `${safeName(baseName)}_${stamp()}.${ext}`
+  const put = () => upload(`/api/export?name=${encodeURIComponent(name)}`, bytes, ext === 'csv' ? 'text/csv' : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
   try {
-    await upload(`/api/export?name=${encodeURIComponent(name)}`, bytes, ext === 'csv' ? 'text/csv' : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    try { await put() } catch (e) {
+      // Bot unga yoza olmaydi (botni hech ochmagan/bloklagan) — Telegram ruxsat oynasi, berilsa bir marta qayta.
+      if (!(e instanceof RpcError && e.code === 'cloud.errors.botBlocked') || !(await allowBotMessages())) throw e
+      await put()
+    }
   } catch (e) {
     throw e instanceof RpcError ? new Error(t(e.code, e.params)) : e
   }

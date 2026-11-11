@@ -11,6 +11,8 @@ export type TgUser = {
   last_name?: string
   username?: string
   language_code?: string
+  /** Bot API 6.9: foydalanuvchi botga unga yozishga ruxsat bergan (yoki botda chat bor). */
+  allows_write_to_pm?: boolean
 }
 
 export type VerifiedInitData = {

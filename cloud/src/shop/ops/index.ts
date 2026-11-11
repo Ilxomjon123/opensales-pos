@@ -11,6 +11,7 @@ import { settingsOps } from './settings'
 import { shiftOps } from './shifts'
 import { stockOps } from './stock'
 import { assistantOps } from './assistantOps'
+import { progressOps } from '../progress'
 
 function merge(...tables: OpTable[]): OpTable {
   const out: OpTable = Object.create(null)
@@ -26,5 +27,5 @@ function merge(...tables: OpTable[]): OpTable {
 /** Klient chaqira oladigan barcha op'lar (allowlist). */
 export const OPS: OpTable = merge(
   settingsOps, catalogOps, customerOps, shiftOps, saleOps, expenseOps, reportOps, movementOps,
-  returnOps, customerReturnOps, stockOps, assistantOps,
+  returnOps, customerReturnOps, stockOps, assistantOps, progressOps,
 )

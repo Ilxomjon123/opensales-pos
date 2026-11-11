@@ -229,6 +229,14 @@ Desktop o'z `pos.db` si bilan alohida ishlaydi; sxema bir xil (keyin import mumk
   Tailwind v4 `translate` xossasini ishlatadi).
 - **Bot profili kodda:** `telegram/profile.ts` (description/about uz+ru) — `POST /tg/setup`; logo faqat `{"photo":true}` bilan
   (`web/public/bot-logo.jpg`, OQ-QORA brend — indigo EMAS). Admin buyruqlari menyusi faqat admin chatida (test qulflaydi).
+- **Telegram widget kartalari (Bot API 10.4, 2026-11-11):** `sendWidget` — xabar ichida jonli HTML karta (QuickJS sandbox,
+  tarmoq YO'Q; HTML ≤32KB va zlib9 ≤4096, chat_data ≤1024 — `test/node/{funnelCard,salesCard}.test.ts` qulflaydi). Prod'da
+  FAQAT bot bilan shaxsiy chat (guruh/forward/inline — test server); `copyMessage` widget'ni nusxalamaydi. Karta tugmasi →
+  `widget_query` (data ≤64 bayt, faqat tap ichida sinxron) → avval `answerWidgetQuery` (15 s), keyin hisob →
+  `editMessageWidgetData` → karta `chatDataChanged` bilan qayta chiziladi. `setWebhook allowed_updates` da `widget_query` SHART.
+  So'rov boshi: `d:` admin `/varonka` (`telegram/funnelWidget.ts`), `r:<do'kon>:<t|y|w|m>` egaga `/hisobot`
+  (`telegram/salesWidget.ts`, raqamlar `ShopDO.salesCard` → `businessSummary`/`reportSummary`, faqat ega). Caption =
+  widget'siz ilova uchun matn. Nomlar faqat `textContent`. Sinov: brauzerda `window.TelegramWidget` stub + `--tg-theme-*`.
 - **AI'ni do'kon uchun o'chirish (admin):** D1 `tenants.ai_enabled` (0003) + DO meta `ai_enabled`; `assistantBegin` 403
   `cloud.ai.errors.disabled` (kvota sarflanmaydi); sessiyada `ai` → ✨ yashirin.
 - Obuna: ro'yxatdan o'tishda 7 kun sinov (`TRIAL_DAYS`, 2026-11-09 gacha 30 edi — eski do'konlar o'zgarmagan); admin chatidan (`ADMIN_CHAT_ID`) `/tenants`, `/extend <id> YYYY-MM-DD`

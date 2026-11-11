@@ -438,12 +438,13 @@ async function doCloseShift() {
           <div class="relative h-28 w-full shrink-0 bg-muted">
             <img v-if="p.image" :src="p.image" loading="lazy" decoding="async" class="h-full w-full object-cover" />
             <div v-else class="flex h-full w-full items-center justify-center text-muted-foreground"><Package class="h-10 w-10" /></div>
-            <div v-if="p.stock <= 0" class="absolute inset-0 flex items-center justify-center bg-rose-500/85 text-sm font-semibold text-white">{{ $t('pos.soldOut') }}</div>
+            <!-- Qoldiqsiz sotish yoqiq bo'lsa tovar sotiladi — "Tugadi" yopqichi chalg'itadi; qoldiq pastda qizil. -->
+            <div v-if="p.stock <= 0 && !allowNegative" class="absolute inset-0 flex items-center justify-center bg-rose-500/85 text-sm font-semibold text-white">{{ $t('pos.soldOut') }}</div>
           </div>
           <div class="flex flex-col gap-0.5 p-2.5">
             <div class="line-clamp-2 min-h-[2.2rem] text-sm font-medium leading-tight">{{ p.name }}</div>
             <div class="truncate text-base font-semibold leading-tight">{{ moneySum(p.price) }}</div>
-            <div class="text-xs text-muted-foreground">{{ p.stock }} {{ p.unit }}</div>
+            <div class="text-xs" :class="p.stock <= 0 ? 'text-rose-600' : 'text-muted-foreground'">{{ p.stock }} {{ p.unit }}</div>
           </div>
         </button>
         <!-- Savatda bo'lsa: o'ng yuqorida miqdor, chap yuqorida "−". Burchakda —

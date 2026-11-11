@@ -6,7 +6,7 @@ type HapticFeedback = { impactOccurred(style: 'light' | 'medium' | 'heavy' | 'ri
 
 export type TelegramWebApp = {
   initData: string
-  initDataUnsafe: { user?: { id: number; first_name?: string; language_code?: string }; start_param?: string }
+  initDataUnsafe: { user?: { id: number; first_name?: string; language_code?: string; allows_write_to_pm?: boolean }; start_param?: string }
   version: string
   platform: string
   colorScheme: 'light' | 'dark'
@@ -26,6 +26,8 @@ export type TelegramWebApp = {
   /** Bot API 8.0: tayyorlangan xabarni ulashish (chat tanlash oynasi). */
   shareMessage?(id: string, cb?: (sent: boolean) => void): void
   showAlert?(msg: string): void
+  /** Bot API 6.9: "bot sizga yozishi mumkinmi?" tizim oynasi. */
+  requestWriteAccess?(cb?: (granted: boolean) => void): void
   BackButton: BackButton
   HapticFeedback?: HapticFeedback
 }
@@ -160,6 +162,27 @@ export function setBackButton(visible: boolean, onClick: () => void) {
   } else {
     tg.BackButton.hide()
   }
+}
+
+/** Telegram'da ruxsat oynasini ochsa bo'ladimi (Bot API 6.9+). */
+export function canRequestWriteAccess(): boolean {
+  return !!tg?.requestWriteAccess && atLeast('6.9')
+}
+
+/**
+ * Botga shu odamga yozishga ruxsat so'raydi (Telegram tizim oynasi). Reklamadan ilovani to'g'ridan ochgan odam
+ * botda /start bosmagan — busiz bot unga eslatma ham, Excel hisobot ham yubora olmaydi ("chat not found").
+ * true — ruxsat berdi (yoki allaqachon bor), false — rad etdi, null — bu klientda yo'q / oyna allaqachon ochiq.
+ */
+let writeAccess: Promise<boolean | null> | null = null
+export function requestWriteAccess(): Promise<boolean | null> {
+  if (!canRequestWriteAccess()) return Promise.resolve(null)
+  if (writeAccess) return writeAccess
+  writeAccess = new Promise<boolean | null>((resolve) => {
+    try { tg!.requestWriteAccess!((granted) => { repaintAfterOverlay(); resolve(!!granted) }) }
+    catch { resolve(null) }
+  }).finally(() => { writeAccess = null })
+  return writeAccess
 }
 
 export function openTelegramLink(url: string) {

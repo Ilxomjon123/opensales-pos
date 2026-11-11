@@ -40,7 +40,11 @@
     "ADMIN_CHAT_ID": "1360121104",
     "TRIAL_DAYS": "7",
     "AI_DAILY_LIMIT": "150",
-    "GEMINI_MODEL": "gemini-3.5-flash"
+    "GEMINI_MODEL": "gemini-3.5-flash",
+    // Sinov tugashi eslatmasida "to'lov uchun yozing" — user 2026-11-10 tanladi.
+    "SUPPORT_USERNAME": "Abdullayev_Ilxomjon"
   },
-  "observability": { "enabled": true, "head_sampling_rate": 1 }
+  "observability": { "enabled": true, "head_sampling_rate": 1 },
+  // Varonka: do'konlar holati + avtomatik eslatmalar (src/funnel.ts → runFunnelCron).
+  "triggers": { "crons": ["*/15 * * * *"] }
 }

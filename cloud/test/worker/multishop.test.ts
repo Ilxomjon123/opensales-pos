@@ -221,6 +221,8 @@ describe('transfers between shops', () => {
 
   it('moves stock with cost between separate shops, matching by barcode or creating the product', async () => {
     const a = await onboard('Ombor')
+    // Bulutda qoldiqsiz sotish standart yoqiq — bu test qoldiq tekshiruvini sinaydi.
+    await rpc(a.token, 'setSetting', ['allow_negative_stock', '0'])
     const pid = (await rpc(a.token, 'saveProduct', [{ name: 'Suv 19L', price: 15_000, cost_price: 9_000, barcode: '4780019' }])).json.data
     const pid2 = (await rpc(a.token, 'saveProduct', [{ name: 'Stakan', price: 500, cost_price: 200 }])).json.data
     await setStock(a.shopId, pid, 50)

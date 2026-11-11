@@ -337,7 +337,15 @@ CREATE INDEX idx_transfers_pending ON transfers(status) WHERE status = 'pending'
 ALTER TABLE stock_receipts ADD COLUMN transfer_id TEXT;
 `
 
-export const MIGRATIONS: { version: number; sql: string }[] = [{ version: 1, sql: V1 }, { version: 2, sql: V2 }, { version: 3, sql: V3 }, { version: 4, sql: V4 }, { version: 5, sql: V5 }]
+// V6 (2026-11-10, varonka): ALLAQACHON ochilgan (tenant_id bor), hali sotuvi yo'q va sozlamani o'zi tanlamagan
+// do'konlarda qoldiqsiz sotish yoqiladi (ShopDO.init dagi yangi standart bilan bir xil). Yangi/bo'sh baza
+// (desktop paritet testlari) va sotuvi bor yoki sozlamani qo'ygan do'kon tegilmaydi.
+const V6 = `
+INSERT OR IGNORE INTO settings(key, value) SELECT 'allow_negative_stock', '1'
+WHERE EXISTS (SELECT 1 FROM meta WHERE key = 'tenant_id') AND NOT EXISTS (SELECT 1 FROM sales);
+`
+
+export const MIGRATIONS: { version: number; sql: string }[] = [{ version: 1, sql: V1 }, { version: 2, sql: V2 }, { version: 3, sql: V3 }, { version: 4, sql: V4 }, { version: 5, sql: V5 }, { version: 6, sql: V6 }]
 
 export const SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1].version
 

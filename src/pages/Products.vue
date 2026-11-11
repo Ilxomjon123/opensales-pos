@@ -130,6 +130,13 @@ async function onImageFile(file: File) {
 const catalogEdit = can('catalogEdit')
 function openNew() { form.value = { name: '', price: 0, cost_price: 0, stock: 0, unit: 'dona', category_id: categories.value[0]?.id ?? null, image: null, barcode: null, barcode_type: null }; showForm.value = true }
 function openEdit(p: Product) { form.value = { ...p }; showForm.value = true }
+// `?new=1` (bulut: "Boshlash" kartasi, bot eslatmasi) — yangi tovar formasi darhol ochiladi. Desktop'da bunday havola yo'q.
+watch(() => route.query.new, (v) => {
+  if (v !== '1') return
+  const { new: _drop, ...rest } = route.query
+  void router.replace({ query: rest })
+  if (catalogEdit) openNew()
+}, { immediate: true })
 
 // --- Global skaner (kassa kabi): mavjud kod → tahrir, yangi kod → yaratish ---
 const showScanner = ref(false)
