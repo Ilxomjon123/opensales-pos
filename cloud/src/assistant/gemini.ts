@@ -1,7 +1,7 @@
 import { SCHEMA, parseLoose, sanitize, systemPrompt, type Extraction, type ShopHints, type Turn } from './ai'
 
 // Gemini (Google AI Studio REST): ovozni ham, matnni ham BITTA so'rovda tushunadi — o'zbekcha nutqni
-// Whisper'dan ancha yaxshi taniydi. Javob: transkripsiya + o'sha amal (ai.ts dagi bir xil sxema).
+// Whisper'dan ancha yaxshi taniydi. Javob: transkripsiya + amal(lar) (ai.ts dagi bir xil sxema).
 // Xato bo'lsa (kalit, limit, region, format) — chaqiruvchi Workers AI'ga o'tadi (pipeline.ts).
 
 // 2026-11-08 prod o'lchovi: 3.5-flash 1,7 s (to'g'ri); 3.8-flash va flash-latest 30 s da javobsiz; 2.5 yangilarga yopiq.
@@ -61,7 +61,7 @@ export async function geminiAssist(p: {
   contents.push({ role: 'user', parts: current })
 
   const call = async (strict: boolean) => {
-    const generationConfig: Record<string, unknown> = { responseMimeType: 'application/json', temperature: 0.1, maxOutputTokens: 1200 }
+    const generationConfig: Record<string, unknown> = { responseMimeType: 'application/json', temperature: 0.1, maxOutputTokens: 2500 }
     if (strict) {
       generationConfig.responseJsonSchema = SCHEMA_WITH_TRANSCRIPT
       // Tezlik: "o'ylash" eng kam. Gemini 3+ — thinkingLevel, 2.5 — thinkingBudget.

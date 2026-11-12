@@ -17,7 +17,7 @@ const MAX_VOICE_BYTES = 2_000_000
 
 const T = {
   uz: {
-    kind: { sale: '🧾 Sotuv', payment_in: "💵 Mijozdan to'lov", expense: '💸 Xarajat', receipt: '📦 Kirim (tovar keldi)', product: '🆕 Yangi tovar', customer: '👥 Yangi mijoz', unknown: '🤔 Tushunmadim' },
+    kind: { sale: '🧾 Sotuv', payment_in: "💵 Mijozdan to'lov", payment_out: '📤 Mijozga qarz berildi', expense: '💸 Xarajat', receipt: '📦 Kirim (tovar keldi)', product: '🆕 Yangi tovar', customer: '👥 Yangi mijoz', unknown: '🤔 Tushunmadim' },
     owes: 'qarzi', owed: 'haqi', noBalance: 'saldosiz', createdCustomers: "{n} ta mijoz qo'shildi",
     created: "{n} ta tovar qo'shildi", startStock: 'qoldiq', cost: 'tannarx',
     customer: 'Mijoz', walkIn: "Yo'l-yo'lakay xaridor", total: 'Jami', amount: 'Summa', category: 'Toifa', note: 'Izoh', supplier: "Ta'minotchi", paidNow: "Hozir to'landi",
@@ -35,7 +35,7 @@ const T = {
       pickProduct: '«{name}» — qaysi tovar? Ilovada tanlang', productNotFound: '«{name}» bazada topilmadi',
       insufficientStock: '{name}: qoldiq {stock} {unit}', costMissing: '{name}: kirim narxi aytilmadi',
       pickCustomer: '«{name}» — qaysi mijoz? Ilovada tanlang', customerNotFound: '«{name}» mijozi topilmadi',
-      customerNeeded: 'Qaysi mijoz to\'laganini ayting', debtNeedsCustomer: "Qarzga sotish uchun mijoz kerak",
+      customerNeeded: 'Qaysi mijoz to\'laganini ayting', customerNeededOut: 'Kimga qarz berilganini ayting', debtNeedsCustomer: "Qarzga sotish uchun mijoz kerak",
       shiftNotOpen: 'Avval kassada smena oching', amountMissing: 'Summa aytilmadi',
       currencyMismatch: "Narx {said}da aytildi, do'kon valyutasi {shop} — ilovada tuzating",
       currencyMismatchFx: "Narx {said}da aytildi — saqlashda {shop}ga o'tkaziladi (kursni ilovada o'zgartirish mumkin)",
@@ -65,7 +65,7 @@ const T = {
     errFallback: "Saqlab bo'lmadi — ilovada ochib ko'ring.",
   },
   ru: {
-    kind: { sale: '🧾 Продажа', payment_in: '💵 Оплата от клиента', expense: '💸 Расход', receipt: '📦 Приход товара', product: '🆕 Новый товар', customer: '👥 Новый клиент', unknown: '🤔 Не понял' },
+    kind: { sale: '🧾 Продажа', payment_in: '💵 Оплата от клиента', payment_out: '📤 Выдано в долг клиенту', expense: '💸 Расход', receipt: '📦 Приход товара', product: '🆕 Новый товар', customer: '👥 Новый клиент', unknown: '🤔 Не понял' },
     owes: 'долг', owed: 'мы должны', noBalance: 'без сальдо', createdCustomers: 'Добавлено клиентов: {n}',
     created: 'Добавлено товаров: {n}', startStock: 'остаток', cost: 'себест.',
     customer: 'Клиент', walkIn: 'Случайный покупатель', total: 'Итого', amount: 'Сумма', category: 'Категория', note: 'Заметка', supplier: 'Поставщик', paidNow: 'Оплачено сейчас',
@@ -83,7 +83,7 @@ const T = {
       pickProduct: '«{name}» — какой товар? Выберите в приложении', productNotFound: '«{name}» не найден в базе',
       insufficientStock: '{name}: остаток {stock} {unit}', costMissing: '{name}: не названа цена прихода',
       pickCustomer: '«{name}» — какой клиент? Выберите в приложении', customerNotFound: 'Клиент «{name}» не найден',
-      customerNeeded: 'Назовите, какой клиент оплатил', debtNeedsCustomer: 'Для продажи в долг нужен клиент',
+      customerNeeded: 'Назовите, какой клиент оплатил', customerNeededOut: 'Назовите, кому выдан долг', debtNeedsCustomer: 'Для продажи в долг нужен клиент',
       shiftNotOpen: 'Сначала откройте смену в кассе', amountMissing: 'Сумма не названа',
       currencyMismatch: 'Цена названа в {said}, валюта магазина — {shop}. Исправьте в приложении',
       currencyMismatchFx: 'Цена названа в {said} — при сохранении пересчитается в {shop} (курс можно изменить в приложении)',
@@ -146,11 +146,14 @@ export const chatOnly = (d: Draft) => d.kind === 'unknown' || ((d.kind === 'sale
 
 export function renderDraft(d: Draft, l: Lang, opts: { transcript?: boolean } = {}): string {
   const t = T[l]
-  if (chatOnly(d) && d.status === 'new') return `${escapeHtml(d.question ?? t.unknownHint)}\n\n<i>🗣 «${escapeHtml(d.transcript.slice(0, 300))}»</i>`
+  // Bitta xabarning keyingi amali (partOf) — transkript birinchi kartada bor, takrorlanmaydi.
+  const said = opts.transcript ?? !d.partOf
+  const quote = `<i>🗣 «${escapeHtml(d.transcript.slice(0, 300))}»</i>`
+  if (chatOnly(d) && d.status === 'new') return said ? `${escapeHtml(d.question ?? t.unknownHint)}\n\n${quote}` : escapeHtml(d.question ?? t.unknownHint)
   // Narx boshqa valyutada aytilgan bo'lsa (hali tuzatilmagan) — summalar O'SHA valyutada ko'rsatiladi.
   const money = (n: number) => fmtIn(n, d.spokenCurrency && d.issues.some((i) => i.code === 'currencyMismatch') ? d.spokenCurrency : null, d.currency)
   const lines: string[] = [`<b>${t.kind[d.kind]}</b>`]
-  if (d.kind === 'sale' || d.kind === 'payment_in') {
+  if (d.kind === 'sale' || d.kind === 'payment_in' || d.kind === 'payment_out') {
     const who = d.customerId && d.customerId !== d.walkInId ? d.customerName : d.customerQuery ? `❓ «${d.customerQuery}»` : t.walkIn
     if (d.newCustomer && !d.customerId) lines.push(`${t.customer}: <b>${escapeHtml(d.newCustomer)}</b> · 🆕 ${t.newCustomerTag}`)
     else lines.push(`${t.customer}: <b>${escapeHtml(who ?? t.walkIn)}</b>`)
@@ -176,8 +179,8 @@ export function renderDraft(d: Draft, l: Lang, opts: { transcript?: boolean } = 
       lines.push(`• <b>${escapeHtml(it.name ?? it.query)}</b> — ${it.price ? money(it.price) : '—'}${it.cost ? ` · ${t.cost} ${money(it.cost)}` : ''}${it.qty ? ` · ${t.startStock} ${fmt(it.qty)} ${escapeHtml(it.unit ?? '')}` : ''}`)
     }
   }
-  if (d.kind === 'payment_in' || d.kind === 'expense') {
-    lines.push(`<b>${t.amount}: ${d.amount ? money(d.amount) : '—'}</b>${d.kind === 'payment_in' ? ` · ${t.method[d.method]}` : ''}`)
+  if (d.kind === 'payment_in' || d.kind === 'payment_out' || d.kind === 'expense') {
+    lines.push(`<b>${t.amount}: ${d.amount ? money(d.amount) : '—'}</b>${d.kind !== 'expense' ? ` · ${t.method[d.method]}` : ''}`)
     if (d.kind === 'expense' && d.category) lines.push(`${t.category}: ${escapeHtml(d.category)}`)
   }
   if (d.note && d.kind !== 'unknown') lines.push(`${t.note}: ${escapeHtml(d.note)}`)
@@ -191,7 +194,7 @@ export function renderDraft(d: Draft, l: Lang, opts: { transcript?: boolean } = 
   if (d.kind === 'unknown') lines.push('', escapeHtml(d.question ?? t.unknownHint))
   else if (d.question && !d.ready) lines.push(`💬 ${escapeHtml(d.question)}`)
   // Ilova chatida foydalanuvchi xabari tepada turibdi — karta transkriptni takrorlamaydi.
-  if (opts.transcript !== false) lines.push('', `<i>🗣 «${escapeHtml(d.transcript.slice(0, 300))}»</i>`)
+  if (said) lines.push('', quote)
   return lines.join('\n')
 }
 
@@ -278,15 +281,19 @@ export async function botAssistant(env: Env, msg: Msg): Promise<boolean> {
   if (!r.ok) { await send(t.err[r.code] ?? t.errFallback); return true }
   const dl = langOf(msg.from.language_code, r.draft)
   const actor = { uid: member.uid, role: member.role, name: member.name }
-  const draft = await withFx(env, member.tenant_id, r.draft)
   const tag = await shopTag(env, member)
-  const sent = await tgCall<{ message_id: number }>(env, 'sendMessage', {
-    chat_id: chatId, text: tag + renderDraft(draft, dl), parse_mode: 'HTML', disable_web_page_preview: true, ...reply, reply_markup: keyboard(env, draft, dl),
-  })
-  if (sent.ok && sent.result?.message_id && !chatOnly(draft)) {
-    await env.SHOP.getByName(member.tenant_id).assistantSetCard(actor, draft.id, chatId, sent.result.message_id)
+  // Bir xabarda bir nechta amal — har biriga alohida karta (o'z ✅/❌ bilan), aytilgan tartibda, hammasi o'sha xabarga reply.
+  // Transkript faqat birinchi kartada (keyingilari `partOf` — renderDraft o'zi tashlab ketadi).
+  for (const d of [r.draft, ...r.more]) {
+    const draft = await withFx(env, member.tenant_id, d)
+    const sent = await tgCall<{ message_id: number }>(env, 'sendMessage', {
+      chat_id: chatId, text: tag + renderDraft(draft, dl), parse_mode: 'HTML', disable_web_page_preview: true, ...reply, reply_markup: keyboard(env, draft, dl),
+    })
+    if (sent.ok && sent.result?.message_id && !chatOnly(draft)) {
+      await env.SHOP.getByName(member.tenant_id).assistantSetCard(actor, draft.id, chatId, sent.result.message_id)
+    }
   }
-  if (draft.replaces) await markReplaced(env, member.tenant_id, actor, draft.replaces, dl, tag)
+  if (r.draft.replaces) await markReplaced(env, member.tenant_id, actor, r.draft.replaces, dl, tag)
   return true
 }
 

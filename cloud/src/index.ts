@@ -650,7 +650,8 @@ const DRAFT_ID = /^[a-f0-9]{16}$/
 /** Ilova chatidagi bitta xabar juftligi: foydalanuvchi (matn/ovoz) + yordamchi (javob matni yoki botdagidek karta). */
 async function chatItem(env: Env, tenantId: string, e: ChatEntry, l: Lang) {
   const d = e.draft
-  const user = { kind: e.voice ? 'voice' : 'text', text: d.transcript, voice: e.voice }
+  // Bitta xabarning keyingi amali (partOf) — foydalanuvchi xabari birinchi kartada ko'rsatilgan.
+  const user = d.partOf ? null : { kind: e.voice ? 'voice' : 'text', text: d.transcript, voice: e.voice }
   if (chatOnly(d)) return { id: d.id, at: e.at, user, reply: { kind: 'text', text: d.question ?? '' } }
   const open = d.status === 'new' && !e.expired
   const withRate = open ? await withFx(env, tenantId, d) : d
@@ -703,9 +704,11 @@ async function handleAssistant(req: Request, env: Env, ctx: ExecutionContext, ac
     if (!r.ok) return fail(r.status, r.code)
     if (r.draft.replaces) await markReplaced(env, s.t, actor, r.draft.replaces).catch(() => undefined)
     const data = await withFx(env, s.t, r.draft)
-    if (!chat) return json({ ok: true, data })
+    // Bir xabarda bir nechta amal — keyingilari `more` da (chatda: foydalanuvchi pufagisiz kartalar).
+    if (!chat) return json({ ok: true, data: { ...data, more: await Promise.all(r.more.map((d) => withFx(env, s.t, d))) } })
     const item = await chatItem(env, s.t, { draft: r.draft, at: r.draft.createdAt, voice: chat.voice, expired: false }, lang)
-    return json({ ok: true, data: { ...data, item } })
+    const more = await Promise.all(r.more.map((d) => chatItem(env, s.t, { draft: d, at: d.createdAt, voice: null, expired: false }, lang)))
+    return json({ ok: true, data: { ...data, item, more } })
   }
   if (action === 'chats') {
     return json({ ok: true, data: (await shop.assistantChats(actor)) ?? [] })

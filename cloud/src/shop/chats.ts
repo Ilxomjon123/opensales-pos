@@ -41,7 +41,7 @@ export type ChatEntry = { draft: Draft; at: string; voice: VoiceMeta | null; exp
 export function chatEntries(sql: Sql, actor: Actor, chatId: string, now: string): ChatEntry[] | null {
   if (!CHAT_ID.test(chatId) || !sql.get('SELECT 1 FROM assistant_chats WHERE id = ? AND uid = ?', chatId, actor.uid)) return null
   const rows = sql.all<{ draft: string; created_at: string; voice: string | null }>(
-    'SELECT draft, created_at, voice FROM assistant_drafts WHERE chat_id = ? AND uid = ? ORDER BY created_at ASC LIMIT 300', chatId, actor.uid,
+    'SELECT draft, created_at, voice FROM assistant_drafts WHERE chat_id = ? AND uid = ? ORDER BY created_at ASC, rowid ASC LIMIT 300', chatId, actor.uid,
   )
   return rows.flatMap((r) => {
     let d: Draft

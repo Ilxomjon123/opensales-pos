@@ -11,6 +11,8 @@ type TgCall = { method: string; body: any }
 let tgCalls: TgCall[] = []
 const realFetch = globalThis.fetch
 const VOICE_TEXT = "Bahromga 2 ta Samsung 25W qarzga"
+// Haqiqiy xabar (2026-11-12): to'rtta amal bitta xabarda — model ularni rad etgan edi.
+const MULTI = 'anvarga 500 ming\nbotirga 300 ming qarz berdim\n\nJamshiddan 200 ming qarz oldin\nKamol 400 ming qarzini berdi'
 
 beforeEach(() => {
   tgCalls = []
@@ -54,6 +56,11 @@ const ANSWERS: Record<string, Extraction> = {
   'Yangi tovar Galaxy 1100 dollar': X({ action: 'product', currency: 'USD', items: [{ product: 'Galaxy S26', qty: 3, price: 1100, cost: 1000, unit: null }] }),
   'Galaxy emas, Pixel 10 dedim': X({ action: 'product', currency: 'USD', revises: true, items: [{ product: 'Pixel 10', qty: 3, price: 1100, cost: 1000, unit: null }] }),
   'Abdullohdan 500 ming oldim': X({ action: 'payment_in', customer: 'Abdulloh', amount: 500_000, method: 'cash' }),
+  [MULTI]: X({ action: 'payment_out', customer: 'Anvar', amount: 500_000, method: 'cash', also: [
+    X({ action: 'payment_out', customer: 'Botir', amount: 300_000, method: 'cash' }),
+    X({ action: 'payment_in', customer: 'Jamshid', amount: 200_000, method: 'cash' }),
+    X({ action: 'payment_in', customer: 'Kamol', amount: 400_000, method: 'cash' }),
+  ] }),
   'Yana iPhone 18 1800 dollar': X({ action: 'product', currency: 'USD', items: [{ product: 'iPhone 18', qty: 1, price: 1800, cost: null, unit: null }] }),
   "Bahrom aka 3 million qarzi bor, Ma'ruf aka 1 million haqi bor": X({ action: 'customer', people: [
     { name: 'Bahrom aka', phone: null, owes: 3_000_000, owed: null },
@@ -184,6 +191,19 @@ describe('assistant over HTTP', () => {
     // O'chirish.
     expect((await call('/api/assistant/chat-delete', { token: a.token, body: { id: chatId } })).status).toBe(200)
     expect((await call('/api/assistant/chats', { token: a.token })).json.data).toEqual([])
+  })
+
+  it('several actions in one message: the chat gets one card each, the user bubble only once', async () => {
+    const a = await onboard()
+    const r = await call('/api/assistant/parse', { token: a.token, body: { text: MULTI, chatId: '', lang: 'uz' } })
+    expect(r.json.data.item).toMatchObject({ user: { kind: 'text', text: MULTI }, reply: { kind: 'card', status: 'open', ready: true, kindName: 'payment_out' } })
+    expect(r.json.data.more.map((x: any) => [x.user, x.reply.kindName, x.reply.ready])).toEqual([[null, 'payment_out', true], [null, 'payment_in', true], [null, 'payment_in', true]])
+    expect(r.json.data.more[0].reply.html).toContain('Mijozga qarz berildi')
+    const hist = await call('/api/assistant/chat', { token: a.token, body: { id: r.json.data.chatId, lang: 'uz' } })
+    expect(hist.json.data.map((x: any) => [x.id, x.user?.text ?? null])).toEqual([[r.json.data.item.id, MULTI], ...r.json.data.more.map((x: any) => [x.id, null])])
+    // Chatsiz (eski klient) rejim: keyingi amallar `more` da.
+    const legacy = await call('/api/assistant/parse', { token: a.token, body: { text: MULTI } })
+    expect(legacy.json.data.more.map((d: any) => d.customerQuery)).toEqual(['Botir', 'Jamshid', 'Kamol'])
   })
 
   it('daily quota, disabled AI and bad input', async () => {
@@ -335,6 +355,35 @@ describe('assistant in the bot chat', () => {
     await hook({ callback_query: { id: 'q1', from: { id: a.user.id, language_code: 'uz' }, data: ok.callback_data, message: { chat: { id: a.user.id }, message_id: 1 } } })
     const list = (await a.rpc('listCustomers', [])).json.data as { name: string; balance: number }[]
     expect(list.find((c) => c.name === 'Abdulloh')).toMatchObject({ balance: 500_000 })
+  })
+
+  it('several actions in one message: one card each (reply to the message), each confirmed on its own', async () => {
+    const a = await onboard()
+    tgCalls = []
+    await hook({ message: { message_id: 31, chat: { id: a.user.id, type: 'private' }, from: { id: a.user.id, language_code: 'uz' }, text: MULTI } })
+    const cards = tgCalls.filter((c) => c.method === 'sendMessage')
+    expect(cards).toHaveLength(4)
+    expect(cards.every((c) => c.body.reply_parameters?.message_id === 31)).toBe(true)
+    expect(cards.map((c) => c.body.text.split('\n')[0])).toEqual(['<b>📤 Mijozga qarz berildi</b>', '<b>📤 Mijozga qarz berildi</b>', "<b>💵 Mijozdan to'lov</b>", "<b>💵 Mijozdan to'lov</b>"])
+    expect(cards[0].body.text).toContain('<b>Anvar</b> · 🆕')
+    expect(cards[1].body.text).toContain("<b>Summa: 300 000 so'm</b> · naqd")
+    // Xabar matni faqat birinchi kartada.
+    expect(cards.map((c) => c.body.text.includes('🗣'))).toEqual([true, false, false, false])
+    const ids = cards.map((c) => c.body.reply_markup.inline_keyboard[0][0].callback_data as string)
+    expect(new Set(ids).size).toBe(4)
+    // Ikkinchisini bekor qilib, qolganini tasdiqlaymiz.
+    await hook({ callback_query: { id: 'x1', from: { id: a.user.id, language_code: 'uz' }, data: cards[1].body.reply_markup.inline_keyboard[0][1].callback_data, message: { chat: { id: a.user.id }, message_id: 2 } } })
+    for (const [i, data] of ids.entries()) {
+      if (i === 1) continue
+      await hook({ callback_query: { id: `q${i}`, from: { id: a.user.id, language_code: 'uz' }, data, message: { chat: { id: a.user.id }, message_id: 1 } } })
+    }
+    const list = (await a.rpc('listCustomers', [])).json.data as { name: string; balance: number }[]
+    const bal = Object.fromEntries(list.map((c) => [c.name, c.balance]))
+    expect(bal).toMatchObject({ Anvar: -500_000, Jamshid: 200_000, Kamol: 400_000 })
+    expect(bal.Botir).toBeUndefined()
+    // Mijoz sahifasidagi to'lovlar: qarz berish manfiy yozuv.
+    const anvar = list.find((c) => c.name === 'Anvar')!
+    expect((await a.rpc('customerPayments', [(anvar as unknown as { id: number }).id])).json.data).toMatchObject([{ amount: -500_000, method: 'cash' }])
   })
 
   it('plain text from a stranger gets a join hint, commands still work', async () => {

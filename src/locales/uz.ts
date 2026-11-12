@@ -175,6 +175,8 @@ export default {
     paidPrefix: "to'langan",
     paymentCard: "To'lov (karta)",
     paymentCash: "To'lov (naqd)",
+    loanCard: 'Qarz berildi (karta)',
+    loanCash: 'Qarz berildi (naqd)',
     returnLabel: 'Vozvrat #{number}',
     toBalancePrefix: 'balansga',
     saleLabel: 'Sotuv #{number}',

@@ -175,6 +175,8 @@ export default {
     paidPrefix: 'оплачено',
     paymentCard: 'Оплата (карта)',
     paymentCash: 'Оплата (наличные)',
+    loanCard: 'Выдано в долг (карта)',
+    loanCash: 'Выдано в долг (наличные)',
     returnLabel: 'Возврат №{number}',
     toBalancePrefix: 'на баланс',
     saleLabel: 'Продажа #{number}',

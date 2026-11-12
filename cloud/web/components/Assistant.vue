@@ -18,7 +18,7 @@ import { notify } from '../../../src/lib/notify'
 // kerak bo'lsa tuzatasiz → "Tasdiqlash" — oddiy kassa amali yoziladi. Har tuzatish serverda
 // qayta tekshiriladi (qoldiq, mijoz, huquq) — tugma faqat hammasi joyida bo'lsa yoqiladi.
 
-type Kind = 'sale' | 'payment_in' | 'expense' | 'receipt' | 'product' | 'customer' | 'unknown'
+type Kind = 'sale' | 'payment_in' | 'payment_out' | 'expense' | 'receipt' | 'product' | 'customer' | 'unknown'
 type Person = { name: string; phone: string | null; kind: 'none' | 'debt' | 'credit'; amount: number | null }
 type Method = 'cash' | 'card' | 'debt' | 'transfer'
 type Opt = { id: number; name: string; unit: string; price: number; stock: number }
@@ -103,7 +103,8 @@ function fail(e: unknown) {
 // ---- Chatlar: ro'yxat, ochish, yangi, o'chirish ---------------------------------------------
 type Voice = { ms: number; wave: number[] }
 type Reply = { kind: 'text'; text: string } | { kind: 'card'; html: string; status: 'open' | 'saved' | 'cancelled' | 'replaced' | 'expired'; ready: boolean; convert: number | null; kindName: Kind }
-type ChatItem = { id: string; at: string; user: { kind: 'text' | 'voice'; text: string; voice: Voice | null }; reply: Reply }
+/** `user` null — bitta xabarning keyingi amali (foydalanuvchi pufagi birinchi kartada). */
+type ChatItem = { id: string; at: string; user: { kind: 'text' | 'voice'; text: string; voice: Voice | null } | null; reply: Reply }
 type ChatRow = { id: string; title: string; updated_at: string; last: string | null; count: number }
 const LAST_CHAT = 'kassa:ai:chat'
 const view = ref<'list' | 'chat'>('chat')
@@ -154,7 +155,7 @@ async function openChat(id: string) {
     }
     jumpToEnd = false
     chatCache.set(id, items.value)
-    if (!chatTitle.value) chatTitle.value = items.value[0]?.user.text.slice(0, 60) ?? ''
+    if (!chatTitle.value) chatTitle.value = items.value[0]?.user?.text.slice(0, 60) ?? ''
     rememberChat(id)
   } catch {
     // Chat o'chirilgan/topilmadi — yangisi.
@@ -225,13 +226,16 @@ async function editItem(it: ChatItem) {
   } catch (e) { fail(e) }
 }
 /** Server javobidagi xabar juftligi chatga qo'shiladi (yangi chat bo'lsa — id eslab qolinadi). */
-function accept(res: Draft & { item?: ChatItem; chatId?: string }, localVoice: string | null) {
+function accept(res: Draft & { item?: ChatItem; more?: ChatItem[]; chatId?: string }, localVoice: string | null) {
   if (res.chatId && res.chatId !== chatId.value) { chatId.value = res.chatId; rememberChat(res.chatId) }
   if (!chatTitle.value) chatTitle.value = res.transcript.slice(0, 60)
   if (res.item) {
     if (localVoice) voiceUrls.set(res.item.id, localVoice)
-    fresh.value.add(res.item.id)
-    items.value.push(res.item)
+    // Bir xabarda bir nechta amal — har biri o'z kartasi (o'z tugmalari bilan).
+    for (const it of [res.item, ...(res.more ?? [])]) {
+      fresh.value.add(it.id)
+      items.value.push(it)
+    }
   }
   thread.value = []
   stage.value = 'input'
@@ -469,9 +473,10 @@ const customerItems = computed(() => customers.value
   .filter((c) => draft.value?.kind === 'sale' || !c.is_walk_in)
   .map((c) => ({ value: c.id, label: c.is_walk_in ? t('cloud.ai.walkIn') : c.phone ? `${c.name} · ${c.phone}` : c.name })))
 const productItems = computed(() => products.value.map((p) => ({ value: p.id, label: p.name })))
-const methods = computed<Method[]>(() => draft.value?.kind === 'payment_in' ? ['cash', 'card', 'transfer'] : ['cash', 'card', 'debt'])
+const isMoney = (k: Kind | undefined) => k === 'payment_in' || k === 'payment_out'
+const methods = computed<Method[]>(() => isMoney(draft.value?.kind) ? ['cash', 'card', 'transfer'] : ['cash', 'card', 'debt'])
 const priceEditable = computed(() => draft.value?.kind === 'receipt' || isOwner())
-const KIND_ICON = { sale: ShoppingBag, payment_in: HandCoins, expense: Wallet, receipt: PackagePlus, product: Box, customer: Users, unknown: HelpCircle }
+const KIND_ICON = { sale: ShoppingBag, payment_in: HandCoins, payment_out: HandCoins, expense: Wallet, receipt: PackagePlus, product: Box, customer: Users, unknown: HelpCircle }
 const issueText = (i: { code: string; params?: Record<string, unknown> }) => t(`cloud.ai.issue.${i.code}`, (i.params ?? {}) as Record<string, unknown>)
 const qty = (n: number) => (Math.round(n * 1000) / 1000).toLocaleString(locale.value === 'ru' ? 'ru-RU' : 'uz-UZ')
 
@@ -645,7 +650,7 @@ const examples = computed(() => {
           </div>
           <!-- Saqlangan tarix: foydalanuvchi xabari + yordamchi javobi/kartasi (botdagidek, tugmalari bilan) -->
           <template v-for="it in items" :key="it.id">
-            <div class="tg-row out">
+            <div v-if="it.user" class="tg-row out">
               <div class="tg-bubble out tail" :class="{ voice: it.user.kind === 'voice' }">
                 <template v-if="it.user.kind === 'text'">{{ it.user.text }}</template>
                 <template v-else>
@@ -752,7 +757,7 @@ const examples = computed(() => {
 
           <template v-if="draft.kind !== 'unknown' && draft.allowed">
             <!-- Mijoz -->
-            <section v-if="draft.kind === 'sale' || draft.kind === 'payment_in'" class="ai-field">
+            <section v-if="draft.kind === 'sale' || isMoney(draft.kind)" class="ai-field">
               <label>{{ $t('cloud.ai.customer') }}</label>
               <div v-if="draft.newCustomer && !draft.customerId" class="ai-newcust">
                 <span>🆕 <b>{{ draft.newCustomer }}</b> — {{ $t('cloud.ai.newCustomerTag') }}</span>
@@ -842,7 +847,7 @@ const examples = computed(() => {
             </section>
 
             <!-- To'lov usuli -->
-            <section v-if="draft.kind === 'sale' || draft.kind === 'payment_in'" class="ai-field">
+            <section v-if="draft.kind === 'sale' || isMoney(draft.kind)" class="ai-field">
               <div class="ai-seg">
                 <button v-for="m in methods" :key="m" type="button" :class="{ on: draft.method === m }" @click="draft.method = m; haptic('select'); changed()">{{ $t(`cloud.ai.method.${m}`) }}</button>
               </div>
@@ -853,7 +858,7 @@ const examples = computed(() => {
             </section>
 
             <!-- Summa / toifa / izoh -->
-            <section v-if="draft.kind === 'payment_in' || draft.kind === 'expense'" class="ai-field">
+            <section v-if="isMoney(draft.kind) || draft.kind === 'expense'" class="ai-field">
               <label>{{ $t('cloud.ai.amount') }}</label>
               <MoneyInput v-model="draft.amount" :currency="dispCur" class="ai-num ai-big" @change="changed" />
             </section>

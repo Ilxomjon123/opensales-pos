@@ -1,4 +1,6 @@
-// Workers AI: ovoz → matn (Whisper) va matn → bitta amal (LLM, JSON). Har qanday tilda.
+// Workers AI: ovoz → matn (Whisper) va matn → amal(lar) (LLM, JSON). Har qanday tilda.
+// Bitta xabarda bir nechta amal bo'lishi mumkin ("Botirga 300 ming qarz berdim, Kamol 400 ming berdi") —
+// birinchisi asosiy maydonlarda, qolganlari `also` da; har biri alohida qoralama/karta bo'ladi.
 //
 // AI faqat MATN chiqaradi (tovar/mijoz nomi qanday aytilgan bo'lsa) — id, qoldiq, narx qarori
 // emas. Id'ga moslash va tekshiruv serverda (match.ts, shop/assistant.ts), yozish — foydalanuvchi
@@ -10,8 +12,10 @@ import { REPORT_PERIODS, REPORT_TOPICS, type ReportPeriod, type ReportTopic } fr
 export const STT_MODEL = '@cf/openai/whisper-large-v3-turbo'
 export const LLM_MODEL = '@cf/meta/llama-3.3-70b-instruct-fp8-fast'
 
-export type Kind = 'sale' | 'payment_in' | 'expense' | 'receipt' | 'product' | 'customer' | 'unknown'
-export const KINDS: Kind[] = ['sale', 'payment_in', 'expense', 'receipt', 'product', 'customer', 'unknown']
+export type Kind = 'sale' | 'payment_in' | 'payment_out' | 'expense' | 'receipt' | 'product' | 'customer' | 'unknown'
+export const KINDS: Kind[] = ['sale', 'payment_in', 'payment_out', 'expense', 'receipt', 'product', 'customer', 'unknown']
+/** Bitta xabardagi amallar chegarasi (asosiy + `also`). */
+export const MAX_ACTIONS = 8
 export const EXPENSE_CATEGORIES = ['Ijara', 'Oylik', 'Kommunal', 'Tovar', 'Transport', 'Soliq', 'Boshqa']
 
 export type Extraction = {
@@ -37,6 +41,8 @@ export type Extraction = {
   /** Hisobot savoli ("umumiy qarz qancha?") — action "unknown" bo'ladi, javobni server bazadan hisoblaydi (shop/answers.ts). */
   report: ReportTopic | null
   period: ReportPeriod | null
+  /** Shu xabardagi keyingi amallar (aytilgan tartibda); har biri alohida qoralama. Faqat yuqori darajada. */
+  also?: Extraction[]
 }
 
 /** Suhbat konteksti: oldingi xabarlar ("yuqoridagi tovarlar", "o'shani" kabi gaplar uchun). */
@@ -83,57 +89,65 @@ export async function transcribe(ai: AiRunner, audio: Uint8Array, hints: ShopHin
   return typeof out?.text === 'string' ? out.text.trim() : ''
 }
 
+/** Bitta amal maydonlari (asosiy javob va `also` elementlari uchun umumiy). */
+const ACTION_PROPS = {
+  action: { type: 'string', enum: MODEL_ACTIONS },
+  customer: { type: ['string', 'null'] },
+  items: {
+    type: 'array',
+    items: {
+      type: 'object',
+      properties: {
+        product: { type: 'string' }, qty: { type: ['number', 'null'] }, price: { type: ['number', 'null'] },
+        cost: { type: ['number', 'null'] }, unit: { type: ['string', 'null'] },
+      },
+      required: ['product', 'qty', 'price', 'cost', 'unit'],
+    },
+  },
+  people: {
+    type: 'array',
+    items: {
+      type: 'object',
+      properties: { name: { type: 'string' }, phone: { type: ['string', 'null'] }, owes: { type: ['number', 'null'] }, owed: { type: ['number', 'null'] } },
+      required: ['name', 'phone', 'owes', 'owed'],
+    },
+  },
+  amount: { type: ['number', 'null'] },
+  method: { type: ['string', 'null'], enum: ['cash', 'card', 'debt', 'transfer', null] },
+  paid: { type: ['number', 'null'] },
+  category: { type: ['string', 'null'] },
+  supplier: { type: ['string', 'null'] },
+  note: { type: ['string', 'null'] },
+  currency: { type: ['string', 'null'] },
+  question: { type: ['string', 'null'] },
+  report: { type: ['string', 'null'], enum: [...REPORT_TOPICS, null] },
+  period: { type: ['string', 'null'], enum: [...REPORT_PERIODS, null] },
+}
+const ACTION_REQUIRED = Object.keys(ACTION_PROPS)
+
 export const SCHEMA = {
   type: 'object',
   properties: {
-    action: { type: 'string', enum: MODEL_ACTIONS },
-    customer: { type: ['string', 'null'] },
-    items: {
-      type: 'array',
-      items: {
-        type: 'object',
-        properties: {
-          product: { type: 'string' }, qty: { type: ['number', 'null'] }, price: { type: ['number', 'null'] },
-          cost: { type: ['number', 'null'] }, unit: { type: ['string', 'null'] },
-        },
-        required: ['product', 'qty', 'price', 'cost', 'unit'],
-      },
-    },
-    people: {
-      type: 'array',
-      items: {
-        type: 'object',
-        properties: { name: { type: 'string' }, phone: { type: ['string', 'null'] }, owes: { type: ['number', 'null'] }, owed: { type: ['number', 'null'] } },
-        required: ['name', 'phone', 'owes', 'owed'],
-      },
-    },
-    amount: { type: ['number', 'null'] },
-    method: { type: ['string', 'null'], enum: ['cash', 'card', 'debt', 'transfer', null] },
-    paid: { type: ['number', 'null'] },
-    category: { type: ['string', 'null'] },
-    supplier: { type: ['string', 'null'] },
-    note: { type: ['string', 'null'] },
+    ...ACTION_PROPS,
     language: { type: ['string', 'null'] },
-    currency: { type: ['string', 'null'] },
-    question: { type: ['string', 'null'] },
     revises: { type: 'boolean' },
     rate: { type: ['number', 'null'] },
-    report: { type: ['string', 'null'], enum: [...REPORT_TOPICS, null] },
-    period: { type: ['string', 'null'], enum: [...REPORT_PERIODS, null] },
+    also: { type: 'array', items: { type: 'object', properties: ACTION_PROPS, required: ACTION_REQUIRED } },
   },
-  required: ['action', 'customer', 'items', 'people', 'amount', 'method', 'paid', 'category', 'supplier', 'note', 'language', 'currency', 'question', 'revises', 'rate', 'report', 'period'],
+  required: [...ACTION_REQUIRED, 'language', 'revises', 'rate', 'also'],
 }
 
 export function systemPrompt(h: ShopHints): string {
   const appLang = h.lang === 'ru' ? 'Russian' : 'Uzbek (Latin script)'
   return [
-    'You turn ONE message from a shopkeeper into ONE accounting action for their point-of-sale system.',
+    'You turn ONE message from a shopkeeper into the accounting action(s) it describes for their point-of-sale system (usually one).',
     'The message can be in ANY language or script (Uzbek Latin or Cyrillic, Russian, English, Tajik, Kazakh, Kyrgyz, Turkish, mixed). Understand it fully.',
     'Return ONLY a JSON object matching the schema. Actions:',
     '- "sale": goods were sold. items = what was sold (product, qty, price per unit only if said). customer = buyer name only if said.',
     '  method: "cash" (naqd/наличные), "card" (karta/карта/terminal), "debt" (qarzga/в долг/nasiya). paid = amount paid now only if a partial payment is said.',
-    '- "payment_in": a customer paid money to the shop (debt repayment). customer, amount, method: "cash" | "card" | "transfer".',
-    `- "expense": the shop spent or gave out money (rent, salary, utilities, transport, tax, other). amount, category = one of ${EXPENSE_CATEGORIES.join(', ')}, note = short description in the original language.`,
+    '- "payment_in": a person paid money TO the shop: debt repayment or prepayment ("Kamol qarzini berdi", "Ali 50 ming to\'ladi"), OR the shop BORROWED money from that person ("Jamshiddan 200 ming qarz oldim", "занял у X") — the shop then owes them. customer, amount, method: "cash" | "card" | "transfer".',
+    '- "payment_out": the shop GAVE or LENT money to a person who must pay it back ("Anvarga 500 ming qarz berdim", "Botirga 300 ming qarzga pul berdim", "дал в долг X", "одолжил X") — that person now owes the shop more. customer, amount, method: "cash" | "card" | "transfer". This is NOT an expense.',
+    `- "expense": the shop spent money for itself (rent, salary, utilities, transport, tax, other) — money lent to a person is "payment_out". amount, category = one of ${EXPENSE_CATEGORIES.join(', ')}, note = short description in the original language.`,
     '- "receipt": goods arrived INTO stock from a supplier. supplier, items with qty and price = purchase cost per unit.',
     '- "product": add NEW products to the catalog (create items that do not exist yet). items: product = the name exactly as said, price = selling price, cost = purchase price if said, qty = starting stock if said, unit (dona, kg, litr, metr, quti, blok, pachka) if said.',
     '- If the message introduces a new person AND says money was received from them (or goods were sold to them), it is "payment_in" (or "sale") with that customer — a missing customer is created automatically on confirm. Use "customer" only to register people with an existing balance and no money changing hands now.',
@@ -158,6 +172,7 @@ export function systemPrompt(h: ShopHints): string {
     '- CORRECTIONS: if the current message corrects, completes or changes the latest "open" request — e.g. "X emas, Y", "X demadim, Y dedim", "Y dedim", "narxi 1800 bo\'lsin", "yana 2 ta qo\'sh", "Z ni olib tashla", "не X, а Y", "я сказал Y", "I said Y" — set revises=true and return THAT request IN FULL with only the correction applied: same action, every other item/person/customer/price/cost/qty/unit/amount copied unchanged. Never drop items the user did not ask to remove. A correction that only renames something ("16 emas, 18 Pro Max") changes ONLY that name and keeps its price, cost and qty.',
     '  If several requests are open, the correction belongs to the one that contains what is being corrected (usually the fuller one). If the latest open request was itself a misunderstood correction (it only repeats a name from an earlier open request), revise the EARLIER request and keep ITS action and all its items.',
     '- Otherwise (a new, separate action) revises=false.',
+    'SEVERAL ACTIONS: one message may describe several separate actions — different people, or e.g. a lending plus a repayment, often one per line ("Anvarga 500 ming, Botirga 300 ming qarz berdim. Jamshiddan 200 ming qarz oldim. Kamol 400 ming qarzini berdi" = 4 actions). Put the FIRST action in the main fields and EVERY other action, in the order said, into also (same fields; a shared verb applies to each person: "Anvarga 500 ming, Botirga 300 ming qarz berdim" = two payment_out). Never ask the user to send them one by one and never merge different people into one action. One action → also = []. Exceptions that stay ONE action: one sale/receipt of several products (items), several new people with balances only ("customer" with people). A correction (revises=true) → also = [].',
     '',
     `Shop: ${h.shopName}. Currency: ${h.currency}.`,
     h.products.length ? `Catalog product names (sample): ${h.products.join(' | ')}` : 'Catalog: empty.',
@@ -171,8 +186,8 @@ const numOrNull = (v: unknown, max = 1e12): number | null => {
   return typeof n === 'number' && Number.isFinite(n) && n >= 0 && n <= max ? n : null
 }
 
-/** Model javobini qat'iy shaklga keltiradi — noma'lum/yaroqsiz maydon null bo'ladi. */
-export function sanitize(raw: unknown): Extraction {
+/** Model javobini qat'iy shaklga keltiradi — noma'lum/yaroqsiz maydon null bo'ladi. `nested` — `also` elementi. */
+export function sanitize(raw: unknown, nested = false): Extraction {
   const o = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
   const action = KINDS.includes(o.action as Kind) ? (o.action as Kind) : 'unknown'
   const items = (Array.isArray(o.items) ? o.items : []).slice(0, 20).flatMap((it) => {
@@ -189,6 +204,12 @@ export function sanitize(raw: unknown): Extraction {
   // Hisobot savoli: "report" amali (yoki noma'lum amal + mavzu) — matnli javob ("unknown"), raqamni server hisoblaydi.
   const topic = REPORT_TOPICS.includes(o.report as ReportTopic) ? (o.report as ReportTopic) : null
   const report = o.action === 'report' || (action === 'unknown' && topic) ? topic : null
+  const language = str(o.language, 8)
+  // Keyingi amallar: tuzatish ham, kurs ham, ichma-ich `also` ham emas; tushunilmagan bo'lagi tashlanadi.
+  const also = nested || o.revises === true ? [] : (Array.isArray(o.also) ? o.also : []).slice(0, MAX_ACTIONS - 1)
+    .map((x) => sanitize(x, true))
+    .filter((x) => x.action !== 'unknown' || x.report)
+    .map((x) => ({ ...x, language: x.language ?? language }))
   return {
     action: o.action === 'report' ? 'unknown' : action,
     customer: str(o.customer),
@@ -200,13 +221,14 @@ export function sanitize(raw: unknown): Extraction {
     category: str(o.category, 40),
     supplier: str(o.supplier),
     note: str(o.note, 300),
-    language: str(o.language, 8),
+    language,
     currency: str(o.currency, 8)?.toUpperCase() ?? null,
     question: str(o.question, 300),
-    revises: o.revises === true,
+    revises: !nested && o.revises === true,
     rate: (() => { const r = numOrNull(o.rate); return r !== null && r > 0 && r <= 1e7 ? r : null })(),
     report,
     period: report && REPORT_PERIODS.includes(o.period as ReportPeriod) ? (o.period as ReportPeriod) : null,
+    ...(nested ? {} : { also }),
   }
 }
 
@@ -227,9 +249,9 @@ export async function extract(ai: AiRunner, text: string, hints: ShopHints, hist
   ]
   let out: unknown
   try {
-    out = await ai.run(LLM_MODEL, { messages, response_format: { type: 'json_schema', json_schema: SCHEMA }, max_tokens: 700, temperature: 0.1 })
+    out = await ai.run(LLM_MODEL, { messages, response_format: { type: 'json_schema', json_schema: SCHEMA }, max_tokens: 1500, temperature: 0.1 })
   } catch {
-    out = await ai.run(LLM_MODEL, { messages, max_tokens: 700, temperature: 0.1 })
+    out = await ai.run(LLM_MODEL, { messages, max_tokens: 1500, temperature: 0.1 })
   }
   return sanitize(parseLoose((out as { response?: unknown })?.response ?? out))
 }

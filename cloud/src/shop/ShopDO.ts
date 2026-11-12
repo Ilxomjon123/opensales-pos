@@ -79,17 +79,24 @@ export class ShopDO extends DurableObject<Env> {
     return { ok: true, hints: { ...shopHints(this.sql), greeted }, history: own ? historyTurns(this.sql, a.uid, now, own) : chatId !== null ? [] : historyTurns(this.sql, a.uid, now) }
   }
 
-  async assistantDraft(actor: Actor, transcript: string, source: Source, extraction: Extraction, chat: { id: string | null; voice: VoiceMeta | null } | null = null, lang: 'uz' | 'ru' = 'uz'): Promise<Draft | null> {
+  /**
+   * AI natijasi → qoralama(lar). Xabarda bir nechta amal bo'lsa (`extraction.also`) — har biriga alohida qoralama
+   * (`partOf` = birinchisining id'si), hammasi bitta tx'da; javobda birinchisi + `more`.
+   */
+  async assistantDraft(actor: Actor, transcript: string, source: Source, extraction: Extraction, chat: { id: string | null; voice: VoiceMeta | null } | null = null, lang: 'uz' | 'ru' = 'uz'): Promise<(Draft & { more: Draft[] }) | null> {
     const a = this.actorOf(actor)
     if (!a) return null
     const now = new Date().toISOString()
-    if (!chat) return createDraft(this.sql, a, { transcript, source, extraction, now, lang })
-    // Ilova chati: ochiladi/yaratiladi, qoralama shu chatga yoziladi, sarlavha va faollik yangilanadi — bitta tx.
+    const rest = extraction.also ?? []
     return this.sql.tx(() => {
-      const chatId = openChat(this.sql, a.uid, chat.id, now)
-      const d = createDraft(this.sql, a, { transcript, source, extraction, now, chatId, voice: chat.voice, lang })
-      touchChat(this.sql, chatId, transcript, now)
-      return { ...d, chatId }
+      // Ilova chati: ochiladi/yaratiladi, qoralama shu chatga yoziladi, sarlavha va faollik yangilanadi.
+      const chatId = chat ? openChat(this.sql, a.uid, chat.id, now) : null
+      const base = { transcript, source, now, lang, ...(chatId ? { chatId } : {}) }
+      const d = createDraft(this.sql, a, { ...base, extraction, voice: chat?.voice ?? null })
+      const more = rest.map((x) => createDraft(this.sql, a, { ...base, extraction: x, partOf: d.id }))
+      if (chatId) touchChat(this.sql, chatId, transcript, now)
+      const tag = chatId ? { chatId } : {}
+      return { ...d, ...tag, more: more.map((m) => ({ ...m, ...tag })) }
     })
   }
 

@@ -48,6 +48,7 @@ const T = {
     cashRef: ', qaytarilgan {sum}',
     you: 'Sizda',
     cashPays: "Bugun mijozlardan naqd to'lov: {sum}.",
+    cashLent: 'Bugun mijozlarga naqd qarz berildi: {sum}.',
     cashExp: 'Bugungi xarajat: {sum}.',
     stockOne: '{name}: {qty} {unit} qoldi · narxi {price}.',
     stockOut: '{name}: qolmagan (0 {unit}) · narxi {price}.',
@@ -89,6 +90,7 @@ const T = {
     cashRef: ', возвраты {sum}',
     you: 'У вас',
     cashPays: 'Сегодня оплаты наличными от клиентов: {sum}.',
+    cashLent: 'Сегодня выдано клиентам в долг наличными: {sum}.',
     cashExp: 'Расходы за сегодня: {sum}.',
     stockOne: '{name}: осталось {qty} {unit} · цена {price}.',
     stockOut: '{name}: нет в наличии (0 {unit}) · цена {price}.',
@@ -177,7 +179,7 @@ export function answerReport(sql: Sql, actor: Actor, q: ReportQuery, lang: Answe
       const c = top[0].item
       lines.push(fill(c.balance < 0 ? t.custDebt : c.balance > 0 ? t.custCredit : t.custZero, { name: c.name, sum: money(Math.abs(c.balance)) }))
       const sale = sql.get<{ at: string; total: number }>('SELECT created_at at, total FROM sales WHERE customer_id = ? ORDER BY id DESC LIMIT 1', c.id)
-      const pay = sql.get<{ at: string; amount: number }>('SELECT created_at at, amount FROM customer_payments WHERE customer_id = ? ORDER BY id DESC LIMIT 1', c.id)
+      const pay = sql.get<{ at: string; amount: number }>('SELECT created_at at, amount FROM customer_payments WHERE customer_id = ? AND amount > 0 ORDER BY id DESC LIMIT 1', c.id)
       if (sale) lines.push(fill(t.custLastSale, { date: sale.at.slice(0, 10), sum: money(sale.total) }))
       if (pay) lines.push(fill(t.custLastPay, { date: pay.at.slice(0, 10), sum: money(pay.amount) }))
       break
@@ -232,9 +234,12 @@ export function answerReport(sql: Sql, actor: Actor, q: ReportQuery, lang: Answe
       }
       if (!own) {
         const [d0] = periodRange('today', now)
-        const pays = sql.get<{ v: number }>("SELECT COALESCE(SUM(amount),0) v FROM customer_payments WHERE method = 'cash' AND date(created_at) = ?", d0)?.v ?? 0
+        // Manfiy to'lov — mijozga qarz berilgan (recordCustomerPayout): alohida qator.
+        const pays = sql.get<{ v: number }>("SELECT COALESCE(SUM(amount),0) v FROM customer_payments WHERE method = 'cash' AND amount > 0 AND date(created_at) = ?", d0)?.v ?? 0
+        const lent = -(sql.get<{ v: number }>("SELECT COALESCE(SUM(amount),0) v FROM customer_payments WHERE method = 'cash' AND amount < 0 AND date(created_at) = ?", d0)?.v ?? 0)
         const exp = sql.get<{ v: number }>('SELECT COALESCE(SUM(amount),0) v FROM expenses WHERE date(created_at) = ?', d0)?.v ?? 0
         if (pays) lines.push(fill(t.cashPays, { sum: money(pays) }))
+        if (lent) lines.push(fill(t.cashLent, { sum: money(lent) }))
         if (exp) lines.push(fill(t.cashExp, { sum: money(exp) }))
       }
       break

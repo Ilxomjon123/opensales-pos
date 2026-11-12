@@ -9,7 +9,7 @@ import { answerReport, type AnswerLang, type ReportQuery } from './answers'
 //
 // Oqim: AI'dan kelgan `Extraction` (faqat matn) → `createDraft` bazadagi tovar/mijozga moslaydi,
 // tekshiradi va QORALAMA sifatida saqlaydi (hech narsa yozilmaydi) → foydalanuvchi ko'radi,
-// kerak bo'lsa tuzatadi → `applyDraft` oddiy op'ni (createSale, recordCustomerPayment, ...)
+// kerak bo'lsa tuzatadi → `applyDraft` oddiy op'ni (createSale, recordCustomerPayment, recordCustomerPayout, ...)
 // `ai_<id>` idempotency kaliti bilan chaqiradi: o'sha huquq, obuna va qoldiq tekshiruvlari,
 // ikki marta tasdiqlansa ham bitta yozuv.
 
@@ -78,6 +78,8 @@ export type Draft = {
   newCustomer?: string | null
   /** Hisobot savoli (kind "unknown"): javob `question` da — bazadan hisoblangan matn. */
   report?: { topic: ReportQuery['topic']; period: ReportQuery['period'] } | null
+  /** Bitta xabardagi bir nechta amal: shu qoralama o'sha xabarning keyingi amali — birinchisining id'si. */
+  partOf?: string | null
   /** Faqat javobda (bazada emas): narx boshqa valyutada aytilgan bo'lsa — taklif qilingan kurs (assistant/fx.ts). */
   fx?: { from: string; to: string; rate: number; source: 'saved' | 'cbu'; date: string | null } | null
 }
@@ -103,7 +105,9 @@ export type DraftEdits = {
 }
 
 export const DRAFT_TTL_MS = 24 * 3600_000
-const ROLE_KINDS: Record<string, Kind[]> = { owner: ['sale', 'payment_in', 'expense', 'receipt', 'product', 'customer'], cashier: ['sale'] }
+const ROLE_KINDS: Record<string, Kind[]> = { owner: ['sale', 'payment_in', 'payment_out', 'expense', 'receipt', 'product', 'customer'], cashier: ['sale'] }
+/** Pul mijoz bilan harakatlanadigan amallar: payment_in — u bizga berdi (yoki biz qarz oldik), payment_out — biz unga qarz berdik. */
+const isMoneyKind = (k: Kind) => k === 'payment_in' || k === 'payment_out'
 
 /** Do'kon valyuta belgisi → ISO kod (noma'lum belgi — tekshirilmaydi). */
 export function currencyCode(sym: string): string | null {
@@ -128,16 +132,19 @@ export function historyTurns(sql: Sql, uid: number, now: string, chatId: string 
   // Ilova chatida — shu chatning oxirgi xabarlari (vaqt cheklovisiz: chatga qaytib davom etiladi); botda — 20 daqiqa.
   const rows = (chatId
     ? sql.all<{ transcript: string; draft: string; status: string }>(
-      'SELECT transcript, draft, status FROM assistant_drafts WHERE uid = ? AND chat_id = ? ORDER BY created_at DESC LIMIT ?', uid, chatId, CHAT_CONTEXT_TURNS)
+      'SELECT transcript, draft, status FROM assistant_drafts WHERE uid = ? AND chat_id = ? ORDER BY created_at DESC, rowid DESC LIMIT ?', uid, chatId, CHAT_CONTEXT_TURNS)
     : sql.all<{ transcript: string; draft: string; status: string }>(
-      'SELECT transcript, draft, status FROM assistant_drafts WHERE uid = ? AND created_at >= ? ORDER BY created_at DESC LIMIT ?',
+      'SELECT transcript, draft, status FROM assistant_drafts WHERE uid = ? AND created_at >= ? ORDER BY created_at DESC, rowid DESC LIMIT ?',
       uid, new Date(Date.parse(now) - CONTEXT_MS).toISOString(), CONTEXT_TURNS)
   ).reverse()
   const turns: Turn[] = []
   for (const r of rows) {
     let d: Draft | null = null
     try { d = JSON.parse(r.draft) as Draft } catch { /* */ }
-    turns.push({ role: 'user', text: r.transcript })
+    // Bitta xabarning keyingi amallari (partOf) — foydalanuvchi xabari takrorlanmaydi, xulosa o'sha javobga qo'shiladi.
+    const prev = turns.at(-1)
+    const grouped = !!d?.partOf && prev?.role === 'assistant'
+    if (!grouped) turns.push({ role: 'user', text: r.transcript })
     if (!d) continue
     const summary = {
       action: d.kind,
@@ -152,7 +159,8 @@ export function historyTurns(sql: Sql, uid: number, now: string, chatId: string 
       ...(d.report ? { report: d.report.topic, period: d.report.period } : {}),
       question: d.question,
     }
-    turns.push({ role: 'assistant', text: JSON.stringify(summary) })
+    if (grouped) prev!.text += '\n' + JSON.stringify(summary)
+    else turns.push({ role: 'assistant', text: JSON.stringify(summary) })
   }
   return turns
 }
@@ -226,8 +234,9 @@ export function evaluate(sql: Sql, d: Draft, actor: Actor): Draft {
     if (isWalkIn && paidNow < total) issues.push({ code: 'debtNeedsCustomer' })
     if (!hasOpenShift(sql, actor.uid)) issues.push({ code: 'shiftNotOpen' })
   }
-  if (d.kind === 'payment_in') {
-    if (!d.newCustomer && (!d.customerId || d.customerId === d.walkInId)) issues.push({ code: d.customerOptions.length ? 'pickCustomer' : 'customerNeeded', params: { name: d.customerQuery } })
+  if (isMoneyKind(d.kind)) {
+    const needed = d.kind === 'payment_out' ? 'customerNeededOut' : 'customerNeeded'
+    if (!d.newCustomer && (!d.customerId || d.customerId === d.walkInId)) issues.push({ code: d.customerOptions.length ? 'pickCustomer' : needed, params: { name: d.customerQuery } })
     if (!d.amount || d.amount <= 0) issues.push({ code: 'amountMissing' })
   }
   if (d.kind === 'expense' && (!d.amount || d.amount <= 0)) issues.push({ code: 'amountMissing' })
@@ -273,8 +282,9 @@ function resolveCustomer(sql: Sql, query: string | null) {
 }
 
 /** AI natijasidan qoralama: moslash + tekshiruv. Hech narsa yozilmaydi (faqat qoralama jadvali). */
-export function createDraft(sql: Sql, actor: Actor, p: { transcript: string; source: Source; extraction: Extraction; now: string; chatId?: string | null; voice?: VoiceMeta | null; lang?: AnswerLang }): Draft {
-  let x = p.extraction
+export function createDraft(sql: Sql, actor: Actor, p: { transcript: string; source: Source; extraction: Extraction; now: string; chatId?: string | null; voice?: VoiceMeta | null; lang?: AnswerLang; partOf?: string | null }): Draft {
+  // Keyingi amal (partOf) — tuzatish bo'la olmaydi (eski ochiq kartani bekor qilib yubormasin).
+  let x = p.partOf ? { ...p.extraction, revises: false } : p.extraction
   // Hisobot savoli: raqamlar bazadan (model to'qimaydi), javob matni — `question`. Mijoz/tovar nomi faqat savol
   // mavzusi — qoralamaga moslanmaydi (bu yozuv emas).
   let report: Draft['report'] = null
@@ -332,13 +342,13 @@ export function createDraft(sql: Sql, actor: Actor, p: { transcript: string; sou
   const cust = resolveCustomer(sql, x.customer)
   // Ega aytgan mijoz bazada yo'q va o'xshashi ham yo'q — "yangi mijoz" (tasdiqlashda yaratiladi). O'xshashi bo'lsa —
   // tanlash (adashib dublikat ochilmasin); ilovada "yangi sifatida qo'shish" ham bor.
-  const newCustomer = actor.role === 'owner' && (x.action === 'sale' || x.action === 'payment_in') && x.customer && !cust.id && !cust.options.length
+  const newCustomer = actor.role === 'owner' && (x.action === 'sale' || isMoneyKind(x.action)) && x.customer && !cust.id && !cust.options.length
     ? x.customer.trim().slice(0, 120) : null
   const wi = walkIn(sql)
   const category = x.category
     ? EXPENSE_CATEGORIES.find((c) => norm(c) === norm(x.category!)) ?? 'Boshqa'
     : (x.action === 'expense' ? 'Boshqa' : null)
-  const method: Draft['method'] = x.action === 'payment_in'
+  const method: Draft['method'] = isMoneyKind(x.action)
     ? (x.method === 'card' || x.method === 'transfer' ? x.method : 'cash')
     : (x.method === 'card' || x.method === 'debt' ? x.method : 'cash')
 
@@ -377,6 +387,7 @@ export function createDraft(sql: Sql, actor: Actor, p: { transcript: string; sou
     createdAt: p.now,
     newCustomer,
     report,
+    ...(p.partOf ? { partOf: p.partOf } : {}),
   }, actor)
   // Kurs aytilgan ("dollar 12 mingdan") — aytilgan summalar shu kurs bilan darhol o'tkaziladi (deterministik, kurs eslab qolinadi).
   if (x.rate && draft.spokenCurrency) draft = applyEdits(sql, actor, draft, { rate: x.rate })
@@ -456,7 +467,7 @@ export function applyEdits(sql: Sql, actor: Actor, d: Draft, e: DraftEdits): Dra
     if (c && !c.is_walk_in) next.customerQuery = next.customerQuery ?? c.name
     if (c) next.newCustomer = null
   }
-  if (e.newCustomer !== undefined && (d.kind === 'sale' || d.kind === 'payment_in')) {
+  if (e.newCustomer !== undefined && (d.kind === 'sale' || isMoneyKind(d.kind))) {
     const name = actor.role === 'owner' ? e.newCustomer?.trim().slice(0, 120) || null : null
     next.newCustomer = name
     if (name) { next.customerId = null; next.customerName = null; next.customerQuery = name }
@@ -515,6 +526,7 @@ export function toOp(sql: Sql, actor: Actor, d: Draft): { op: string; args: unkn
     }
   }
   if (d.kind === 'payment_in') return { op: 'recordCustomerPayment', args: [d.customerId, d.amount, d.method === 'debt' ? 'cash' : d.method, d.note] }
+  if (d.kind === 'payment_out') return { op: 'recordCustomerPayout', args: [d.customerId, d.amount, d.method === 'debt' ? 'cash' : d.method, d.note] }
   if (d.kind === 'expense') return { op: 'saveExpense', args: [{ amount: d.amount, category: d.category ?? 'Boshqa', note: d.note }] }
   if (d.kind === 'customer') {
     return {

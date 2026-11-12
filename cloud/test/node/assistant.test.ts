@@ -480,3 +480,110 @@ describe('reply language and greetings (prompt)', () => {
     expect(systemPrompt({ ...h, greeted: false })).not.toContain('do NOT greet again')
   })
 })
+
+describe('several actions in one message; lending money to a customer', () => {
+  // Haqiqiy holat (2026-11-12): «Anvarga 500 ming, Botirga 300 ming qarz berdim. Jamshiddan 200 ming qarz oldim.
+  // Kamol 400 ming qarzini berdi» — model rad etib, birma-bir yozishni so'ragan edi.
+  const MSG = 'anvarga 500 ming\nbotirga 300 ming qarz berdim\n\nJamshiddan 200 ming qarz oldin\nKamol 400 ming qarzini berdi'
+
+  it('sanitize: extra actions go to also (in order); nested, unknown and corrections do not', () => {
+    const x = sanitize({
+      action: 'payment_out', customer: 'Anvar', amount: 500_000, method: 'cash', language: 'uz', revises: false,
+      also: [
+        { action: 'payment_out', customer: 'Botir', amount: '300 000', language: null, also: [{ action: 'sale' }], revises: true },
+        { action: 'unknown', question: 'nima?' },
+        { action: 'payment_in', customer: 'Jamshid', amount: 200_000, method: 'cash' },
+        { action: 'report', report: 'debts' },
+      ],
+    })
+    expect(x).toMatchObject({ action: 'payment_out', customer: 'Anvar', amount: 500_000 })
+    expect(x.also!.map((a) => [a.action, a.customer, a.amount, a.report])).toEqual([
+      ['payment_out', 'Botir', 300_000, null], ['payment_in', 'Jamshid', 200_000, null], ['unknown', null, null, 'debts'],
+    ])
+    // Ichma-ich `also` yo'q, ichki element tuzatish bo'la olmaydi, til asosiydan.
+    expect(x.also![0]).toMatchObject({ revises: false, language: 'uz' })
+    expect(x.also![0].also).toBeUndefined()
+    // Tuzatish bo'lsa — qo'shimcha amallar e'tiborsiz (eski ochiq karta bilan aralashmasin).
+    expect(sanitize({ action: 'expense', amount: 1, revises: true, also: [{ action: 'expense', amount: 2 }] }).also).toEqual([])
+    // Chegara: asosiy + 7 ta.
+    expect(sanitize({ action: 'expense', amount: 1, also: Array.from({ length: 20 }, () => ({ action: 'expense', amount: 5 })) }).also).toHaveLength(7)
+    // Prompt: rad etmaslik va qarz berish/olish qoidasi.
+    const prompt = systemPrompt({ shopName: 'T', currency: "so'm", products: [], customers: [] })
+    expect(prompt).toContain('Never ask the user to send them one by one')
+    expect(prompt).toContain('"payment_out": the shop GAVE or LENT money')
+    expect(prompt).toContain('the shop BORROWED money from that person')
+  })
+
+  it('lending: the customer owes more, a negative payment is logged, the balance invariant holds; walk-in refused', () => {
+    const { shop, bahrom } = setup()
+    const run = runAs(shop, OWNER)
+    const d = createDraft(shop.sql, OWNER, { transcript: 'Bahromga 500 ming qarz berdim', source: 'text', now: NOW, extraction: X({ action: 'payment_out', customer: 'Bahrom', amount: 500_000, method: 'cash' }) })
+    expect(d).toMatchObject({ kind: 'payment_out', customerId: bahrom, method: 'cash', total: 500_000, ready: true })
+    expect(applyDraft(shop.sql, OWNER, d.id, null, NOW, run).ok).toBe(true)
+    expect(applyDraft(shop.sql, OWNER, d.id, null, NOW, run).ok).toBe(true) // takror — bitta yozuv
+    expect(shop.sql.all('SELECT amount, method FROM customer_payments WHERE customer_id = ?', bahrom)).toEqual([{ amount: -500_000, method: 'cash' }])
+    expect(shop.ok('getCustomer', [bahrom])).toMatchObject({ balance: -500_000 })
+    // Keyin u 200 ming qaytardi → qarzi 300 ming; harakatlar = saldo − dastlabki (invariant).
+    shop.ok('recordCustomerPayment', [bahrom, 200_000, 'cash'])
+    expect(shop.ok('getCustomer', [bahrom])).toMatchObject({ balance: -300_000, opening_balance: 0 })
+    expect(shop.ok('customerMovements', [bahrom])).toBe(-300_000)
+    // Yo'l-yo'lakay xaridorga qarz berilmaydi (qoralama ham, op ham).
+    const wi = shop.call('recordCustomerPayout', [walkInId(shop), 1000, 'cash'])
+    expect(wi.ok ? null : wi.error.code).toBe('sales.noDebtForWalkIn')
+    const nobody = createDraft(shop.sql, OWNER, { transcript: '500 ming qarz berdim', source: 'text', now: NOW, extraction: X({ action: 'payment_out', amount: 500_000 }) })
+    expect(nobody.issues.map((i) => i.code)).toEqual(['customerNeededOut'])
+    // Kassir qarz bera olmaydi; bazada yo'q odam — tasdiqlashda yaratiladi (to'lovdagi kabi).
+    expect(createDraft(shop.sql, CASHIER, { transcript: 'x', source: 'text', now: NOW, extraction: X({ action: 'payment_out', customer: 'Bahrom', amount: 1 }) }).issues.map((i) => i.code)).toContain('notAllowed')
+    const fresh = createDraft(shop.sql, OWNER, { transcript: 'Anvarga 500 ming qarz berdim', source: 'text', now: NOW, extraction: X({ action: 'payment_out', customer: 'Anvar', amount: 500_000 }) })
+    expect(fresh).toMatchObject({ newCustomer: 'Anvar', ready: true })
+    expect(applyDraft(shop.sql, OWNER, fresh.id, null, NOW, run).ok).toBe(true)
+    expect(shop.sql.get<{ balance: number }>("SELECT balance FROM customers WHERE name = 'Anvar'")!.balance).toBe(-500_000)
+  })
+
+  it('lent money is not counted as a received payment in report answers', () => {
+    const { shop, bahrom } = setup()
+    shop.ok('recordCustomerPayment', [bahrom, 70_000, 'cash'])
+    shop.ok('recordCustomerPayout', [bahrom, 500_000, 'cash'])
+    const ask = (report: Extraction['report'], customer: string | null = null) =>
+      createDraft(shop.sql, OWNER, { transcript: '?', source: 'text', now: NOW, extraction: X({ action: 'unknown', report, customer }) }).question!
+    const cash = ask('cash')
+    expect(cash).toContain("Bugun mijozlardan naqd to'lov: 70 000 so'm.")
+    expect(cash).toContain("Bugun mijozlarga naqd qarz berildi: 500 000 so'm.")
+    expect(ask('customer', 'Bahrom')).toContain('70 000')
+    expect(ask('customer', 'Bahrom')).not.toContain('−500')
+  })
+
+  it('one message → one draft per action (partOf the first); history shows the message once', () => {
+    const { shop } = setup()
+    shop.ok('saveCustomer', ['Kamol', null])
+    const chat = openChat(shop.sql, OWNER.uid, null, NOW)
+    const x = sanitize({
+      action: 'payment_out', customer: 'Anvar', amount: 500_000, method: 'cash', language: 'uz',
+      also: [
+        { action: 'payment_out', customer: 'Botir', amount: 300_000, method: 'cash' },
+        { action: 'payment_in', customer: 'Jamshid', amount: 200_000, method: 'cash' },
+        { action: 'payment_in', customer: 'Kamol', amount: 400_000, method: 'cash' },
+      ],
+    })
+    // ShopDO.assistantDraft bilan bir xil: birinchisi, keyin qolganlari partOf bilan (bitta vaqt belgisi).
+    const first = createDraft(shop.sql, OWNER, { transcript: MSG, source: 'bot_text', now: NOW, extraction: x, chatId: chat })
+    const rest = x.also!.map((e) => createDraft(shop.sql, OWNER, { transcript: MSG, source: 'bot_text', now: NOW, extraction: { ...e, revises: true }, chatId: chat, partOf: first.id }))
+    expect([first, ...rest].map((d) => [d.kind, d.customerName ?? d.newCustomer, d.amount, d.ready])).toEqual([
+      ['payment_out', 'Anvar', 500_000, true], ['payment_out', 'Botir', 300_000, true],
+      ['payment_in', 'Jamshid', 200_000, true], ['payment_in', 'Kamol', 400_000, true],
+    ])
+    // Keyingi amal hech qachon tuzatish emas — birinchisini bekor qilmaydi.
+    expect(rest.every((d) => d.partOf === first.id && !d.replaces)).toBe(true)
+    expect(loadDraft(shop.sql, OWNER, first.id, NOW)!.status).toBe('new')
+    // Chat tarixi tartibda; model kontekstida xabar bir marta, to'rtta xulosa bitta javobda.
+    expect(chatEntries(shop.sql, OWNER, chat, NOW)!.map((e) => e.draft.id)).toEqual([first.id, ...rest.map((d) => d.id)])
+    const turns = historyTurns(shop.sql, OWNER.uid, NOW, chat)
+    expect(turns.map((t) => t.role)).toEqual(['user', 'assistant'])
+    expect(turns[1].text.split('\n').map((l) => JSON.parse(l).customer)).toEqual(['Anvar', 'Botir', 'Jamshid', 'Kamol'])
+    // Hammasi tasdiqlanadi — har biri o'z yozuvi.
+    const run = runAs(shop, OWNER)
+    for (const d of [first, ...rest]) expect(applyDraft(shop.sql, OWNER, d.id, null, NOW, run).ok).toBe(true)
+    const bal = (n: string) => shop.sql.get<{ balance: number }>('SELECT balance FROM customers WHERE name = ?', n)!.balance
+    expect([bal('Anvar'), bal('Botir'), bal('Jamshid'), bal('Kamol')]).toEqual([-500_000, -300_000, 200_000, 400_000])
+  })
+})

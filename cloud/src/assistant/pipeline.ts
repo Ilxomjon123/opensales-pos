@@ -7,7 +7,8 @@ import { DEFAULT_GEMINI_MODEL, FALLBACK_GEMINI_MODEL, GeminiError, geminiAssist 
 // Yordamchi quvuri (Worker tomoni): limit/obuna tekshiruvi (DO) → ovoz bo'lsa matnga → LLM →
 // DO'da qoralama. Mini app ham, bot ham shuni chaqiradi. AI xatosi foydalanuvchiga tushunarli kod.
 
-export type PipelineResult = { ok: true; draft: Draft } | { ok: false; code: string; status: number }
+/** `more` — shu xabardagi keyingi amallar (har biri alohida karta), bo'lmasa bo'sh. */
+export type PipelineResult = { ok: true; draft: Draft; more: Draft[] } | { ok: false; code: string; status: number }
 
 const DEFAULT_DAILY_LIMIT = 150
 export const MAX_TEXT = 1000
@@ -75,10 +76,11 @@ export async function runAssistant(env: Env, tenantId: string, actor: Actor, inp
   }
   if (!transcript && input.audio) return { ok: false, code: extraction ? 'cloud.ai.errors.emptySpeech' : 'cloud.ai.errors.stt', status: 422 }
   if (!extraction) return { ok: false, code: 'cloud.ai.errors.llm', status: 502 }
-  const draft = (await shop.assistantDraft(actor, transcript, source, extraction, chat, lang)) as Draft | null
-  if (!draft) return { ok: false, code: 'cloud.errors.memberRevoked', status: 403 }
-  console.log(`assistant ${engine}: ${draft.kind} ready=${draft.ready}`)
-  return { ok: true, draft }
+  const res = (await shop.assistantDraft(actor, transcript, source, extraction, chat, lang)) as (Draft & { more: Draft[] }) | null
+  if (!res) return { ok: false, code: 'cloud.errors.memberRevoked', status: 403 }
+  const { more, ...draft } = res
+  console.log(`assistant ${engine}: ${[draft, ...more].map((d) => `${d.kind} ready=${d.ready}`).join(', ')}`)
+  return { ok: true, draft, more: more ?? [] }
 }
 
 const posNum = (v: unknown, max = 1e12): number | null => (typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= max ? v : null)

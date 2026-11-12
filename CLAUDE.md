@@ -172,7 +172,15 @@ Desktop o'z `pos.db` si bilan alohida ishlaydi; sxema bir xil (keyin import mumk
   (`assistant/match.ts`), qoralama (`assistant_drafts`, DO V2) → foydalanuvchi ko'radi/tuzatadi → `applyDraft` oddiy op'ni
   (`createSale`, `recordCustomerPayment`, `saveExpense`, `create_stock_receipt`) `ai_<draftId>` kaliti bilan chaqiradi.
   Tovar nomidagi raqamli belgi (25W, #12) foydalanuvchi so'zlarida bo'lmasa — tanlov asoslanmagan, variantlar ko'rsatiladi.
-  Kassir faqat sotuv; "pul berish" = xarajat (mijozga pul chiqarish op'i yo'q). Kanallar: mini app (✨ tugma,
+  **Mijozga qarz berish** (`payment_out`, 2026-11-12: "Anvarga 500 ming qarz berdim") — `recordCustomerPayout` op:
+  `customer_payments` da MANFIY summa (balans kamayadi, harakat/saldo invarianti o'zgarmaydi; yo'l-yo'lakayga rad).
+  "X dan qarz oldim" = `payment_in` (biz unga qarzmiz). Manfiy to'lov o'quvchilari: `CustomerShow` (`loan` qatori,
+  "To'langan" jamiga kirmaydi), `answers.ts` (kassa: alohida "qarz berildi" qatori; oxirgi to'lov — faqat musbat).
+  **Bir xabarda bir nechta amal:** model birinchisini asosiy maydonlarda, qolganini `also` da beradi (≤8, tuzatishda
+  bo'sh) → `ShopDO.assistantDraft` har biriga qoralama (`partOf` = birinchisining id'si, bitta tx) → botda har biriga
+  alohida karta (o'sha xabarga reply, transkript faqat birinchisida), ilova chatida `more` (foydalanuvchi pufagi
+  `user: null`). Kontekstda (`historyTurns`) xabar bir marta, xulosalar bitta javobda.
+  Kassir faqat sotuv; xarajat ≠ qarz berish. Kanallar: mini app (✨ tugma,
   `components/Assistant.vue`, MediaRecorder; mikrofon oqimi `web/mic.ts` da BITTA marta olinadi va qayta ishlatiladi —
   Telegram Android har `getUserMedia` da ruxsat oynasini chiqaradi; varaq yopilgach 60 s / fonga o'tsa darhol bo'shatiladi;
   "Botga ovoz yuborish" = `goToBotChat` — havola + ilovani yopish, chunki ilova shu chat ustida ochiq bo'ladi;

@@ -92,6 +92,28 @@ export const customerOps: OpTable = {
       return null
     },
   },
+  // Mijozga qarz berish (pul do'kondan chiqdi) — `customer_payments` da MANFIY summa: balans kamayadi (qarz oshadi),
+  // mijoz harakatlari (movements) va saldo invarianti o'zgarmaydi. Hozircha faqat AI yordamchisi orqali (2026-11-12).
+  recordCustomerPayout: {
+    access: 'owner',
+    write: true,
+    run(ctx, raw) {
+      const [cid, amountRaw, methodRaw, noteRaw] = v.args(raw)
+      const customerId = v.id(cid, 'customerId')
+      const a = Math.max(0, v.money(amountRaw, 'amount'))
+      const method = v.oneOf(methodRaw, 'method', PAYMENT_METHODS)
+      const note = v.optStr(noteRaw, 'note', 500)
+      if (a === 0) return null
+      // Yo'l-yo'lakay xaridor — umumiy hisob, unga qarz yozilmaydi (sotuvdagi kabi).
+      if (requireCustomer(ctx, customerId).is_walk_in) throw new DomainError('sales.noDebtForWalkIn')
+      ctx.sql.run(
+        'INSERT INTO customer_payments(customer_id, amount, method, note, created_at, user_id) VALUES(?,?,?,?,?,?)',
+        customerId, -a, method, note ?? null, ctx.now(), ctx.actor.uid,
+      )
+      ctx.sql.run('UPDATE customers SET balance = balance - ? WHERE id = ?', a, customerId)
+      return null
+    },
+  },
   saveCustomer: {
     access: 'owner',
     write: true,
