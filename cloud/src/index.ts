@@ -7,7 +7,7 @@ import {
   tenantUntil, trialDays, type MemberWithTenant, type TenantRow,
 } from './registry'
 import { endOfTashkentDay, handleUpdate } from './telegram/bot'
-import { chatOnly, draftCardHtml, markReplaced, type Lang } from './telegram/assistantBot'
+import { chatOnly, draftCardHtml, markReplaced, syncDraftCard, type Lang } from './telegram/assistantBot'
 import type { ChatEntry } from './shop/chats'
 import { cbuRates, withFx } from './assistant/fx'
 import { escapeHtml, tgCall } from './telegram/api'
@@ -16,7 +16,7 @@ import { applyProfile } from './telegram/profile'
 import type { Actor, RpcResult } from './shop/rpc'
 import { cleanEdits, runAssistant } from './assistant/pipeline'
 import { DEFAULT_GEMINI_MODEL, geminiAssist } from './assistant/gemini'
-import type { ApplyOutcome, Draft } from './shop/assistant'
+import type { ApplyOutcome, Draft, GroupApply, GroupRow } from './shop/assistant'
 import type { Guarded, PlanLine, TransferRow } from './shop/transfers'
 
 import { CATALOG_FANOUT_OPS, copyCatalog, shopStub, syncBranchesOf, syncCatalog } from './catalog'
@@ -726,16 +726,46 @@ async function handleAssistant(req: Request, env: Env, ctx: ExecutionContext, ac
   const body = await readJson(req)
   const id = typeof body?.id === 'string' && DRAFT_ID.test(body.id) ? body.id : null
   if (!id) return fail(400, 'cloud.errors.invalidInput', { field: 'id' })
+  // Bot kartasidagi ✏️ — bitta xabarning HAMMA amallari (guruh) ilovada kartalar bo'lib ochiladi; "Hammasini
+  // tasdiqlash" botdagi A: bilan bir xil: biror amal tayyor bo'lmasa hech biri yozilmaydi.
+  if (action === 'group' || action === 'group-apply' || action === 'group-cancel') {
+    const head = (await shop.assistantGet(actor, id)) as Draft | null
+    if (!head) return fail(404, 'cloud.ai.errors.draftGone')
+    const g = head.partOf ?? head.id
+    let rows: GroupRow[] | null
+    let notReady: number[] = []
+    let errors: { id: string; code: string; params: Record<string, unknown> }[] = []
+    if (action === 'group-apply') {
+      const r = (await shop.assistantApplyGroup(actor, g)) as GroupApply | null
+      if (!r) return fail(404, 'cloud.ai.errors.draftGone')
+      if (r.ok) {
+        ctx.waitUntil(syncBranchesOf(env, s.t))
+        errors = r.results.flatMap((x) => (x.error ? [{ id: x.id, ...x.error }] : []))
+      } else notReady = r.notReady.map((x) => x.index + 1)
+      rows = r.rows
+      if (rows[0]) ctx.waitUntil(syncDraftCard(env, s.t, actor, rows[0].draft))
+    } else if (action === 'group-cancel') {
+      rows = (await shop.assistantCancelGroup(actor, g)) as GroupRow[] | null
+      if (rows?.[0]) ctx.waitUntil(syncDraftCard(env, s.t, actor, rows[0].draft))
+    } else rows = (await shop.assistantGroup(actor, g)) as GroupRow[] | null
+    if (!rows?.length) return fail(404, 'cloud.ai.errors.draftGone')
+    const l = langOfBody(body)
+    const items = await Promise.all(rows.map((r) => chatItem(env, s.t, { draft: r.draft, at: r.draft.createdAt, voice: null, expired: r.expired }, l)))
+    return json({ ok: true, data: { g, items, notReady, errors } })
+  }
   if (action === 'get' || action === 'update' || action === 'cancel') {
     const d = (action === 'get' ? await shop.assistantGet(actor, id)
       : action === 'update' ? await shop.assistantUpdate(actor, id, cleanEdits(body?.edits))
       : await shop.assistantCancel(actor, id)) as Draft | null
+    // Botdagi widget karta ilovadagi tuzatishni ham ko'rsatsin.
+    if (d && action !== 'get') ctx.waitUntil(syncDraftCard(env, s.t, actor, d))
     return d ? json({ ok: true, data: await withFx(env, s.t, d) }) : fail(404, 'cloud.ai.errors.draftGone')
   }
   if (action === 'apply') {
     const r = (await shop.assistantApply(actor, id, body?.edits ? cleanEdits(body.edits) : null)) as ApplyOutcome
     // Yordamchi tovar yaratishi yoki kirimda narx o'zgartirishi mumkin — filiallarga.
     if (r.ok) ctx.waitUntil(syncBranchesOf(env, s.t))
+    if (r.draft) ctx.waitUntil(syncDraftCard(env, s.t, actor, r.draft))
     if (r.ok) return json({ ok: true, data: r.draft })
     return json({ ok: false, error: r.error, draft: await withFx(env, s.t, r.draft) }, r.error.status)
   }

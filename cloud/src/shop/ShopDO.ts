@@ -10,7 +10,7 @@ import { settingOf, weekSeries, type CardStats } from './cardStats'
 import { aiEnabled, getMeta, initShop, isSubscriptionActive, readSubscription, setAiEnabled, setSubscription, syncMember, type MemberSync, type Subscription } from './init'
 import { ownOpenShift } from './ops/shifts'
 import { PUBLIC_SETTINGS } from './ops/settings'
-import { applyDraft, applyEdits, createDraft, fxSaved, historyTurns, loadDraft, markDraft, shopHints, takeAiQuota, type ApplyOutcome, type Draft, type DraftEdits, type Source, type VoiceMeta } from './assistant'
+import { applyDraft, applyEdits, applyGroup, cancelGroup, createDraft, fxSaved, groupDrafts, historyTurns, loadDraft, markDraft, shopHints, takeAiQuota, type ApplyOutcome, type Draft, type DraftEdits, type GroupApply, type GroupRow, type Source, type VoiceMeta } from './assistant'
 import { chatEntries, deleteChat, listChats, openChat, pruneChats, touchChat, type ChatEntry, type ChatRow } from './chats'
 import type { Extraction, ShopHints, Turn } from '../assistant/ai'
 import { bumpAttempt, describeLines, getTransfer, listTransfers, pendingOut, planTransferIn, transferDone, transferIn, transferOut, type PlanLine, type TransferInput, type TransferLine, type TransferRow } from './transfers'
@@ -142,14 +142,37 @@ export class ShopDO extends DurableObject<Env> {
     }))
   }
 
-  /** Bot kartasi (chat, xabar) — qoralama keyinroq tuzatilsa eski kartani "yangilandi" qilish uchun. */
-  async assistantSetCard(actor: Actor, id: string, chat: number, msg: number): Promise<void> {
+  /** Bot kartasi (chat, xabar) — qoralama keyinroq tuzatilsa eski kartani "yangilandi" qilish uchun. `widget` — guruh widget kartasi. */
+  async assistantSetCard(actor: Actor, id: string, chat: number, msg: number, widget = false): Promise<void> {
     const a = this.actorOf(actor)
     if (!a || !/^[a-f0-9]{16}$/.test(id)) return
     const r = this.sql.get<{ uid: number; draft: string }>('SELECT uid, draft FROM assistant_drafts WHERE id = ?', id)
     if (!r || r.uid !== a.uid) return
     const d = JSON.parse(r.draft) as Draft
-    this.sql.run('UPDATE assistant_drafts SET draft = ? WHERE id = ?', JSON.stringify({ ...d, card: { chat, msg } }), id)
+    this.sql.run('UPDATE assistant_drafts SET draft = ? WHERE id = ?', JSON.stringify({ ...d, card: widget ? { chat, msg, w: 1 } : { chat, msg } }), id)
+  }
+
+  // ---- Bot widget kartasi: bitta xabarning hamma amallari (guruh, shop/assistant.ts groupDrafts) ----
+
+  async assistantGroup(actor: Actor, g: string): Promise<GroupRow[] | null> {
+    const a = this.actorOf(actor)
+    return a ? groupDrafts(this.sql, a, g, new Date().toISOString()) : null
+  }
+
+  async assistantApplyGroup(actor: Actor, g: string): Promise<GroupApply | null> {
+    const a = this.actorOf(actor)
+    if (!a) return null
+    const now = new Date().toISOString()
+    return applyGroup(this.sql, a, g, now, (op, args, key) => dispatch(this.sql, OPS, op, args, a, {
+      idempotencyKey: key,
+      subscriptionActive: isSubscriptionActive(readSubscription(this.sql), now),
+      imageUrl: this.imageUrl,
+    }))
+  }
+
+  async assistantCancelGroup(actor: Actor, g: string): Promise<GroupRow[] | null> {
+    const a = this.actorOf(actor)
+    return a ? cancelGroup(this.sql, a, g, new Date().toISOString()) : null
   }
 
   async fxSaved(from: string, to: string): Promise<number | null> {

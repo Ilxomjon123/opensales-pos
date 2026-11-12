@@ -243,8 +243,16 @@ Desktop o'z `pos.db` si bilan alohida ishlaydi; sxema bir xil (keyin import mumk
   `widget_query` (data ≤64 bayt, faqat tap ichida sinxron) → avval `answerWidgetQuery` (15 s), keyin hisob →
   `editMessageWidgetData` → karta `chatDataChanged` bilan qayta chiziladi. `setWebhook allowed_updates` da `widget_query` SHART.
   So'rov boshi: `d:` admin `/varonka` (`telegram/funnelWidget.ts`), `r:<do'kon>:<t|y|w|m>` egaga `/hisobot`
-  (`telegram/salesWidget.ts`, raqamlar `ShopDO.salesCard` → `businessSummary`/`reportSummary`, faqat ega). Caption =
-  widget'siz ilova uchun matn. Nomlar faqat `textContent`. Sinov: brauzerda `window.TelegramWidget` stub + `--tg-theme-*`.
+  (`telegram/salesWidget.ts`, raqamlar `ShopDO.salesCard` → `businessSummary`/`reportSummary`, faqat ega), `y…` bot
+  yordamchisining TASDIQLASH KARTASI (2026-11-12, `telegram/draftWidget.ts` + `assistantBot.ts handleDraftQuery`): xabarning
+  hamma amallari bitta widget'da (guruh = birinchi qoralama id, `shop/assistant.ts groupDrafts/applyGroup/cancelGroup`).
+  Widget'da input/klaviatura YO'Q (faqat tugma) — tahrir: qatorni bosish → usul/mijoz/tovar chiplari, ichki raqam paneli
+  (summa, narx, miqdor, hozir to'langan), ✕; so'rov `y<op>:<id>[:arg]` → `widgetEdit` → `applyEdits` (yangi `item`/`person`
+  — bitta qator) → `editMessageWidgetData` + `editMessageCaption` (tugmalar bilan). ✅/❌ widget OSTIDA (`A:`/`X:` + guruh) —
+  widget'siz eski ilovada ham ishlaydi; `applyGroup` biror qator tayyor bo'lmasa hech narsa yozmaydi. sendWidget yiqilsa —
+  eski matnli kartalar (`a:`/`x:`/`r:`). Ilovada tuzatilgan/saqlangan qoralama botdagi kartani yangilaydi (`syncDraftCard`).
+  Cheklov: foydalanuvchi 5 so'rov/5 s, balandlik ≤600 px (ko'p qator + ochiq panel kesilishi mumkin), ru HTML zlib ~3,8 KB / 4 KB.
+  Caption = widget'siz ilova uchun matn. Nomlar faqat `textContent`. Sinov: brauzerda `window.TelegramWidget` stub + `--tg-theme-*`.
 - **AI'ni do'kon uchun o'chirish (admin):** D1 `tenants.ai_enabled` (0003) + DO meta `ai_enabled`; `assistantBegin` 403
   `cloud.ai.errors.disabled` (kvota sarflanmaydi); sessiyada `ai` → ✨ yashirin.
 - Obuna: ro'yxatdan o'tishda 7 kun sinov (`TRIAL_DAYS`, 2026-11-09 gacha 30 edi — eski do'konlar o'zgarmagan); admin chatidan (`ADMIN_CHAT_ID`) `/tenants`, `/extend <id> YYYY-MM-DD`
@@ -256,6 +264,13 @@ Desktop o'z `pos.db` si bilan alohida ishlaydi; sxema bir xil (keyin import mumk
   (`os-page`, `min-h-full`) `h-full` o'ramdan oshadi va main padding'i kontent tagiga tushmaydi.
 - **Bot kartasidan ochish** (`?draft=`): App router query'sidan o'qiydi; `Assistant.vue` `onMounted`da ham tekshiradi
   (App `open`ni komponentdan oldin yoqadi). Oxirgi sahifa (`kassa:last_route`) bir martalik `draft`siz saqlanadi.
+  Bir xabarda bir nechta amal (guruh, `partOf`) — `/api/assistant/group` (istalgan amal id'si → butun guruh) ilovada
+  BITTA karta bo'lib ochiladi (har amal qator: ✏️/❌; ostida "Hammasini tasdiqlash"/"Bekor" → `group-apply`/`group-cancel`,
+  botdagi A:/X: bilan bir xil: tayyor bo'lmagan amal bo'lsa hech biri yozilmaydi). Ilova chatida ham ketma-ket
+  `user`siz kartalar shu bitta kartaga yig'iladi (`blocks`). Bitta amal — to'g'ridan tahrirga. Kartadagi amal tahriri (`editCtx`): sarlavha
+  "Tahrirlash · N ta amaldan i-chisi", butun xabar matni YO'Q, "Jami" faqat tovarli amalda; «✓ Saqlash» = avto-sinxron
+  tuzatishlar + kartaga qaytish (YOZMAYDI), «Olib tashlash» = shu amalni bekor. Maydonlar `--accent` fonda (avval
+  `--background` edi — sahifa foniga qo'shilib ko'rinmasdi).
 - Testlar: `cd cloud && npm test` (node: op'lar + desktop paritet + Rust holatlari; worker: miniflare'da auth,
   RPC, izolyatsiya, taklif, rasm, webhook). Lokal: `.dev.vars` (soxta BOT_TOKEN) + `npx wrangler d1 migrations apply pos-registry --local`,
   launch.json'dagi `kassa-worker` (8790) + `kassa-web` (5190); brauzerda `/?dev_uid=<id>` — dev shim initData'ni

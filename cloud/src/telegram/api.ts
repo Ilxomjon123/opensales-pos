@@ -15,7 +15,8 @@ export async function tgCall<T = unknown>(env: Env, method: string, body: Record
     const json = (await res.json().catch(() => null)) as { ok: boolean; result?: T; description?: string } | null
     if (json?.ok) return { ok: true, result: json.result as T }
     const description = json?.description ?? `HTTP ${res.status}`
-    console.warn(`tg ${method} failed: ${res.status} ${description}`)
+    // "message is not modified" — tahrirda holat o'zgarmagan (masalan karta tahririda caption bir xil): xato emas.
+    if (!/message is not modified/i.test(description)) console.warn(`tg ${method} failed: ${res.status} ${description}`)
     return { ok: false, status: res.status, description }
   } catch (e) {
     console.warn(`tg ${method} error: ${e instanceof Error ? e.message : String(e)}`)

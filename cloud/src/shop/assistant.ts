@@ -70,8 +70,8 @@ export type Draft = {
   replaces?: string | null
   /** Bu qoralama keyingi tuzatish bilan almashtirildi (status 'cancelled'). */
   replacedBy?: string | null
-  /** Bot chatidagi karta (almashtirilganda "yangilandi" deb tahrirlash uchun). */
-  card?: { chat: number; msg: number } | null
+  /** Bot chatidagi karta (almashtirilganda "yangilandi" deb tahrirlash uchun). `w` — widget karta (xabarning hamma amallari bitta kartada). */
+  card?: { chat: number; msg: number; w?: 1 } | null
   /** Faqat javobda: ilova chati (yangi chat ochilgan bo'lsa — uning id'si). */
   chatId?: string
   /** Aytilgan mijoz bazada yo'q (o'xshashi ham yo'q) — tasdiqlashda shu nom bilan yaratiladi (faqat ega). */
@@ -102,7 +102,14 @@ export type DraftEdits = {
   rate?: number
   /** Mijozni yangi sifatida yaratish (nom) yoki bekor qilish (null). */
   newCustomer?: string | null
+  /** Bitta tovar qatori (bot widget'i): tovarni tanlash, miqdor (0 — olib tashlash) yoki narx. Qolgan qatorlar tegilmaydi. */
+  item?: { index: number; productId?: number; qty?: number; price?: number }
+  /** Bitta yangi mijoz qatori ("customer"): saldo summasi yoki olib tashlash. */
+  person?: { index: number; amount?: number; remove?: boolean }
 }
+
+/** Amal emas, savol/javob (tushunilmadi, hisobot, tovar/mijoz aytilmadi) — tasdiqlanadigan narsa yo'q. */
+export const isChatOnly = (d: Draft) => d.kind === 'unknown' || ((d.kind === 'sale' || d.kind === 'receipt' || d.kind === 'product') && d.items.length === 0) || (d.kind === 'customer' && !(d.people ?? []).length)
 
 export const DRAFT_TTL_MS = 24 * 3600_000
 const ROLE_KINDS: Record<string, Kind[]> = { owner: ['sale', 'payment_in', 'payment_out', 'expense', 'receipt', 'product', 'customer'], cashier: ['sale'] }
@@ -489,6 +496,35 @@ export function applyEdits(sql: Sql, actor: Actor, d: Draft, e: DraftEdits): Dra
       qty: it.qty >= 0 ? it.qty : 0, price: it.price, cost: it.cost, stock: null, options: [], said: true,
     }))
   }
+  if (e.item && Number.isInteger(e.item.index) && next.items[e.item.index]) {
+    const i = e.item.index
+    const items = next.items.slice()
+    let it = { ...items[i] }
+    if (e.item.productId && d.kind !== 'product') {
+      const p = sql.get<ProductOpt & { cost_price: number }>('SELECT id, name, unit, price, stock, cost_price FROM products WHERE id = ? AND is_active = 1', e.item.productId)
+      if (p) {
+        const price = d.kind === 'receipt'
+          ? (it.said && it.price != null ? it.price : p.cost_price > 0 ? Math.round(p.cost_price) : null)
+          : (it.said && actor.role === 'owner' && it.price != null ? it.price : Math.round(p.price))
+        it = { ...it, productId: p.id, name: p.name, unit: p.unit, stock: p.stock, price, options: it.options.length ? it.options : [productOpt(p)] }
+      }
+    }
+    if (e.item.qty !== undefined) it.qty = e.item.qty
+    // Narx: sotuvda faqat ega (kassir katalog narxida); yozilgan narx do'kon valyutasida — aytilgan emas.
+    if (e.item.price !== undefined && e.item.price >= 0 && (d.kind !== 'sale' || actor.role === 'owner')) it = { ...it, price: e.item.price, said: false }
+    if (it.qty > 0) items[i] = it
+    else items.splice(i, 1)
+    next.items = items
+  }
+  if (e.person && d.kind === 'customer' && Number.isInteger(e.person.index) && next.people[e.person.index]) {
+    const people = next.people.slice()
+    if (e.person.remove) people.splice(e.person.index, 1)
+    else if (e.person.amount !== undefined) {
+      const p = people[e.person.index]
+      people[e.person.index] = { ...p, amount: e.person.amount > 0 ? e.person.amount : null, kind: e.person.amount > 0 ? (p.kind === 'none' ? 'debt' : p.kind) : 'none' }
+    }
+    next.people = people
+  }
   if (e.method) next.method = e.method
   if (e.paid !== undefined) next.paid = e.paid
   if (e.amount !== undefined) next.amount = e.amount
@@ -563,6 +599,49 @@ export function markDraft(sql: Sql, d: Draft, status: 'applied' | 'cancelled', r
   const saved: Draft = { ...d, status, result, ready: false }
   sql.run('UPDATE assistant_drafts SET status = ?, draft = ?, applied_at = ? WHERE id = ?', status, JSON.stringify(saved), now, d.id)
   return saved
+}
+
+// ---- Bitta xabarning amallari (guruh): id = g yoki partOf = g. Bot widget kartasi shu guruhni ko'rsatadi.
+
+export type GroupRow = { draft: Draft; expired: boolean }
+const isOpen = (r: GroupRow) => r.draft.status === 'new' && !r.expired && !isChatOnly(r.draft)
+
+/** Guruh qoralamalari (aytilgan tartibda); ochiqlari qayta baholanadi. Begona/yo'q guruh — bo'sh. */
+export function groupDrafts(sql: Sql, actor: Actor, g: string, now: string): GroupRow[] {
+  if (!/^[a-f0-9]{16}$/.test(g)) return []
+  const rows = sql.all<{ draft: string; created_at: string }>(
+    'SELECT draft, created_at FROM assistant_drafts WHERE uid = ? AND (id = ? OR draft LIKE ?) ORDER BY created_at, rowid', actor.uid, g, `%"partOf":"${g}"%`,
+  )
+  return rows.flatMap((r) => {
+    let d: Draft
+    try { d = JSON.parse(r.draft) as Draft } catch { return [] }
+    if (d.id !== g && d.partOf !== g) return []
+    const expired = d.status === 'new' && Date.parse(now) - Date.parse(r.created_at) > DRAFT_TTL_MS
+    return [{ draft: d.status === 'new' && !expired ? evaluate(sql, d, actor) : d, expired }]
+  })
+}
+
+export type GroupApply =
+  | { ok: false; notReady: { index: number; draft: Draft }[]; rows: GroupRow[] }
+  | { ok: true; results: { id: string; error: { code: string; params: Record<string, unknown> } | null }[]; rows: GroupRow[] }
+
+/** "Hammasini tasdiqlash": biror ochiq amal tayyor bo'lmasa — hech biri yozilmaydi; aks holda har biri o'z kaliti bilan. */
+export function applyGroup(sql: Sql, actor: Actor, g: string, now: string, run: (op: string, args: unknown, key: string) => RpcResult): GroupApply {
+  const rows = groupDrafts(sql, actor, g, now)
+  const open = rows.map((r, index) => ({ index, r })).filter((x) => isOpen(x.r))
+  const notReady = open.filter((x) => !x.r.draft.ready).map((x) => ({ index: x.index, draft: x.r.draft }))
+  if (notReady.length) return { ok: false, notReady, rows }
+  const results = open.map(({ r }) => {
+    const out = applyDraft(sql, actor, r.draft.id, null, now, run)
+    return { id: r.draft.id, error: out.ok ? null : { code: out.error.code, params: out.error.params ?? {} } }
+  })
+  return { ok: true, results, rows: groupDrafts(sql, actor, g, now) }
+}
+
+/** Guruhning ochiq amallarini bekor qilish. */
+export function cancelGroup(sql: Sql, actor: Actor, g: string, now: string): GroupRow[] {
+  for (const r of groupDrafts(sql, actor, g, now)) if (isOpen(r)) markDraft(sql, r.draft, 'cancelled', null, now)
+  return groupDrafts(sql, actor, g, now)
 }
 
 /** Kunlik AI chaqiruvlari hisobi (do'kon boshiga) — byudjetdan oshmaslik uchun. */

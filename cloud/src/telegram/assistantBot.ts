@@ -1,15 +1,21 @@
 import type { Env } from '../env'
-import type { ApplyOutcome, Draft } from '../shop/assistant'
+import { isChatOnly, type ApplyOutcome, type Draft, type DraftEdits, type GroupApply, type GroupRow } from '../shop/assistant'
+import { EXPENSE_CATEGORIES } from '../assistant/ai'
 import { defaultMembership, listMemberships, type MemberWithTenant } from '../registry'
 import { runAssistant } from '../assistant/pipeline'
 import { withFx } from '../assistant/fx'
 import { syncBranchesOf } from '../catalog'
-import { escapeHtml, tgCall } from './api'
+import { escapeHtml, tgCall, type TgResult } from './api'
+import { draftWidgetCaption, draftWidgetData, draftWidgetHtml, METHOD_OF, type IssueText, type MethodCode } from './draftWidget'
+import type { WidgetQuery } from './funnelWidget'
 
 // Bot orqali yordamchi: a'zo botga ovozli yoki oddiy xabar yuboradi → tahlil → tasdiqlash kartasi
 // (✅ / ❌ / ✏️ ilovada). Tugma bosilganda qoralama oddiy op bilan yoziladi (o'sha tekshiruvlar,
 // `ai_<id>` kaliti — ikki marta bosilsa ham bitta yozuv). Karta egasidan boshqa odam bosa olmaydi
 // (qoralama uid bo'yicha topiladi).
+// 2026-11-12: tasdiqlash kartasi — HTML widget (draftWidget.ts): xabarning hamma amallari bitta kartada, tahrir widget
+// ichida (`y…` so'rovlari), "✅ Tasdiqlash / ❌ Bekor" widget ostidagi tugmalarda (`A:`/`X:` + guruh id).
+// sendWidget yiqilsa — avvalgi matnli kartalar (`a:`/`x:`/`r:` tugmalari, eski kartalar uchun ham ishlaydi).
 
 export type Lang = 'uz' | 'ru'
 const MAX_VOICE_SECONDS = 90
@@ -22,7 +28,7 @@ const T = {
     created: "{n} ta tovar qo'shildi", startStock: 'qoldiq', cost: 'tannarx',
     customer: 'Mijoz', walkIn: "Yo'l-yo'lakay xaridor", total: 'Jami', amount: 'Summa', category: 'Toifa', note: 'Izoh', supplier: "Ta'minotchi", paidNow: "Hozir to'landi",
     method: { cash: 'naqd', card: 'karta', debt: 'qarzga', transfer: "o'tkazma" },
-    pick: 'tanlash kerak', confirm: '✅ Tasdiqlash', cancel: '❌ Bekor', edit: '✏️ Ilovada ochish', fix: '✏️ Ilovada tuzatish',
+    pick: 'tanlash kerak', confirm: '✅ Tasdiqlash', confirmAll: '✅ Hammasini tasdiqlash', fixFirst: 'Avval tuzating (qatorni bosing):', cancel: '❌ Bekor', edit: '✏️ Ilovada ochish', fix: '✏️ Ilovada tuzatish',
     convertSave: "✅ {shop}ga o'tkazib saqlash", fxLine: '💱 1 {cur} = {rate} {shop} · {src}', fxSaved: 'oxirgi kursingiz', fxCbu: 'MB kursi {date}',
     replaced: '↪️ Yangilandi — pastdagi kartaga qarang',
     newCustomerTag: "yangi mijoz, saqlashda qo'shiladi",
@@ -70,7 +76,7 @@ const T = {
     created: 'Добавлено товаров: {n}', startStock: 'остаток', cost: 'себест.',
     customer: 'Клиент', walkIn: 'Случайный покупатель', total: 'Итого', amount: 'Сумма', category: 'Категория', note: 'Заметка', supplier: 'Поставщик', paidNow: 'Оплачено сейчас',
     method: { cash: 'наличные', card: 'карта', debt: 'в долг', transfer: 'перевод' },
-    pick: 'нужно выбрать', confirm: '✅ Подтвердить', cancel: '❌ Отмена', edit: '✏️ Открыть в приложении', fix: '✏️ Исправить в приложении',
+    pick: 'нужно выбрать', confirm: '✅ Подтвердить', confirmAll: '✅ Подтвердить все', fixFirst: 'Сначала исправьте (нажмите на строку):', cancel: '❌ Отмена', edit: '✏️ Открыть в приложении', fix: '✏️ Исправить в приложении',
     convertSave: '✅ Пересчитать в {shop} и сохранить', fxLine: '💱 1 {cur} = {rate} {shop} · {src}', fxSaved: 'ваш последний курс', fxCbu: 'курс ЦБ {date}',
     replaced: '↪️ Обновлено — смотрите карточку ниже',
     newCustomerTag: 'новый клиент, будет добавлен при сохранении',
@@ -142,7 +148,7 @@ function appUrl(env: Env, query: string) {
 
 /** Qoralama → karta matni (HTML). */
 /** Amal emas, savol (tushunilmadi yoki tovar aytilmadi) — karta tugmalarisiz, faqat javob matni. */
-export const chatOnly = (d: Draft) => d.kind === 'unknown' || ((d.kind === 'sale' || d.kind === 'receipt' || d.kind === 'product') && d.items.length === 0) || (d.kind === 'customer' && !(d.people ?? []).length)
+export const chatOnly = isChatOnly
 
 export function renderDraft(d: Draft, l: Lang, opts: { transcript?: boolean } = {}): string {
   const t = T[l]
@@ -282,9 +288,21 @@ export async function botAssistant(env: Env, msg: Msg): Promise<boolean> {
   const dl = langOf(msg.from.language_code, r.draft)
   const actor = { uid: member.uid, role: member.role, name: member.name }
   const tag = await shopTag(env, member)
-  // Bir xabarda bir nechta amal — har biriga alohida karta (o'z ✅/❌ bilan), aytilgan tartibda, hammasi o'sha xabarga reply.
-  // Transkript faqat birinchi kartada (keyingilari `partOf` — renderDraft o'zi tashlab ketadi).
-  for (const d of [r.draft, ...r.more]) {
+  // Amallar — bitta widget karta (guruh id = birinchi qoralama), javob/savollar — oddiy xabar. Widget yuborilmasa —
+  // avvalgidek har amalga matnli karta (o'z ✅/❌ bilan; transkript faqat birinchisida — renderDraft `partOf` ni biladi).
+  const all = [r.draft, ...r.more]
+  const acts = all.filter((d) => !chatOnly(d))
+  let texts = all.filter(chatOnly)
+  if (acts.length) {
+    const sent = await sendDraftWidget(env, chatId, member, r.draft.id, acts, dl, tag, reply)
+    if (sent.ok && sent.result?.message_id) {
+      for (const d of acts) await env.SHOP.getByName(member.tenant_id).assistantSetCard(actor, d.id, chatId, sent.result.message_id, true)
+    } else {
+      console.warn('sendWidget:', sent.ok ? 'no message' : `${sent.status} ${sent.description}`)
+      texts = all
+    }
+  }
+  for (const d of texts) {
     const draft = await withFx(env, member.tenant_id, d)
     const sent = await tgCall<{ message_id: number }>(env, 'sendMessage', {
       chat_id: chatId, text: tag + renderDraft(draft, dl), parse_mode: 'HTML', disable_web_page_preview: true, ...reply, reply_markup: keyboard(env, draft, dl),
@@ -322,6 +340,7 @@ async function draftOwner(env: Env, uid: number, draftId: string): Promise<Membe
 export async function markReplaced(env: Env, tenantId: string, actor: { uid: number; role: 'owner' | 'cashier'; name: string }, oldId: string, l: Lang = 'uz', tag = '') {
   const old = (await env.SHOP.getByName(tenantId).assistantGet(actor, oldId)) as Draft | null
   if (!old?.card) return
+  if (old.card.w) { await refreshDraftWidget(env, tenantId, actor, old.partOf ?? old.id, old.card.chat, old.card.msg, l); return }
   await tgCall(env, 'editMessageText', {
     chat_id: old.card.chat, message_id: old.card.msg, text: `${tag}${renderDraft(old, l)}\n\n<b>${T[l].replaced}</b>`, parse_mode: 'HTML', disable_web_page_preview: true,
   })
@@ -334,13 +353,40 @@ export async function botAssistantCallback(env: Env, cb: Callback): Promise<void
   const l = langOf(cb.from.language_code)
   const t = T[l]
   const answer = (text?: string, alert = false) => tgCall(env, 'answerCallbackQuery', { callback_query_id: cb.id, text, show_alert: alert })
-  const m = /^([axr]):([a-f0-9]{16})(?::(\d{1,9}(?:\.\d{1,4})?))?$/.exec(cb.data ?? '')
+  const m = /^([axrAX]):([a-f0-9]{16})(?::(\d{1,9}(?:\.\d{1,4})?))?$/.exec(cb.data ?? '')
   if (!m || !cb.message) { await answer(); return }
   const member = await draftOwner(env, cb.from.id, m[2])
   if (!member || !member.active) { await answer(t.notMember, true); return }
   const shop = env.SHOP.getByName(member.tenant_id)
   const actor = { uid: member.uid, role: member.role, name: member.name }
   const tag = await shopTag(env, member)
+  // Widget karta tugmalari: butun guruh (xabarning hamma amallari).
+  if (m[1] === 'A' || m[1] === 'X') {
+    const g = m[2]
+    const where = { chat: cb.message.chat.id, msg: cb.message.message_id }
+    if (m[1] === 'X') {
+      await shop.assistantCancelGroup(actor, g)
+      await answer(t.cancelled)
+      await refreshDraftWidget(env, member.tenant_id, actor, g, where.chat, where.msg, l)
+      return
+    }
+    const res = (await shop.assistantApplyGroup(actor, g)) as GroupApply | null
+    if (!res) { await answer(t.notMember, true); return }
+    if (!res.ok) {
+      const issue = issueText(l)
+      const lines = res.notReady.slice(0, 3).map((x) => `${x.index + 1}. ${x.draft.issues.map((i) => issue(i, x.draft)).find(Boolean) ?? ''}`)
+      await answer(`${t.fixFirst}\n${lines.join('\n')}`.slice(0, 199), true)
+      await refreshDraftWidget(env, member.tenant_id, actor, g, where.chat, where.msg, l)
+      return
+    }
+    const errors = Object.fromEntries(res.results.flatMap((x) => (x.error ? [[x.id, errText(l, x.error.code, x.error.params)]] : [])))
+    const failed = Object.values(errors)
+    await answer(failed.length ? failed[0].slice(0, 199) : t.saved, failed.length > 0)
+    await refreshDraftWidget(env, member.tenant_id, actor, g, where.chat, where.msg, l, errors)
+    // Yordamchi asosiy do'konda tovar yaratgan / narx o'zgartirgan bo'lishi mumkin — filiallarga.
+    await syncBranchesOf(env, member.tenant_id).catch(() => undefined)
+    return
+  }
   const edit = (d: Draft, tail = '', withKeyboard = false) => tgCall(env, 'editMessageText', {
     chat_id: cb.message!.chat.id, message_id: cb.message!.message_id, text: tag + renderDraft(d, l) + tail, parse_mode: 'HTML',
     disable_web_page_preview: true, ...(withKeyboard ? { reply_markup: keyboard(env, d, l) } : {}),
@@ -363,10 +409,159 @@ export async function botAssistantCallback(env: Env, cb: Callback): Promise<void
     await syncBranchesOf(env, member.tenant_id).catch(() => undefined)
     return
   }
-  const params = r.error.params ?? {}
-  const msg = r.error.code === 'cloud.errors.insufficientStock' && params.name
-    ? `${String(params.name)}: ${t.issue.insufficientStock.replace('{name}: ', '').replace('{stock}', String(params.stock)).replace('{unit}', String(params.unit ?? ''))}`
-    : t.err[r.error.code] ?? t.errFallback
-  await answer(msg, true)
+  await answer(errText(l, r.error.code, r.error.params ?? {}), true)
   if (r.draft) await edit(r.draft, '', true)
+}
+
+// ---------------------------------------------------------------------------
+// Widget karta (draftWidget.ts): yuborish, yangilash, tahrir so'rovlari.
+
+const plainFill = (s: string, p: Record<string, unknown> = {}) => s.replace(/\{(\w+)\}/g, (_, k) => String(p[k] ?? ''))
+
+/** Muammo matni (oddiy matn — widget'da textContent). */
+function issueText(l: Lang): IssueText {
+  const t = T[l]
+  return (i, d) => (d.kind === 'unknown' && i.code === 'unknown' ? '' : plainFill(t.issue[i.code === 'currencyMismatch' && d.fx ? 'currencyMismatchFx' : i.code] ?? i.code, i.params))
+}
+
+/** Saqlash xatosi matni (qoldiq yetmasa — tovar va qoldiq bilan). */
+function errText(l: Lang, code: string, params: Record<string, unknown>): string {
+  const t = T[l]
+  if (code === 'cloud.errors.insufficientStock' && params.name) {
+    return `${String(params.name)}: ${t.issue.insufficientStock.replace('{name}: ', '').replace('{stock}', String(params.stock)).replace('{unit}', String(params.unit ?? ''))}`
+  }
+  return t.err[code] ?? t.errFallback
+}
+
+const plainMoney = (n: number, d: Draft) => {
+  const code = d.spokenCurrency && d.issues.some((i) => i.code === 'currencyMismatch') ? d.spokenCurrency : null
+  return code ? `${fmt(n)} ${CUR_SIGN[code] ?? code}` : `${fmt(n)} ${d.currency}`
+}
+
+function widgetCaption(drafts: Draft[], l: Lang, tag: string): string {
+  return tag + escapeHtml(draftWidgetCaption(drafts, l, (d) => T[l].kind[d.kind], plainMoney))
+}
+
+/** Widget ostidagi tugmalar: ochiq amal bo'lsa — tasdiqlash/bekor (butun guruh) + ilovada ochish; bo'lmasa — yo'q. */
+function groupKeyboard(env: Env, g: string, rows: GroupRow[], l: Lang) {
+  const t = T[l]
+  const open = rows.filter((r) => r.draft.status === 'new' && !r.expired && !chatOnly(r.draft))
+  if (!open.length) return { inline_keyboard: [] as unknown[] }
+  return {
+    inline_keyboard: [
+      [{ text: open.length > 1 ? t.confirmAll : t.confirm, callback_data: `A:${g}` }, { text: t.cancel, callback_data: `X:${g}` }],
+      [{ text: t.edit, web_app: { url: appUrl(env, `?draft=${open[0].draft.id}`) } }],
+    ],
+  }
+}
+
+async function withRates(env: Env, tenantId: string, rows: GroupRow[]): Promise<GroupRow[]> {
+  return Promise.all(rows.map(async (r) => (r.draft.status === 'new' && !r.expired ? { ...r, draft: await withFx(env, tenantId, r.draft) } : r)))
+}
+
+async function sendDraftWidget(env: Env, chatId: number, m: MemberWithTenant, g: string, drafts: Draft[], l: Lang, tag: string, reply: Record<string, unknown>): Promise<TgResult<{ message_id: number }>> {
+  const rows = await withRates(env, m.tenant_id, drafts.map((draft) => ({ draft, expired: false })))
+  return tgCall<{ message_id: number }>(env, 'sendWidget', {
+    chat_id: chatId,
+    html: draftWidgetHtml(l),
+    chat_data: draftWidgetData(g, rows, l, issueText(l), m.role === 'owner', drafts[0].currency, new Date()),
+    caption: widgetCaption(drafts, l, tag),
+    parse_mode: 'HTML',
+    allow_queries: true,
+    ...reply,
+    reply_markup: groupKeyboard(env, g, rows, l),
+  })
+}
+
+/** Bir nechta faol do'kon bo'lsa — qaysi do'konniki (karta izohida). */
+async function tagFor(env: Env, uid: number, tenantId: string): Promise<string> {
+  const active = (await listMemberships(env.DB, uid)).filter((x) => x.active)
+  const m = active.find((x) => x.tenant_id === tenantId)
+  return active.length > 1 && m ? `🏪 <b>${escapeHtml(m.tenant.name)}</b>\n` : ''
+}
+
+/** Guruhning joriy holati → widget ma'lumoti, izoh va tugmalar (hammasi bo'lsa — tugmalar olib tashlanadi). */
+export async function refreshDraftWidget(env: Env, tenantId: string, actor: { uid: number; role: 'owner' | 'cashier'; name: string }, g: string, chatId: number, msgId: number, l: Lang, errors: Record<string, string> = {}): Promise<void> {
+  const rows = (await env.SHOP.getByName(tenantId).assistantGroup(actor, g)) as GroupRow[] | null
+  const acts = (rows ?? []).filter((r) => !chatOnly(r.draft))
+  if (!acts.length) return
+  const data = draftWidgetData(g, await withRates(env, tenantId, acts), l, issueText(l), actor.role === 'owner', acts[0].draft.currency, new Date(), errors)
+  const w = await tgCall(env, 'editMessageWidgetData', { chat_id: chatId, message_id: msgId, chat_data: data })
+  if (!w.ok) console.warn('editMessageWidgetData:', w.status, w.description)
+  const kb = groupKeyboard(env, g, acts, l)
+  const caption = widgetCaption(acts.map((r) => r.draft), l, await tagFor(env, actor.uid, tenantId))
+  const c = await tgCall(env, 'editMessageCaption', { chat_id: chatId, message_id: msgId, caption, parse_mode: 'HTML', reply_markup: kb })
+  if (!c.ok && !/not modified/i.test(c.description)) await tgCall(env, 'editMessageReplyMarkup', { chat_id: chatId, message_id: msgId, reply_markup: kb })
+}
+
+/** Ilovada o'zgargan qoralama botda widget kartada turgan bo'lsa — karta yangilanadi. */
+export async function syncDraftCard(env: Env, tenantId: string, actor: { uid: number; role: 'owner' | 'cashier'; name: string }, d: Draft | null): Promise<void> {
+  if (!d?.card?.w) return
+  await refreshDraftWidget(env, tenantId, actor, d.partOf ?? d.id, d.card.chat, d.card.msg, langOf(undefined, d)).catch(() => undefined)
+}
+
+const MONEY = /^\d{1,12}(?:\.\d{1,4})?$/
+const SALE_METHODS: Draft['method'][] = ['cash', 'card', 'debt']
+const PAY_METHODS: Draft['method'][] = ['cash', 'card', 'transfer']
+
+/** Widget so'rovi → qoralama tuzatishi (null — yaroqsiz). Sonlar qat'iy tekshiriladi. */
+export function widgetEdit(op: string, arg: string, d: Draft): DraftEdits | null {
+  const money = (s: string) => (MONEY.test(s) ? Number(s) : null)
+  switch (op) {
+    case 'm': {
+      const method = METHOD_OF[arg as MethodCode]
+      const allowed = d.kind === 'sale' ? SALE_METHODS : d.kind === 'payment_in' || d.kind === 'payment_out' ? PAY_METHODS : []
+      return method && allowed.includes(method) ? { method } : null
+    }
+    case 'a': { const n = money(arg); return n !== null && n > 0 ? { amount: n } : null }
+    case 'd': { const n = money(arg); return n !== null && d.kind === 'sale' ? { paid: n } : null }
+    case 'c':
+      if (arg === 'n') return d.customerQuery ? { newCustomer: d.customerQuery } : null
+      return /^\d{1,12}$/.test(arg) && Number(arg) > 0 ? { customerId: Number(arg) } : null
+    case 'g': { const c = /^\d$/.test(arg) ? EXPENSE_CATEGORIES[Number(arg)] : undefined; return c && d.kind === 'expense' ? { category: c } : null }
+    case 'r': { const n = money(arg); return n !== null && n > 0 && n <= 1e7 ? { rate: n } : null }
+    case 'i': {
+      const x = /^(\d{1,2}):([pqv]):(\d{1,12}(?:\.\d{1,4})?)$/.exec(arg)
+      if (!x || !d.items[Number(x[1])]) return null
+      const index = Number(x[1]), n = Number(x[3])
+      if (x[2] === 'p') return Number.isInteger(n) && n > 0 ? { item: { index, productId: n } } : null
+      if (x[2] === 'q') return n <= 1e6 ? { item: { index, qty: n } } : null
+      return { item: { index, price: n } }
+    }
+    case 'h': {
+      const x = /^(\d{1,2}):(x|\d{1,12}(?:\.\d{1,4})?)$/.exec(arg)
+      if (!x || d.kind !== 'customer' || !(d.people ?? [])[Number(x[1])]) return null
+      return x[2] === 'x' ? { person: { index: Number(x[1]), remove: true } } : { person: { index: Number(x[1]), amount: Number(x[2]) } }
+    }
+  }
+  return null
+}
+
+/**
+ * Widget kartadagi tahrir: `y<op>:<qoralama id>[:arg]` — x bekor, m usul, a summa, d hozir to'langan, c mijoz (n — yangi),
+ * g toifa, r kurs, i tovar qatori (`<n>:<p|q|v>:<son>`), h yangi mijoz qatori (`<n>:<summa|x>`). Faqat qoralama egasi.
+ * Javob avval ('ok'/'gone'/'forbidden'/'bad'), keyin karta yangi holat bilan qayta chiziladi.
+ */
+export async function handleDraftQuery(env: Env, q: WidgetQuery): Promise<void> {
+  const answer = (data: string) => tgCall(env, 'answerWidgetQuery', { widget_query_id: q.id, data })
+  const hit = /^y([xmadcgrih]):([a-f0-9]{16})(?::([0-9a-z.:]{1,40}))?$/.exec(q.data ?? '')
+  if (!hit || !q.chat || !q.message_id) { await answer('bad'); return }
+  const [, op, id, arg = ''] = hit
+  const m = await draftOwner(env, q.from.id, id)
+  if (!m || !m.active) { await answer('forbidden'); return }
+  const shop = env.SHOP.getByName(m.tenant_id)
+  const actor = { uid: m.uid, role: m.role, name: m.name }
+  const d = (await shop.assistantGet(actor, id)) as Draft | null
+  if (!d) { await answer('gone'); return }
+  let code = 'ok'
+  if (d.status !== 'new') code = 'gone'
+  else if (op === 'x') await shop.assistantCancel(actor, id)
+  else {
+    const e = widgetEdit(op, arg, d)
+    if (e) await shop.assistantUpdate(actor, id, e)
+    else code = 'bad'
+  }
+  await answer(code)
+  await refreshDraftWidget(env, m.tenant_id, actor, d.partOf ?? d.id, q.chat.id, q.message_id, langOf(q.from.language_code, d))
+  console.log(JSON.stringify({ evt: 'widget_draft', op, code }))
 }

@@ -1,7 +1,7 @@
 import type { Env } from '../env'
 import { escapeHtml, tgCall, webAppButton } from './api'
 import { defaultMembership, findMembership, findTenantByPrefix, inviteInfo, listMemberships, listTenants, setActiveTenant, setPaidUntil, setTenantStatus, subscriptionOf, tenantState, tenantUntil, trialDays, type TenantRow } from '../registry'
-import { botAssistant, botAssistantCallback } from './assistantBot'
+import { botAssistant, botAssistantCallback, handleDraftQuery } from './assistantBot'
 import { cleanSrc, quietly, trackStart } from '../funnel'
 import { relayFromAdmin, relayIncoming, type RelayMsg } from './relay'
 import { FUNNEL_PERIODS, handleWidgetQuery, sendFunnelWidget, type WidgetQuery } from './funnelWidget'
@@ -129,6 +129,7 @@ export async function handleUpdate(env: Env, update: Update): Promise<void> {
     const q = update.widget_query
     if (q.data?.startsWith('d:')) await handleWidgetQuery(env, q)
     else if (q.data?.startsWith('r:')) await handleSalesQuery(env, q)
+    else if (q.data?.startsWith('y')) await handleDraftQuery(env, q)
     else await tgCall(env, 'answerWidgetQuery', { widget_query_id: q.id, data: 'bad' })
     return
   }

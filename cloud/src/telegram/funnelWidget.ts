@@ -29,7 +29,7 @@ export async function sendFunnelWidget(env: Env, chatId: number, days: number, n
 
 export type WidgetQuery = {
   id: string
-  from: { id: number }
+  from: { id: number; language_code?: string }
   chat?: { id: number; type?: string }
   message_id?: number
   data?: string

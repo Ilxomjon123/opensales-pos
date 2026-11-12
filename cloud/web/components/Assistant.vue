@@ -54,6 +54,8 @@ function reset() {
   micError.value = null
   draft.value = null
   saving.value = false
+  groupId.value = null
+  editCtx.value = null
 }
 function close() {
   stopPlayback()
@@ -66,13 +68,24 @@ async function onOpen(o: boolean) {
   reset()
   loadLists()
   if (assistant.draftId) {
-    // Bot kartasidan ("Ilovada tuzatish") — to'g'ridan tahrirga; orqaga — chatlar ro'yxati.
+    // Bot kartasidan (✏️). Bir xabarda bir nechta amal — HAMMASI kartalar bo'lib (har biri o'z tugmalari bilan,
+    // ostida "Hammasini tasdiqlash"); bitta amal — to'g'ridan tahrirga. Orqaga — chatlar ro'yxati.
+    const id = assistant.draftId
+    assistant.draftId = null
     view.value = 'chat'
     chatId.value = null
+    chatTitle.value = ''
     items.value = []
     stage.value = 'busy'
-    try { show(await api<Draft>('/api/assistant/get', { id: assistant.draftId })) } catch (e) { fail(e); stage.value = 'input' }
-    assistant.draftId = null
+    try {
+      const gr = await api<GroupView>('/api/assistant/group', { id, lang: lang() })
+      if (gr.items.length > 1) {
+        groupId.value = gr.g
+        chatTitle.value = t('cloud.ai.groupTitle', { n: gr.items.length })
+        items.value = gr.items
+        stage.value = 'input'
+      } else show(await api<Draft>('/api/assistant/get', { id }))
+    } catch (e) { fail(e); stage.value = 'input' }
     return
   }
   // Oxirgi chatni davom ettiramiz (bo'lmasa — yangi chat).
@@ -106,9 +119,13 @@ type Reply = { kind: 'text'; text: string } | { kind: 'card'; html: string; stat
 /** `user` null — bitta xabarning keyingi amali (foydalanuvchi pufagi birinchi kartada). */
 type ChatItem = { id: string; at: string; user: { kind: 'text' | 'voice'; text: string; voice: Voice | null } | null; reply: Reply }
 type ChatRow = { id: string; title: string; updated_at: string; last: string | null; count: number }
+/** Bot kartasidagi bitta xabarning amallari (guruh) — ✏️ bilan ochiladi. */
+type GroupView = { g: string; items: ChatItem[]; notReady: number[]; errors: { id: string; code: string; params: Record<string, unknown> }[] }
 const LAST_CHAT = 'kassa:ai:chat'
 const view = ref<'list' | 'chat'>('chat')
 const chatId = ref<string | null>(null)
+/** Ochiq guruh (bot kartasidan) — chat o'rniga shu guruh qayta yuklanadi. */
+const groupId = ref<string | null>(null)
 const chatTitle = ref('')
 const items = ref<ChatItem[]>([])
 const chats = ref<ChatRow[]>([])
@@ -133,6 +150,7 @@ const chatLoading = ref(false)
 /** Keyingi o'zgarishda oxiriga aylantirish sakrashsiz (yuklash), aks holda — yangi xabar, silliq. */
 let jumpToEnd = false
 async function openChat(id: string) {
+  groupId.value = null
   view.value = 'chat'
   stage.value = 'input'
   chatId.value = id
@@ -167,10 +185,15 @@ async function openChat(id: string) {
   }
 }
 async function reloadChat() {
+  if (groupId.value) {
+    try { items.value = (await api<GroupView>('/api/assistant/group', { id: groupId.value, lang: lang() })).items } catch { /* */ }
+    return
+  }
   if (!chatId.value) return
   try { items.value = await api<ChatItem[]>('/api/assistant/chat', { id: chatId.value, lang: lang() }) } catch { /* */ }
 }
 function newChat() {
+  groupId.value = null
   view.value = 'chat'
   stage.value = 'input'
   chatId.value = null
@@ -181,6 +204,7 @@ function newChat() {
   haptic('select')
 }
 async function showList() {
+  groupId.value = null
   view.value = 'list'
   stage.value = 'input'
   await loadChats()
@@ -192,7 +216,7 @@ async function deleteChat() {
 }
 /** Orqaga: tahrir → chat; chat → ro'yxat; ro'yxat → yopish (Telegram BackButton ham shu). */
 function back() {
-  if (stage.value === 'draft' || stage.value === 'done') { stage.value = 'input'; draft.value = null; void reloadChat(); return }
+  if (stage.value === 'draft' || stage.value === 'done') { stage.value = 'input'; draft.value = null; editCtx.value = null; void reloadChat(); return }
   if (view.value === 'chat') { void showList(); return }
   close()
 }
@@ -211,6 +235,32 @@ async function applyItem(it: ChatItem, rate: number | null = null) {
   if (r.ok) { haptic('success'); assistantSaved() } else fail(r.error)
   await reloadChat()
 }
+/** Chat bloklari: bir xabarning bir nechta amali (keyingilari foydalanuvchi pufagisiz kartalar) — BITTA karta,
+ *  ichida qator-qator (botdagi widget kabi); ostida "Hammasini tasdiqlash" / "Bekor". */
+type Block = { head: ChatItem; rows: ChatItem[] }
+const blocks = computed<Block[]>(() => {
+  const out: Block[] = []
+  for (const it of items.value) {
+    const prev = out[out.length - 1]
+    if (!it.user && it.reply.kind === 'card' && prev && prev.head.reply.kind === 'card') prev.rows.push(it)
+    else out.push({ head: it, rows: [it] })
+  }
+  return out
+})
+const openRows = (b: Block) => b.rows.filter((r) => r.reply.kind === 'card' && r.reply.status === 'open')
+async function groupAct(b: Block, action: 'group-apply' | 'group-cancel') {
+  if (acting.value) return
+  acting.value = b.head.id
+  try {
+    const r = await api<GroupView>(`/api/assistant/${action}`, { id: b.head.id, lang: lang() })
+    if (action === 'group-cancel') haptic('select')
+    else if (r.notReady.length) { notify(t('cloud.ai.fixFirst', { list: r.notReady.join(', ') }), 'error'); haptic('error') } else {
+      if (r.errors.length) { notify(r.errors.map((e) => t(e.code, e.params)).join('\n'), 'error'); haptic('error') } else haptic('success')
+      assistantSaved()
+    }
+  } catch (e) { fail(e) } finally { acting.value = null }
+  await reloadChat()
+}
 async function cancelItem(it: ChatItem) {
   if (acting.value) return
   acting.value = it.id
@@ -218,7 +268,11 @@ async function cancelItem(it: ChatItem) {
   acting.value = null
   await reloadChat()
 }
-async function editItem(it: ChatItem) {
+/** Bir xabarning bir nechta amalidan birini tahrirlash: «Saqlash» kartaga qaytaradi (yozish kartadagi "Hammasini
+ *  tasdiqlash"da), sarlavhada "N ta amaldan i-chisi", butun xabar matni ko'rsatilmaydi (u boshqa amallarni ham o'z ichiga oladi). */
+const editCtx = ref<{ i: number; n: number } | null>(null)
+async function editItem(it: ChatItem, b?: Block) {
+  editCtx.value = b && b.rows.length > 1 ? { i: b.rows.indexOf(it) + 1, n: b.rows.length } : null
   try {
     const d = await api<Draft>('/api/assistant/get', { id: it.id })
     draft.value = d
@@ -227,7 +281,7 @@ async function editItem(it: ChatItem) {
 }
 /** Server javobidagi xabar juftligi chatga qo'shiladi (yangi chat bo'lsa — id eslab qolinadi). */
 function accept(res: Draft & { item?: ChatItem; more?: ChatItem[]; chatId?: string }, localVoice: string | null) {
-  if (res.chatId && res.chatId !== chatId.value) { chatId.value = res.chatId; rememberChat(res.chatId) }
+  if (res.chatId && res.chatId !== chatId.value) { chatId.value = res.chatId; groupId.value = null; rememberChat(res.chatId) }
   if (!chatTitle.value) chatTitle.value = res.transcript.slice(0, 60)
   if (res.item) {
     if (localVoice) voiceUrls.set(res.item.id, localVoice)
@@ -492,7 +546,7 @@ async function confirmDraft() {
     haptic('success')
     assistantSaved()
     // Chatdan ochilgan bo'lsa — chatga qaytamiz (karta "Saqlandi" bo'ladi), bot havolasidan — natija ekrani.
-    if (chatId.value) { stage.value = 'input'; draft.value = null; await reloadChat() } else stage.value = 'done'
+    if (chatId.value || groupId.value) { stage.value = 'input'; draft.value = null; editCtx.value = null; await reloadChat() } else stage.value = 'done'
     return
   }
   fail(r.error)
@@ -504,8 +558,20 @@ async function cancelDraft() {
   if (d?.status === 'new') await api('/api/assistant/cancel', { id: d.id }).catch(() => {})
   stage.value = 'input'
   draft.value = null
+  editCtx.value = null
   await reloadChat()
 }
+/** Kartadagi amal: tuzatishlar serverga yetkazilib (avto-sinxron), kartaga qaytiladi — hech narsa yozilmaydi. */
+async function saveEdit() {
+  if (syncTimer) { clearTimeout(syncTimer); await sync() }
+  haptic('success')
+  stage.value = 'input'
+  draft.value = null
+  editCtx.value = null
+  await reloadChat()
+}
+/** "Jami" faqat tovarli amallarda — to'lov/xarajatda u Summa'ning takrori. */
+const showTotal = computed(() => !!draft.value?.allowed && (draft.value.kind === 'sale' || draft.value.kind === 'receipt' || draft.value.kind === 'product'))
 
 // ---- Valyuta: narx boshqa valyutada aytilgan (USD) — o'sha valyutada ko'rsatamiz, kurs bilan o'tkazamiz.
 const SYM: Record<string, string> = { USD: '$', EUR: '€', RUB: '₽', KZT: '₸', UZS: "so'm" }
@@ -610,9 +676,10 @@ const examples = computed(() => {
       <button type="button" class="ai-head-btn" :aria-label="$t('common.back')" @click="haptic('select'); back()"><ChevronLeft class="h-6 w-6" /></button>
       <div class="ai-head-avatar">S</div>
       <div class="min-w-0 flex-1">
-        <div class="ai-head-name">{{ view === 'list' && stage !== 'draft' ? $t('cloud.ai.chats') : chatTitle || $t('cloud.ai.title') }}</div>
+        <div class="ai-head-name">{{ stage === 'draft' && draft ? $t('cloud.ai.editTitle') : view === 'list' ? $t('cloud.ai.chats') : chatTitle || $t('cloud.ai.title') }}</div>
         <div class="ai-head-sub" :class="{ busy: stage === 'busy' }">
-          <template v-if="stage === 'busy'">{{ $t('cloud.ai.typingWord') }}<span class="tg-hdots"><i /><i /><i /></span></template>
+          <template v-if="stage === 'draft' && editCtx">{{ $t('cloud.ai.groupPos', editCtx) }}</template>
+          <template v-else-if="stage === 'busy'">{{ $t('cloud.ai.typingWord') }}<span class="tg-hdots"><i /><i /><i /></span></template>
           <template v-else>{{ $t('cloud.ai.botStatus') }}</template>
         </div>
       </div>
@@ -643,46 +710,75 @@ const examples = computed(() => {
         <!-- Telegram suhbati: fon naqshi, "Bugun", pufaklar (dum, vaqt, ✓✓), xabar ostidagi inline tugmalar. -->
         <div ref="chatEl" class="ai-chat tg-chat" :class="{ loading: chatLoading }">
           <div class="tg-date"><span>{{ $t('cloud.ai.today') }}</span></div>
-          <div class="tg-row in" :class="{ anim: !items.length }">
+          <div v-if="!groupId" class="tg-row in" :class="{ anim: !items.length }">
             <div class="tg-bubble in" :class="{ tail: greetTail }">
               {{ $t('cloud.ai.greeting') }}<span class="tg-spacer" /><span class="tg-meta">{{ hhmm(openedAt) }}</span>
             </div>
           </div>
           <!-- Saqlangan tarix: foydalanuvchi xabari + yordamchi javobi/kartasi (botdagidek, tugmalari bilan) -->
-          <template v-for="it in items" :key="it.id">
-            <div v-if="it.user" class="tg-row out">
-              <div class="tg-bubble out tail" :class="{ voice: it.user.kind === 'voice' }">
-                <template v-if="it.user.kind === 'text'">{{ it.user.text }}</template>
-                <template v-else>
-                  <div class="ai-voice">
-                    <button v-if="voiceUrls.has(it.id)" type="button" class="ai-voice-ico" @click="togglePlay(1000 + items.indexOf(it), { url: voiceUrls.get(it.id)!, ms: it.user.voice?.ms ?? 0 })">
-                      <Pause v-if="playing?.n === 1000 + items.indexOf(it) && !playing.paused" class="h-4 w-4" />
-                      <Play v-else class="h-4 w-4 translate-x-px" />
-                    </button>
-                    <span class="ai-wave"><i v-for="(h, i) in (it.user.voice?.wave ?? [])" :key="i" :style="{ height: `${4 + h * 18}px` }" /></span>
-                    <span class="ai-dur">{{ voiceLen(it.user.voice?.ms ?? 0) }}</span>
+          <template v-for="b in blocks" :key="b.head.id">
+            <template v-for="it in [b.head]" :key="it.id">
+              <div v-if="it.user" class="tg-row out">
+                <div class="tg-bubble out tail" :class="{ voice: it.user.kind === 'voice' }">
+                  <template v-if="it.user.kind === 'text'">{{ it.user.text }}</template>
+                  <template v-else>
+                    <div class="ai-voice">
+                      <button v-if="voiceUrls.has(it.id)" type="button" class="ai-voice-ico" @click="togglePlay(1000 + items.indexOf(it), { url: voiceUrls.get(it.id)!, ms: it.user.voice?.ms ?? 0 })">
+                        <Pause v-if="playing?.n === 1000 + items.indexOf(it) && !playing.paused" class="h-4 w-4" />
+                        <Play v-else class="h-4 w-4 translate-x-px" />
+                      </button>
+                      <span class="ai-wave"><i v-for="(h, i) in (it.user.voice?.wave ?? [])" :key="i" :style="{ height: `${4 + h * 18}px` }" /></span>
+                      <span class="ai-dur">{{ voiceLen(it.user.voice?.ms ?? 0) }}</span>
+                    </div>
+                    <div class="tg-transcript">{{ it.user.text }}</div>
+                  </template>
+                  <span class="tg-spacer wide" /><span class="tg-meta">{{ hhmm(Date.parse(it.at)) }} <span class="tg-ticks">✓✓</span></span>
+                </div>
+              </div>
+              <template v-if="b.rows.length === 1">
+                <div class="tg-row in" :class="{ anim: fresh.has(it.id) }">
+                  <div v-if="it.reply.kind === 'text'" class="tg-bubble in tail">{{ it.reply.text || $t('cloud.ai.unknownHint') }}<span class="tg-spacer" /><span class="tg-meta">{{ hhmm(Date.parse(it.at)) }}</span></div>
+                  <!-- eslint-disable-next-line vue/no-v-html -- server botdagi kartani yasaydi, hamma satr escape qilingan -->
+                  <div v-else class="tg-bubble in tail tg-card" :class="it.reply.status"><span v-html="it.reply.html" /><span class="tg-spacer" /><span class="tg-meta">{{ hhmm(Date.parse(it.at)) }}</span></div>
+                </div>
+                <div v-if="it.reply.kind === 'card' && it.reply.status === 'open'" class="tg-kb" :class="{ busy: acting === it.id, anim: fresh.has(it.id) }">
+                  <div v-if="it.reply.ready" class="tg-kb-row">
+                    <button type="button" class="tg-kb-btn" @click="applyItem(it)">{{ $t('cloud.ai.kbConfirm') }}</button>
+                    <button type="button" class="tg-kb-btn" @click="cancelItem(it)">{{ $t('cloud.ai.kbCancel') }}</button>
                   </div>
-                  <div class="tg-transcript">{{ it.user.text }}</div>
-                </template>
-                <span class="tg-spacer wide" /><span class="tg-meta">{{ hhmm(Date.parse(it.at)) }} <span class="tg-ticks">✓✓</span></span>
+                  <button v-else-if="it.reply.convert" type="button" class="tg-kb-btn" @click="applyItem(it, it.reply.kind === 'card' ? it.reply.convert : null)">{{ $t('cloud.ai.kbConvert', { shop: currencySymbol }) }}</button>
+                  <div class="tg-kb-row">
+                    <button type="button" class="tg-kb-btn" @click="editItem(it)">{{ it.reply.ready ? $t('cloud.ai.kbEdit') : $t('cloud.ai.kbFix') }}</button>
+                    <button v-if="!it.reply.ready" type="button" class="tg-kb-btn" @click="cancelItem(it)">{{ $t('cloud.ai.kbCancel') }}</button>
+                  </div>
+                </div>
+              </template>
+            </template>
+            <!-- Bir xabarda bir nechta amal — bitta karta, har amal bir qator (botdagi widget kabi) -->
+            <template v-if="b.rows.length > 1">
+              <div class="tg-row in" :class="{ anim: fresh.has(b.head.id) }">
+                <div class="tg-bubble in tail tg-card tg-group">
+                  <div class="tg-group-head">🧾 {{ $t('cloud.ai.groupTitle', { n: b.rows.length }) }}</div>
+                  <div v-for="r in b.rows" :key="r.id" class="tg-group-row" :class="r.reply.kind === 'card' ? r.reply.status : ''">
+                    <!-- eslint-disable-next-line vue/no-v-html -- server botdagi kartani yasaydi, hamma satr escape qilingan -->
+                    <span v-if="r.reply.kind === 'card'" v-html="r.reply.html" />
+                    <span v-else>{{ r.reply.text }}</span>
+                    <div v-if="r.reply.kind === 'card' && r.reply.status === 'open'" class="tg-group-acts" :class="{ busy: acting === r.id }">
+                      <button v-if="r.reply.convert" type="button" class="tg-chip" @click="applyItem(r, r.reply.kind === 'card' ? r.reply.convert : null)">{{ $t('cloud.ai.kbConvert', { shop: currencySymbol }) }}</button>
+                      <button type="button" class="tg-chip" @click="editItem(r, b)">{{ r.reply.ready ? $t('cloud.ai.kbEdit') : $t('cloud.ai.kbFix') }}</button>
+                      <button type="button" class="tg-chip" @click="cancelItem(r)">{{ $t('cloud.ai.kbCancel') }}</button>
+                    </div>
+                  </div>
+                  <span class="tg-spacer" /><span class="tg-meta">{{ hhmm(Date.parse(b.head.at)) }}</span>
+                </div>
               </div>
-            </div>
-            <div class="tg-row in" :class="{ anim: fresh.has(it.id) }">
-              <div v-if="it.reply.kind === 'text'" class="tg-bubble in tail">{{ it.reply.text || $t('cloud.ai.unknownHint') }}<span class="tg-spacer" /><span class="tg-meta">{{ hhmm(Date.parse(it.at)) }}</span></div>
-              <!-- eslint-disable-next-line vue/no-v-html -- server botdagi kartani yasaydi, hamma satr escape qilingan -->
-              <div v-else class="tg-bubble in tail tg-card" :class="it.reply.status"><span v-html="it.reply.html" /><span class="tg-spacer" /><span class="tg-meta">{{ hhmm(Date.parse(it.at)) }}</span></div>
-            </div>
-            <div v-if="it.reply.kind === 'card' && it.reply.status === 'open'" class="tg-kb" :class="{ busy: acting === it.id, anim: fresh.has(it.id) }">
-              <div v-if="it.reply.ready" class="tg-kb-row">
-                <button type="button" class="tg-kb-btn" @click="applyItem(it)">{{ $t('cloud.ai.kbConfirm') }}</button>
-                <button type="button" class="tg-kb-btn" @click="cancelItem(it)">{{ $t('cloud.ai.kbCancel') }}</button>
+              <div v-if="openRows(b).length" class="tg-kb" :class="{ busy: acting === b.head.id, anim: fresh.has(b.head.id) }">
+                <div class="tg-kb-row tg-kb-main">
+                  <button type="button" class="tg-kb-btn" @click="groupAct(b, 'group-apply')">{{ $t('cloud.ai.applyAll', { n: openRows(b).length }) }}</button>
+                  <button type="button" class="tg-kb-btn" @click="groupAct(b, 'group-cancel')">{{ $t('cloud.ai.kbCancel') }}</button>
+                </div>
               </div>
-              <button v-else-if="it.reply.convert" type="button" class="tg-kb-btn" @click="applyItem(it, it.reply.kind === 'card' ? it.reply.convert : null)">{{ $t('cloud.ai.kbConvert', { shop: currencySymbol }) }}</button>
-              <div class="tg-kb-row">
-                <button type="button" class="tg-kb-btn" @click="editItem(it)">{{ it.reply.ready ? $t('cloud.ai.kbEdit') : $t('cloud.ai.kbFix') }}</button>
-                <button v-if="!it.reply.ready" type="button" class="tg-kb-btn" @click="cancelItem(it)">{{ $t('cloud.ai.kbCancel') }}</button>
-              </div>
-            </div>
+            </template>
           </template>
           <div v-if="!thread.length && !items.length" class="tg-kb">
             <button v-for="e in examples" :key="e.text" type="button" class="tg-kb-btn" @click="haptic('select'); sendText(e.text)">
@@ -732,7 +828,7 @@ const examples = computed(() => {
             <component :is="KIND_ICON[draft.kind]" class="h-5 w-5" />
             <span>{{ $t(`cloud.ai.kind.${draft.kind}`) }}</span>
           </div>
-          <div class="ai-quote">
+          <div v-if="!editCtx" class="ai-quote">
             <button v-if="lastVoice" type="button" class="ai-quote-play" :aria-label="playing?.n === lastVoice.n && !playing.paused ? $t('cloud.ai.pause') : $t('cloud.ai.play')" @click="togglePlay(lastVoice.n, lastVoice.sent)">
               <Pause v-if="playing?.n === lastVoice.n && !playing.paused" class="h-3.5 w-3.5" />
               <Play v-else class="h-3.5 w-3.5 translate-x-px" />
@@ -848,6 +944,7 @@ const examples = computed(() => {
 
             <!-- To'lov usuli -->
             <section v-if="draft.kind === 'sale' || isMoney(draft.kind)" class="ai-field">
+              <label>{{ $t('cloud.ai.methodLabel') }}</label>
               <div class="ai-seg">
                 <button v-for="m in methods" :key="m" type="button" :class="{ on: draft.method === m }" @click="draft.method = m; haptic('select'); changed()">{{ $t(`cloud.ai.method.${m}`) }}</button>
               </div>
@@ -874,17 +971,22 @@ const examples = computed(() => {
             </section>
             <section v-if="draft.kind !== 'sale' && draft.kind !== 'product'" class="ai-field">
               <label>{{ $t('cloud.ai.note') }}</label>
-              <input v-model="draft.note" class="ai-text" @change="changed" />
+              <input v-model="draft.note" class="ai-text" :placeholder="$t('cloud.ai.notePh')" @change="changed" />
             </section>
           </template>
         </div>
 
         <div class="ai-foot">
-          <div v-if="draft.kind !== 'unknown' && draft.kind !== 'customer' && draft.allowed" class="ai-total">
+          <div v-if="showTotal" class="ai-total">
             <span>{{ $t('cloud.ai.total') }}</span>
             <span class="tabular-nums">{{ showMoney(draft.total) }}</span>
           </div>
-          <div class="grid grid-cols-[1fr_auto] gap-2">
+          <!-- Kartadagi amal: saqlab kartaga qaytish (yozish — kartadagi "Hammasini tasdiqlash") yoki shu amalni olib tashlash -->
+          <div v-if="editCtx" class="grid grid-cols-[1fr_auto] gap-2">
+            <button type="button" class="h-12 rounded-xl bg-primary text-base font-semibold text-primary-foreground" @click="saveEdit">{{ $t('cloud.ai.saveEdit') }}</button>
+            <button type="button" class="h-12 rounded-xl border px-5 text-sm font-medium" @click="cancelDraft">{{ $t('cloud.ai.removeAction') }}</button>
+          </div>
+          <div v-else class="grid grid-cols-[1fr_auto] gap-2">
             <button type="button" class="h-12 rounded-xl bg-primary text-base font-semibold text-primary-foreground" :disabled="!canConfirm" @click="confirmDraft">
               {{ $t('cloud.ai.confirm') }}
             </button>
@@ -1162,7 +1264,7 @@ button.ai-voice-ico:active {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
-  padding-bottom: 0.75rem;
+  padding: 0.75rem 0;
 }
 .ai-kind {
   display: flex;
@@ -1271,11 +1373,12 @@ button.ai-voice-ico:active {
 .ai-num,
 .ai-text {
   min-width: 0;
-  height: 2.5rem;
+  height: 2.75rem;
   padding: 0 0.875rem;
-  border-radius: 9999px;
+  border-radius: 0.875rem;
   outline: none;
-  background: var(--background);
+  background: var(--accent);
+  box-shadow: inset 0 0 0 0.5px var(--border);
   font-size: 16px;
 }
 .ai-num.full {
@@ -1284,11 +1387,12 @@ button.ai-voice-ico:active {
 /* MoneyInput ichidagi input — boshqa komponent (scoped uslub yetmaydi). */
 .ai-body :deep(input.ai-num) {
   min-width: 0;
-  height: 2.5rem;
+  height: 2.75rem;
   padding-left: 0.875rem;
-  border-radius: 9999px;
+  border-radius: 0.875rem;
   outline: none;
-  background: var(--background);
+  background: var(--accent);
+  box-shadow: inset 0 0 0 0.5px var(--border);
   font-size: 16px;
 }
 .ai-body :deep(input.ai-big) {
@@ -1519,6 +1623,48 @@ button.ai-voice-ico:active {
 .tg-card.expired {
   opacity: 0.9;
 }
+/* Bir xabarning bir nechta amali — bitta karta ichida qatorlar */
+.tg-group {
+  min-width: min(85%, 22rem);
+}
+.tg-group-head {
+  margin-bottom: 0.125rem;
+  font-weight: 700;
+}
+.tg-group-row {
+  padding: 0.5rem 0;
+  border-top: 1px solid color-mix(in srgb, var(--foreground) 12%, transparent);
+}
+.tg-group-head + .tg-group-row {
+  border-top: 0;
+  padding-top: 0.25rem;
+}
+.tg-group-row.saved,
+.tg-group-row.cancelled,
+.tg-group-row.replaced,
+.tg-group-row.expired {
+  opacity: 0.75;
+}
+.tg-group-acts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+  margin-top: 0.375rem;
+}
+.tg-group-acts.busy {
+  opacity: 0.5;
+  pointer-events: none;
+}
+.tg-chip {
+  padding: 0.3rem 0.7rem;
+  border-radius: 9999px;
+  background: color-mix(in srgb, var(--foreground) 12%, transparent);
+  font-size: 0.8125rem;
+  font-weight: 500;
+}
+.tg-chip:active {
+  background: color-mix(in srgb, var(--foreground) 22%, transparent);
+}
 .tg-transcript {
   margin-top: 0.25rem;
   font-size: 0.875rem;
@@ -1529,6 +1675,10 @@ button.ai-voice-ico:active {
   grid-auto-flow: column;
   grid-auto-columns: 1fr;
   gap: 0.25rem;
+}
+.tg-kb-main {
+  grid-auto-flow: row;
+  grid-template-columns: 2fr 1fr;
 }
 .tg-kb.busy {
   opacity: 0.5;
