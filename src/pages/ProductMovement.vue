@@ -65,12 +65,16 @@ async function load() {
     loading.value = false
   }
 }
-watch(productId, load, { immediate: true })
+// Sahifadan chiqilganda marshrutda `id` qolmaydi (NaN). Bulutda sahifa KeepAlive'da tirik turadi —
+// kuzatuvchilar boshqa bo'limda ham ishlab, "Ma'lumot noto'g'ri (id)" xatosini chiqarardi.
+const onPage = () => Number.isInteger(productId.value) && productId.value > 0
+watch(productId, () => { if (onPage()) load() }, { immediate: true })
 
 // Holat manzilda — orqaga qaytilganda va qayta yuklashda saqlanadi. Komponent mahsulotlar
 // orasida qayta ishlatiladi (bir marshrut), shuning uchun manzil o'zgarsa (orqaga/oldinga)
 // maydonlar ham undan yangilanadi; teng bo'lsa yozilmaydi — sikl yo'q.
 watch(() => route.query, () => {
+  if (!onPage()) return
   if (DAY.test(qs('from')) && qs('from') !== from.value) from.value = qs('from')
   if (DAY.test(qs('to')) && qs('to') !== to.value) to.value = qs('to')
   const d: Dir = qs('dir') === 'in' || qs('dir') === 'out' ? (qs('dir') as Dir) : ''
@@ -80,6 +84,7 @@ watch(() => route.query, () => {
   if ((qs('sort') === 'desc') !== newestFirst.value) newestFirst.value = qs('sort') === 'desc'
 })
 watch([from, to, dir, party, search, newestFirst], () => {
+  if (!onPage()) return // boshqa bo'limning manziliga filtr yozilmasin
   if (from.value && to.value) saveRange(from.value, to.value)
   const q: Record<string, string> = { from: from.value, to: to.value }
   if (dir.value) q.dir = dir.value
